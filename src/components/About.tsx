@@ -2,7 +2,7 @@ export default function About() {
   return (
     <section id="about" className="py-24 px-6 max-w-5xl mx-auto">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
-        <div className="aspect-square bg-gray-50 dark:bg-gray-950 rounded-3xl border border-gray-100 dark:border-gray-900 flex items-center justify-center">
+        <div className="aspect-square w-48 md:w-auto mx-auto md:mx-0 bg-gray-50 dark:bg-gray-950 rounded-3xl border border-gray-100 dark:border-gray-900 flex items-center justify-center">
           <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
             <rect x="18" y="18" width="38" height="38" rx="9" fill="#0071e3" opacity="0.15"/>
             <rect x="64" y="18" width="38" height="38" rx="9" fill="#6e6e73" opacity="0.1"/>
