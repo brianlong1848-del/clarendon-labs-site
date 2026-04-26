@@ -6,28 +6,65 @@ export default function Nav() {
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10)
-    window.addEventListener('scroll', onScroll)
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'bg-white/85 dark:bg-black/85 backdrop-blur-xl border-b border-black/[0.08] dark:border-white/10' : 'bg-transparent'}`}>
-      <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <rect width="22" height="22" rx="6" fill="#0071e3"/>
-            <path d="M6 16L11 6L16 16" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M8 13H14" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-          <span className="text-sm font-semibold tracking-tight">Clarendon Labs</span>
+    <nav
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? 'backdrop-blur-xl bg-bg/75 border-b border-rule'
+          : 'bg-transparent'
+      }`}
+    >
+      <div className="max-w-[1180px] mx-auto px-6 h-16 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2.5 group">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full bg-accent"
+            style={{ boxShadow: '0 0 0 4px rgba(110, 120, 214, 0.18)' }}
+            aria-hidden
+          />
+          <span className="text-[0.95rem] font-bold tracking-tight text-ink">
+            Clarendon Labs
+          </span>
         </Link>
+
         <div className="hidden md:flex items-center gap-8">
-          <Link href="/#apps" className="text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">Apps</Link>
-          <Link href="/#about" className="text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">About</Link>
-          <Link href="/privacy" className="text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">Privacy</Link>
-          <Link href="/support" className="text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">Support</Link>
+          <Link
+            href="/#apps"
+            className="text-[0.85rem] font-medium text-ink-mid hover:text-ink transition-colors"
+          >
+            Apps
+          </Link>
+          <Link
+            href="/#how"
+            className="text-[0.85rem] font-medium text-ink-mid hover:text-ink transition-colors"
+          >
+            How we build
+          </Link>
+          <Link
+            href="/#about"
+            className="text-[0.85rem] font-medium text-ink-mid hover:text-ink transition-colors"
+          >
+            About
+          </Link>
+          <a
+            href="mailto:hello@clarendon.dev"
+            className="text-[0.82rem] font-bold tracking-wide rounded-full px-4 py-2 border border-accent/70 text-accent hover:bg-accent/10 transition-colors"
+          >
+            Get in touch
+          </a>
         </div>
+
+        <a
+          href="mailto:hello@clarendon.dev"
+          className="md:hidden text-[0.78rem] font-bold rounded-full px-3.5 py-1.5 border border-accent/70 text-accent"
+        >
+          Contact
+        </a>
       </div>
     </nav>
   )
