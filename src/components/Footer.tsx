@@ -2,13 +2,48 @@ import Link from 'next/link'
 
 export default function Footer() {
   return (
-    <footer className="border-t border-gray-100 dark:border-gray-900 py-12 px-6 max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-      <p className="text-xs text-gray-400">© 2026 Clarendon Labs LLC · Chicago, IL</p>
-      <div className="flex gap-6 flex-wrap justify-center">
-        <Link href="/privacy" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Privacy Policy</Link>
-        <Link href="/terms" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Terms of Service</Link>
-        <Link href="/support" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Support</Link>
-        <a href="mailto:contact@clarendon.dev" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">contact@clarendon.dev</a>
+    <footer className="relative section-divider px-6 py-12 md:py-14">
+      <div className="max-w-[1180px] mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full bg-accent"
+            style={{ boxShadow: '0 0 0 4px rgba(110, 120, 214, 0.18)' }}
+            aria-hidden
+          />
+          <span className="text-sm font-bold tracking-tight text-ink">
+            Clarendon Labs
+          </span>
+          <span className="text-sm text-ink-dim ml-2">
+            © 2026 Clarendon Labs LLC · Chicago
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+          <a
+            href="mailto:hello@clarendon.dev"
+            className="text-ink-mid hover:text-ink transition-colors"
+          >
+            hello@clarendon.dev
+          </a>
+          <Link
+            href="/privacy"
+            className="text-ink-dim hover:text-ink transition-colors"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/terms"
+            className="text-ink-dim hover:text-ink transition-colors"
+          >
+            Terms
+          </Link>
+          <Link
+            href="/support"
+            className="text-ink-dim hover:text-ink transition-colors"
+          >
+            Support
+          </Link>
+        </div>
       </div>
     </footer>
   )
