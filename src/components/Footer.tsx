@@ -1,49 +1,96 @@
 import Link from 'next/link'
 
+type Col = { heading: string; items: { label: string; href: string; external?: boolean }[] }
+
+const cols: Col[] = [
+  {
+    heading: 'Catalog',
+    items: [
+      { label: 'Rolligan', href: 'https://rolligan.com', external: true },
+      { label: 'Roadmap', href: '/#catalog' },
+      { label: 'Changelog', href: '/#changelog' },
+    ],
+  },
+  {
+    heading: 'Studio',
+    items: [
+      { label: 'About', href: '/about' },
+      { label: 'Manifesto', href: '/#manifesto' },
+      { label: 'Contact', href: 'mailto:hello@clarendon.dev' },
+    ],
+  },
+  {
+    heading: 'Help',
+    items: [
+      { label: 'Support', href: '/support' },
+      { label: 'Privacy', href: '/privacy' },
+      { label: 'Terms', href: '/terms' },
+    ],
+  },
+  {
+    heading: 'Elsewhere',
+    items: [
+      { label: 'App Store', href: 'https://rolligan.com', external: true },
+      { label: 'Email', href: 'mailto:hello@clarendon.dev' },
+    ],
+  },
+]
+
 export default function Footer() {
   return (
-    <footer className="relative section-divider px-6 py-12 md:py-14">
-      <div className="max-w-[1180px] mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="inline-block w-2.5 h-2.5 rounded-full bg-accent"
-            style={{ boxShadow: '0 0 0 4px rgba(110, 120, 214, 0.18)' }}
-            aria-hidden
-          />
-          <span className="text-sm font-bold tracking-tight text-ink">
-            Clarendon Labs
-          </span>
-          <span className="text-sm text-ink-dim ml-2">
-            © 2026 Clarendon Labs LLC · Chicago
-          </span>
+    <footer className="border-t border-line mt-10">
+      <div className="px-8 py-12 grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-8">
+        <div>
+          <div className="flex items-center gap-2.5 mb-3.5">
+            <span
+              className="w-[22px] h-[22px] bg-ink rounded flex items-center justify-center font-semibold text-[13px]"
+              style={{ color: 'var(--accent)' }}
+              aria-hidden
+            >
+              C
+            </span>
+            <span className="text-sm font-medium">clarendon/labs</span>
+          </div>
+          <p className="mono text-[12px] text-mute leading-[1.55] max-w-[280px]">
+            Independent iOS studio.
+            <br />
+            Chicago, IL · est. 2025.
+            <br />
+            Clarendon Labs LLC.
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-          <a
-            href="mailto:hello@clarendon.dev"
-            className="text-ink-mid hover:text-ink transition-colors"
-          >
-            hello@clarendon.dev
-          </a>
-          <Link
-            href="/privacy"
-            className="text-ink-dim hover:text-ink transition-colors"
-          >
-            Privacy
-          </Link>
-          <Link
-            href="/terms"
-            className="text-ink-dim hover:text-ink transition-colors"
-          >
-            Terms
-          </Link>
-          <Link
-            href="/support"
-            className="text-ink-dim hover:text-ink transition-colors"
-          >
-            Support
-          </Link>
-        </div>
+        {cols.map((col) => (
+          <div key={col.heading}>
+            <div className="micro mb-3.5">{col.heading}</div>
+            <ul className="flex flex-col gap-2">
+              {col.items.map((i) =>
+                i.external ? (
+                  <li key={i.label}>
+                    <a
+                      href={i.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="nav-link"
+                    >
+                      {i.label}
+                    </a>
+                  </li>
+                ) : (
+                  <li key={i.label}>
+                    <Link href={i.href} className="nav-link">
+                      {i.label}
+                    </Link>
+                  </li>
+                )
+              )}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-line px-8 py-3.5 flex flex-col md:flex-row gap-2 md:gap-0 justify-between">
+        <span className="micro">© 2026 CLARENDON LABS LLC · ALL RIGHTS RESERVED</span>
+        <span className="micro">BUILT IN CHICAGO · DEPLOYED FROM A LAPTOP</span>
       </div>
     </footer>
   )

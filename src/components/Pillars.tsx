@@ -1,68 +1,47 @@
-const steps = [
-  {
-    n: '01',
-    title: 'Find friction',
-    body: 'We hunt for the unglamorous problems people have already accepted as normal — the parts of daily life that deserve better software.',
-  },
-  {
-    n: '02',
-    title: 'Build it tight',
-    body: 'One job per app. No subscriptions for basic features, no upsells in your face, no half-finished modes left around to rot.',
-  },
-  {
-    n: '03',
-    title: 'Ship it private',
-    body: 'Your data stays on your device unless it absolutely has to leave. We are not in the surveillance business and we never will be.',
-  },
+type Principle = [string, string, string]
+
+const principles: Principle[] = [
+  ['01', 'One job per app', 'We don’t bolt features onto things. Each app is good at exactly one thing.'],
+  ['02', 'No subscriptions', 'Pay once. Or nothing. Never a tax on basic features.'],
+  ['03', 'No data harvesting', 'Your stuff stays on your device unless something specific requires otherwise.'],
+  ['04', 'No engagement tricks', 'Notifications are rare and useful. We don’t want you here longer than you need.'],
+  ['05', 'Native first', 'Built in Swift, for the platform. No web shells.'],
+  ['06', 'Slow by design', 'We ship one app at a time, when it’s ready, not on a quarter.'],
+  ['07', 'Honest copy', 'We write like a person. We don’t use the word “powerful.”'],
+  ['08', 'Replies from the founder', 'Email goes to a person. The person writes back.'],
 ]
 
 export default function Pillars() {
   return (
     <section
-      id="how"
-      className="relative section-divider py-24 md:py-32 px-6"
+      id="manifesto"
+      className="px-8 py-12 lg:py-14 border-t border-b border-line"
     >
-      <div className="ambient-glow-soft" aria-hidden />
-
-      <div className="max-w-[1180px] mx-auto relative">
-        <p className="tracker mb-6">02 — How we build</p>
-        <h2 className="font-display font-black text-ink leading-[1.02] tracking-[-0.005em] text-[2.5rem] sm:text-[3.25rem] md:text-[4rem] mb-5 uppercase max-w-[18ch]">
-          Small studio.<br />High standards.
-        </h2>
-        <p className="text-ink-mid text-lg leading-relaxed max-w-[52ch] mb-14">
-          A few principles we hold ourselves to. They are also the reason we
-          ship slowly and on purpose.
-        </p>
-
-        <ol className="list-none p-0 m-0 grid grid-cols-1 md:grid-cols-3 gap-5">
-          {steps.map((step) => (
-            <li
-              key={step.n}
-              className="relative rounded-[18px] border border-rule bg-white/[0.03] hover:bg-white/[0.05] hover:border-rule-strong transition-colors p-7 pb-9 overflow-hidden"
+      <span className="micro">{"// "}02 — Operating principles</span>
+      <h2 className="text-[40px] mt-2 mb-8">How we work, in eight lines.</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border border-line rounded-lg overflow-hidden">
+        {principles.map(([n, t, d], i) => (
+          <div
+            key={n}
+            className="p-6 border-line"
+            style={{
+              borderRightWidth: i % 4 !== 3 ? 1 : 0,
+              borderBottomWidth: i < 4 ? 1 : 0,
+            }}
+          >
+            <span
+              className="mono text-[12px] px-1.5 py-0.5 rounded"
+              style={{
+                color: 'var(--accent-ink)',
+                background: 'var(--accent)',
+              }}
             >
-              <div
-                className="absolute -top-16 -right-16 w-44 h-44 rounded-full pointer-events-none"
-                style={{
-                  background:
-                    'radial-gradient(circle, rgba(110, 120, 214, 0.18), transparent 65%)',
-                }}
-                aria-hidden
-              />
-
-              <div className="relative">
-                <span className="block font-display font-black text-accent leading-[0.9] tracking-[-0.02em] text-[3.5rem] md:text-[4.5rem] mb-2">
-                  {step.n}
-                </span>
-                <strong className="block text-ink text-[1.15rem] font-bold tracking-tight mb-2">
-                  {step.title}
-                </strong>
-                <p className="text-ink-mid text-[0.95rem] leading-relaxed">
-                  {step.body}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ol>
+              §{n}
+            </span>
+            <h3 className="text-[18px] font-medium mt-3.5 mb-2">{t}</h3>
+            <p className="text-[13px] text-mute leading-[1.55]">{d}</p>
+          </div>
+        ))}
       </div>
     </section>
   )

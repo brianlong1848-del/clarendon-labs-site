@@ -1,28 +1,23 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800', '900'],
-  variable: '--font-inter',
-})
-
 export const metadata: Metadata = {
-  title: 'Clarendon Labs — An independent app studio',
+  title: 'Clarendon Labs — An independent iOS studio',
   description:
-    'Chicago-based independent app studio. We make games, home tools, and everyday utilities — one well-made app at a time.',
+    'Clarendon Labs is an independent iOS studio in Chicago. We build a short list of useful apps — games, home tools, and daily utilities — one well-made app at a time.',
   metadataBase: new URL('https://clarendon.dev'),
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0B0B0F',
+  themeColor: '#fafaf7',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`dark ${inter.variable}`}>
-      <body className={`${inter.className} bg-bg text-ink`}>{children}</body>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="bg-bg text-ink antialiased">{children}</body>
     </html>
   )
 }

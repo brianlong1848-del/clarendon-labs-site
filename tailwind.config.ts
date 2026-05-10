@@ -1,7 +1,6 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: "class",
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -11,26 +10,21 @@ const config: Config = {
     extend: {
       colors: {
         bg: "rgb(var(--bg) / <alpha-value>)",
-        "bg-panel": "rgb(var(--bg-panel) / <alpha-value>)",
-        "bg-deep": "rgb(var(--bg-deep) / <alpha-value>)",
-        ink: "rgb(var(--text) / <alpha-value>)",
-        "ink-mid": "rgb(var(--text) / 0.72)",
-        "ink-dim": "rgb(var(--text) / 0.5)",
-        accent: "rgb(var(--accent) / <alpha-value>)",
-        rule: "rgb(var(--text) / 0.08)",
-        "rule-strong": "rgb(var(--text) / 0.16)",
+        "bg-2": "rgb(var(--bg-2) / <alpha-value>)",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        "ink-2": "rgb(var(--ink-2) / <alpha-value>)",
+        mute: "rgb(var(--mute) / <alpha-value>)",
+        line: "rgb(var(--line) / <alpha-value>)",
+        "line-2": "rgb(var(--line-2) / <alpha-value>)",
+        accent: "var(--accent)",
+        "accent-ink": "var(--accent-ink)",
+        "accent-text": "var(--accent-text)",
         background: "rgb(var(--bg) / <alpha-value>)",
-        foreground: "rgb(var(--text) / <alpha-value>)",
+        foreground: "rgb(var(--ink) / <alpha-value>)",
       },
       fontFamily: {
-        display: [
-          "Impact",
-          "Arial Black",
-          "Helvetica Neue Condensed Bold",
-          "Helvetica Neue",
-          "system-ui",
-          "sans-serif",
-        ],
+        sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "JetBrains Mono", "monospace"],
       },
     },
   },
