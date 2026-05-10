@@ -1,7 +1,6 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: "class",
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -11,26 +10,36 @@ const config: Config = {
     extend: {
       colors: {
         bg: "rgb(var(--bg) / <alpha-value>)",
-        "bg-panel": "rgb(var(--bg-panel) / <alpha-value>)",
-        "bg-deep": "rgb(var(--bg-deep) / <alpha-value>)",
-        ink: "rgb(var(--text) / <alpha-value>)",
-        "ink-mid": "rgb(var(--text) / 0.72)",
-        "ink-dim": "rgb(var(--text) / 0.5)",
+        "bg-2": "rgb(var(--bg-2) / <alpha-value>)",
+        "bg-3": "rgb(var(--bg-3) / <alpha-value>)",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        "ink-2": "rgb(var(--ink-2) / <alpha-value>)",
+        "ink-3": "rgb(var(--ink-3) / <alpha-value>)",
+        line: "rgb(var(--line) / <alpha-value>)",
+        "line-soft": "rgb(var(--line-soft) / <alpha-value>)",
+        dark: "rgb(var(--dark) / <alpha-value>)",
+        "on-dark": "rgb(var(--on-dark) / <alpha-value>)",
         accent: "rgb(var(--accent) / <alpha-value>)",
-        rule: "rgb(var(--text) / 0.08)",
-        "rule-strong": "rgb(var(--text) / 0.16)",
+        "accent-hover": "rgb(var(--accent-hover) / <alpha-value>)",
+        "accent-soft": "rgb(var(--accent-soft) / <alpha-value>)",
+        "accent-on-dark": "rgb(var(--accent-on-dark) / <alpha-value>)",
         background: "rgb(var(--bg) / <alpha-value>)",
-        foreground: "rgb(var(--text) / <alpha-value>)",
+        foreground: "rgb(var(--ink) / <alpha-value>)",
       },
       fontFamily: {
-        display: [
-          "Impact",
-          "Arial Black",
-          "Helvetica Neue Condensed Bold",
-          "Helvetica Neue",
-          "system-ui",
+        sans: [
+          "SF Pro Display",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Inter",
+          "Segoe UI",
           "sans-serif",
         ],
+        mono: ["SF Mono", "ui-monospace", "JetBrains Mono", "monospace"],
+      },
+      maxWidth: {
+        narrow: "1024px",
+        wide: "1440px",
       },
     },
   },

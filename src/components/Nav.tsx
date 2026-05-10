@@ -1,71 +1,80 @@
-'use client'
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import Mark from './Mark'
 
-export default function Nav() {
-  const [scrolled, setScrolled] = useState(false)
+export type NavActive =
+  | 'Apps'
+  | 'Rolligan'
+  | 'Cruise Mate'
+  | 'Secret Santa'
+  | 'About'
+  | 'Support'
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+type Item =
+  | { label: NavActive; href: string; external?: false }
+  | { label: NavActive; href: string; external: true }
 
+const items: Item[] = [
+  { label: 'Apps', href: '/#catalog' },
+  { label: 'Rolligan', href: 'https://rolligan.com', external: true },
+  { label: 'Cruise Mate', href: '/#catalog' },
+  { label: 'Secret Santa', href: '/#catalog' },
+  { label: 'About', href: '/about' },
+  { label: 'Support', href: '/support' },
+]
+
+export default function Nav({ active }: { active?: NavActive }) {
   return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? 'backdrop-blur-xl bg-bg/75 border-b border-rule'
-          : 'bg-transparent'
-      }`}
+    <header
+      className="sticky top-0 z-40 border-b"
+      style={{
+        background: 'rgb(251 251 253 / 0.8)',
+        backdropFilter: 'saturate(180%) blur(20px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+        borderColor: 'rgb(0 0 0 / 0.05)',
+      }}
     >
-      <div className="max-w-[1180px] mx-auto px-6 h-16 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <span
-            className="inline-block w-2.5 h-2.5 rounded-full bg-accent"
-            style={{ boxShadow: '0 0 0 4px rgba(110, 120, 214, 0.18)' }}
-            aria-hidden
-          />
-          <span className="text-[0.95rem] font-bold tracking-tight text-ink">
-            Clarendon Labs
-          </span>
+      <nav className="container-narrow h-11 flex items-center justify-between">
+        <Link
+          href="/"
+          aria-label="Clarendon Labs home"
+          className="flex items-center gap-1.5 text-ink"
+        >
+          <Mark size={18} />
         </Link>
 
-        <div className="hidden md:flex items-center gap-8">
-          <Link
-            href="/#apps"
-            className="text-[0.85rem] font-medium text-ink-mid hover:text-ink transition-colors"
-          >
-            Apps
-          </Link>
-          <Link
-            href="/#how"
-            className="text-[0.85rem] font-medium text-ink-mid hover:text-ink transition-colors"
-          >
-            How we build
-          </Link>
-          <Link
-            href="/#about"
-            className="text-[0.85rem] font-medium text-ink-mid hover:text-ink transition-colors"
-          >
-            About
-          </Link>
-          <a
-            href="mailto:hello@clarendon.dev"
-            className="text-[0.82rem] font-bold tracking-wide rounded-full px-4 py-2 border border-accent/70 text-accent hover:bg-accent/10 transition-colors"
-          >
-            Get in touch
-          </a>
+        <div className="hidden md:flex">
+          {items.map((it) => {
+            const cls = `text-[12px] px-2.5 h-11 inline-flex items-center transition-opacity ${
+              active === it.label
+                ? 'text-ink opacity-100'
+                : 'text-ink-2 opacity-[0.88] hover:opacity-100'
+            }`
+            return it.external ? (
+              <a
+                key={it.label}
+                href={it.href}
+                target="_blank"
+                rel="noreferrer"
+                className={cls}
+              >
+                {it.label}
+              </a>
+            ) : (
+              <Link key={it.label} href={it.href} className={cls}>
+                {it.label}
+              </Link>
+            )
+          })}
         </div>
 
         <a
           href="mailto:hello@clarendon.dev"
-          className="md:hidden text-[0.78rem] font-bold rounded-full px-3.5 py-1.5 border border-accent/70 text-accent"
+          className="text-[12px] text-ink-2 px-2.5 h-11 inline-flex items-center hover:text-ink transition-colors"
+          aria-label="Contact"
         >
           Contact
         </a>
-      </div>
-    </nav>
+      </nav>
+    </header>
   )
 }
