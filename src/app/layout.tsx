@@ -1,22 +1,23 @@
 import type { Metadata, Viewport } from 'next'
-import { GeistSans } from 'geist/font/sans'
-import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Clarendon Labs — An independent iOS studio',
   description:
-    'Clarendon Labs is an independent iOS studio in Chicago. We build a short list of useful apps — games, home tools, and daily utilities — one well-made app at a time.',
+    'Clarendon Labs is a small iOS studio in Chicago building two kinds of software: games you play with friends, and lifestyle tools you keep on your home screen.',
   metadataBase: new URL('https://clarendon.dev'),
+  icons: {
+    icon: '/favicon.svg',
+  },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#fafaf7',
+  themeColor: '#ffffff',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+    <html lang="en">
       <body className="bg-bg text-ink antialiased">{children}</body>
     </html>
   )

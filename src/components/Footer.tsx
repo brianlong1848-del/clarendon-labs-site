@@ -1,96 +1,123 @@
 import Link from 'next/link'
 
-type Col = { heading: string; items: { label: string; href: string; external?: boolean }[] }
+type Item = { label: string; href: string; external?: boolean }
+type Col = { heading: string; items: Item[] }
 
 const cols: Col[] = [
   {
-    heading: 'Catalog',
+    heading: 'Apps',
     items: [
       { label: 'Rolligan', href: 'https://rolligan.com', external: true },
-      { label: 'Roadmap', href: '/#catalog' },
-      { label: 'Changelog', href: '/#changelog' },
+      { label: 'Cruise Mate', href: '/#catalog' },
+      { label: 'Secret Santa', href: '/#catalog' },
+      { label: 'Catalog', href: '/#catalog' },
     ],
   },
   {
-    heading: 'Studio',
+    heading: 'Clarendon',
     items: [
       { label: 'About', href: '/about' },
-      { label: 'Manifesto', href: '/#manifesto' },
+      { label: 'Newsroom', href: '/#changelog' },
       { label: 'Contact', href: 'mailto:hello@clarendon.dev' },
     ],
   },
   {
-    heading: 'Help',
+    heading: 'Stay in touch',
     items: [
-      { label: 'Support', href: '/support' },
-      { label: 'Privacy', href: '/privacy' },
-      { label: 'Terms', href: '/terms' },
+      { label: 'Email the studio', href: 'mailto:hello@clarendon.dev' },
+      { label: 'Newsletter', href: 'mailto:hello@clarendon.dev?subject=Newsletter' },
     ],
   },
   {
-    heading: 'Elsewhere',
+    heading: 'For developers',
+    items: [{ label: 'Built with Next.js', href: 'https://nextjs.org', external: true }],
+  },
+  {
+    heading: 'About Clarendon',
     items: [
-      { label: 'App Store', href: 'https://rolligan.com', external: true },
-      { label: 'Email', href: 'mailto:hello@clarendon.dev' },
+      { label: 'Privacy', href: '/privacy' },
+      { label: 'Terms', href: '/terms' },
+      { label: 'Support', href: '/support' },
     ],
   },
 ]
 
+function Col({ col }: { col: Col }) {
+  return (
+    <div>
+      <div className="text-ink text-[12px] font-semibold mb-2.5">{col.heading}</div>
+      <ul className="flex flex-col gap-2">
+        {col.items.map((i) => (
+          <li key={i.label}>
+            {i.external ? (
+              <a
+                href={i.href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-ink-3 hover:underline"
+              >
+                {i.label}
+              </a>
+            ) : (
+              <Link href={i.href} className="text-ink-3 hover:underline">
+                {i.label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export default function Footer() {
   return (
-    <footer className="border-t border-line mt-10">
-      <div className="px-8 py-12 grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-8">
-        <div>
-          <div className="flex items-center gap-2.5 mb-3.5">
-            <span
-              className="w-[22px] h-[22px] bg-ink rounded flex items-center justify-center font-semibold text-[13px]"
-              style={{ color: 'var(--accent)' }}
-              aria-hidden
-            >
-              C
-            </span>
-            <span className="text-sm font-medium">clarendon/labs</span>
-          </div>
-          <p className="mono text-[12px] text-mute leading-[1.55] max-w-[280px]">
-            Independent iOS studio.
-            <br />
-            Chicago, IL · est. 2025.
-            <br />
-            Clarendon Labs LLC.
-          </p>
-        </div>
+    <footer
+      className="border-t"
+      style={{
+        background: 'rgb(var(--bg-3))',
+        color: 'rgb(var(--ink-3))',
+        borderColor: 'rgb(var(--line-soft))',
+        fontSize: 12,
+        lineHeight: 1.33,
+      }}
+    >
+      <div className="container-narrow pt-6">
+        <p
+          className="pb-[18px] max-w-[760px]"
+          style={{ borderBottom: '1px solid rgb(var(--line-soft))' }}
+        >
+          A note on availability: Rolligan is shipping on the App Store. Apps
+          described as &ldquo;in development&rdquo; or &ldquo;coming&rdquo; do
+          not yet have firm release dates and may change.
+        </p>
+      </div>
 
-        {cols.map((col) => (
-          <div key={col.heading}>
-            <div className="micro mb-3.5">{col.heading}</div>
-            <ul className="flex flex-col gap-2">
-              {col.items.map((i) =>
-                i.external ? (
-                  <li key={i.label}>
-                    <a
-                      href={i.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="nav-link"
-                    >
-                      {i.label}
-                    </a>
-                  </li>
-                ) : (
-                  <li key={i.label}>
-                    <Link href={i.href} className="nav-link">
-                      {i.label}
-                    </Link>
-                  </li>
-                )
-              )}
-            </ul>
-          </div>
+      <div className="container-narrow py-6 grid grid-cols-2 md:grid-cols-5 gap-8">
+        {cols.map((c) => (
+          <Col key={c.heading} col={c} />
         ))}
       </div>
-      <div className="border-t border-line px-8 py-3.5 flex flex-col md:flex-row gap-2 md:gap-0 justify-between">
-        <span className="micro">© 2026 CLARENDON LABS LLC · ALL RIGHTS RESERVED</span>
-        <span className="micro">BUILT IN CHICAGO · DEPLOYED FROM A LAPTOP</span>
+
+      <div
+        className="container-narrow py-3.5 flex flex-wrap justify-between gap-3"
+        style={{ borderTop: '1px solid rgb(var(--line-soft))' }}
+      >
+        <span>Copyright © 2026 Clarendon Labs LLC. All rights reserved.</span>
+        <span className="flex gap-3.5">
+          <Link href="/privacy" className="text-ink-3">
+            Privacy
+          </Link>
+          <span className="text-line">|</span>
+          <Link href="/terms" className="text-ink-3">
+            Terms
+          </Link>
+          <span className="text-line">|</span>
+          <Link href="/support" className="text-ink-3">
+            Support
+          </Link>
+        </span>
+        <span>Chicago, IL · United States</span>
       </div>
     </footer>
   )

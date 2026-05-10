@@ -1,96 +1,107 @@
 import Nav from '@/components/Nav'
-import StatusBar from '@/components/StatusBar'
+import Ribbon from '@/components/Ribbon'
 import Footer from '@/components/Footer'
 
 export const metadata = {
   title: 'About — Clarendon Labs',
   description:
-    'Clarendon Labs is a single-person iOS studio in Chicago, founded by Brian Long.',
+    'Clarendon Labs is an independent iOS studio in Chicago, founded by Brian Long.',
 }
+
+const stats: [string, string, string][] = [
+  ['2025', 'Year founded', 'Registered as Clarendon Labs LLC, State of Illinois.'],
+  ['Chicago, IL', 'Headquarters', 'Uptown neighborhood. Mostly remote.'],
+  ['01', 'Headcount', 'One engineer. Hello.'],
+]
 
 export default function About() {
   return (
     <main>
-      <StatusBar />
+      <Ribbon />
       <Nav active="About" />
 
-      <section className="px-8 pt-14 pb-8 border-b border-line">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-14 items-start">
-          <div>
-            <span className="micro">{"// "}the studio</span>
-            <h1 className="text-[3rem] sm:text-[4rem] mt-3 mb-5 leading-[1]">
-              One person.
-              <br />
-              One workbench.
-            </h1>
-            <p className="text-[17px] leading-[1.6] text-ink-2 mb-6">
-              Clarendon Labs is a single-person iOS studio in Chicago, founded
-              by Brian Long. The benefit is that every line of code is written
-              by someone who&apos;s also going to answer your support email.
-              The drawback is that we ship slowly. We have decided this is the
-              right trade.
-            </p>
-            <div className="flex gap-2.5 flex-wrap">
-              <a href="mailto:hello@clarendon.dev" className="btn btn-primary">
-                Email the founder
-              </a>
-              <a
-                href="https://rolligan.com"
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-ghost"
-              >
-                See what we ship
-              </a>
-            </div>
-          </div>
+      <section className="bg-bg px-6 pt-24 pb-16 text-center">
+        <div className="eyebrow mb-2">About Clarendon</div>
+        <h1
+          className="display max-w-[880px] mx-auto mb-4"
+          style={{ fontSize: 'clamp(40px, 7vw, 72px)' }}
+        >
+          Software made the way
+          <br />
+          we&apos;d want to use it.
+        </h1>
+        <p className="lede max-w-[720px] mx-auto text-ink-2">
+          Clarendon Labs is an independent iOS studio in Chicago, founded by
+          Brian Long. One person designs, builds, and supports every product.
+          The benefit: nothing ships unless one person is proud of it.
+        </p>
+      </section>
 
-          <div className="card overflow-hidden">
-            <div className="placeholder aspect-[4/3]">
-              <span className="ph-label">FOUNDER · BRIAN LONG · 4:3 PHOTO</span>
+      <section className="bg-bg-2 px-6 py-16">
+        <div className="container-narrow grid grid-cols-1 md:grid-cols-3 gap-3">
+          {stats.map(([v, k, d]) => (
+            <div key={k} className="bg-bg p-8 rounded-[18px]">
+              <div className="eyebrow">{k}</div>
+              <div
+                className="font-semibold my-2.5"
+                style={{ fontSize: 56, letterSpacing: '-0.035em' }}
+              >
+                {v}
+              </div>
+              <p className="text-[15px] text-ink-2">{d}</p>
             </div>
-            <div className="p-5 border-t border-line grid grid-cols-3 gap-4">
-              <div>
-                <div className="micro">FOUNDED</div>
-                <div className="mono text-[18px] mt-1">2025</div>
-              </div>
-              <div>
-                <div className="micro">HEADCOUNT</div>
-                <div className="mono text-[18px] mt-1">01</div>
-              </div>
-              <div>
-                <div className="micro">TIMEZONE</div>
-                <div className="mono text-[18px] mt-1">UTC−6</div>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
-      <section className="px-8 py-14">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+      <section className="bg-bg px-6 py-24">
+        <div className="container-narrow grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16">
           <div>
-            <span className="micro">{"// "}origin</span>
-            <h2 className="text-[28px] mt-2 mb-4">Why “Clarendon”.</h2>
-            <p className="text-[15px] text-mute leading-[1.65]">
+            <div className="eyebrow mb-2">Origin</div>
+            <h2
+              className="mb-4"
+              style={{ fontSize: 36, letterSpacing: '-0.025em' }}
+            >
+              Why &ldquo;Clarendon&rdquo;.
+            </h2>
+            <p className="text-[18px] text-ink-2 leading-[1.55]">
               The name comes from a street in Chicago&apos;s Uptown
-              neighborhood. It&apos;s practical, unpretentious, and has been
-              there for a hundred years. The studio aims for the same:
-              utilitarian work, made well, that earns its place. Naming a
-              software business after a street felt more honest than another
-              portmanteau.
+              neighborhood — practical, unpretentious, hundred-plus years old.
+              The studio aims for the same: utilitarian work, made well, that
+              earns its place over time. Naming a company after a street felt
+              more honest than another portmanteau.
             </p>
           </div>
           <div>
-            <span className="micro">{"// "}thesis</span>
-            <h2 className="text-[28px] mt-2 mb-4">Why a small studio.</h2>
-            <p className="text-[15px] text-mute leading-[1.65]">
-              Most great software is made by small, opinionated teams who
+            <div className="eyebrow mb-2">Thesis</div>
+            <h2
+              className="mb-4"
+              style={{ fontSize: 36, letterSpacing: '-0.025em' }}
+            >
+              Why a small company.
+            </h2>
+            <p className="text-[18px] text-ink-2 leading-[1.55]">
+              Most great software is made by small, opinionated teams that
               answer to themselves. We&apos;re trying to be one of those. No
               outside investors, no roadmap pressure, no growth team. Apps go
               out the door when they&apos;re finished — not on a quarter.
             </p>
           </div>
+        </div>
+      </section>
+
+      <section className="bg-bg-2 px-6 py-20 md:py-24">
+        <div className="container-narrow text-center">
+          <div className="eyebrow text-[19px] mb-2">Get in touch</div>
+          <h2 className="headline mb-6">
+            Email goes to a person. The person writes back.
+          </h2>
+          <p className="text-[19px] text-ink-2 max-w-[560px] mx-auto mb-6">
+            For press, partnerships, or to say hi: hello@clarendon.dev
+          </p>
+          <a href="mailto:hello@clarendon.dev" className="btn-pill btn-fill">
+            Email the studio
+          </a>
         </div>
       </section>
 

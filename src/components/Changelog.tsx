@@ -1,51 +1,65 @@
-type Entry = [string, string, string, 'feat' | 'docs' | 'init' | 'fix']
+import Reveal from './Reveal'
 
-const entries: Entry[] = [
-  ['MAY 08', 'Rolligan', 'Added haptic feedback for bust events.', 'feat'],
-  ['MAY 02', 'Rolligan', 'New theme: “Linoleum” inspired by 70s diners.', 'feat'],
-  ['APR 24', 'site', 'Rewrote the manifesto, eighth time.', 'docs'],
-  ['APR 18', 'LOG', 'Started concept work. Notebook open.', 'init'],
+const entries: [string, string, string][] = [
+  [
+    'May 4, 2026',
+    'Rolligan ships',
+    'Live on the App Store. Pass-and-play, 2 to 8, no accounts, no subscriptions.',
+  ],
+  [
+    'Apr 18, 2026',
+    'Cruise Mate enters development',
+    'Concept work locked. Targeting an open beta later this year.',
+  ],
+  [
+    'Apr 1, 2026',
+    'Secret Santa scoped',
+    'Anonymous gift exchange organizer. Aiming for the December gifting season.',
+  ],
 ]
 
 export default function Changelog() {
   return (
-    <section id="changelog" className="px-8 py-14">
-      <div className="flex items-baseline justify-between mb-6 flex-wrap gap-2">
+    <Reveal id="changelog" className="bg-bg-2 px-6 py-20">
+      <div className="container-narrow grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-10 md:gap-14 items-start">
         <div>
-          <span className="micro">{"// "}03 — Build log</span>
-          <h2 className="text-[32px] mt-2">Recent commits to the catalog.</h2>
-        </div>
-        <a
-          href="mailto:hello@clarendon.dev?subject=Subscribe%20to%20updates"
-          className="nav-link"
-        >
-          Subscribe to updates <span className="ascii">→</span>
-        </a>
-      </div>
-      <div className="card">
-        {entries.map(([d, scope, msg, type], i, arr) => (
-          <div
-            key={i}
-            className="grid grid-cols-[90px_80px_80px_1fr] px-5 py-3.5 items-center gap-4"
-            style={{
-              borderBottom:
-                i < arr.length - 1 ? '1px solid rgb(var(--line))' : 'none',
-            }}
+          <div className="eyebrow mb-2">The Newsroom</div>
+          <h2 className="headline" style={{ fontSize: 'clamp(28px, 4vw, 44px)' }}>
+            Build notes from the workshop.
+          </h2>
+          <a
+            href="mailto:hello@clarendon.dev?subject=Subscribe"
+            className="link inline-flex mt-5"
           >
-            <span className="mono text-[12px] text-mute">{d}</span>
-            <span className="chip text-[10.5px]">{scope}</span>
-            <span
-              className="mono text-[11px]"
+            Subscribe to updates ›
+          </a>
+        </div>
+        <div className="flex flex-col">
+          {entries.map(([d, t, body], i, arr) => (
+            <div
+              key={t}
+              className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-3 md:gap-8 py-6"
               style={{
-                color: type === 'feat' ? 'var(--accent-text)' : 'rgb(var(--mute))',
+                borderBottom:
+                  i < arr.length - 1
+                    ? '1px solid rgb(var(--line-soft))'
+                    : 'none',
               }}
             >
-              {type}:
-            </span>
-            <span className="text-[14px]">{msg}</span>
-          </div>
-        ))}
+              <span className="text-[14px] text-ink-3">{d}</span>
+              <div>
+                <div
+                  className="font-semibold mb-1"
+                  style={{ fontSize: 21, letterSpacing: '-0.013em' }}
+                >
+                  {t}
+                </div>
+                <p className="text-[15px] text-ink-2 leading-[1.5]">{body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-    </section>
+    </Reveal>
   )
 }

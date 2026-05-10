@@ -1,5 +1,5 @@
 import Nav from '@/components/Nav'
-import StatusBar from '@/components/StatusBar'
+import Ribbon from '@/components/Ribbon'
 import Footer from '@/components/Footer'
 
 export const metadata = {
@@ -9,26 +9,26 @@ export const metadata = {
 export default function Privacy() {
   return (
     <main>
-      <StatusBar />
+      <Ribbon />
       <Nav />
 
-      <section className="px-8 py-14 border-b border-line">
-        <span className="micro">{"// "}privacy policy</span>
-        <h1 className="text-[2.75rem] sm:text-[3.25rem] mt-3 mb-3">
+      <section className="bg-bg px-6 pt-24 pb-12 text-center">
+        <div className="eyebrow mb-2">Legal</div>
+        <h1 className="display mb-3" style={{ fontSize: 'clamp(40px, 6vw, 72px)' }}>
           Privacy Policy
         </h1>
-        <p className="mono text-[12px] text-mute">LAST UPDATED · APRIL 18, 2026</p>
+        <p className="text-[14px] text-ink-3">Last updated · April 18, 2026</p>
       </section>
 
-      <section className="px-8 py-12">
-        <div className="max-w-[720px] workbench-prose">
+      <section className="bg-bg px-6 pb-24">
+        <div className="container-narrow max-w-[760px] workbench-prose">
           <h2>Overview</h2>
           <p>
-            Clarendon Labs LLC (“we,” “us,” or “our”) operates the
-            clarendon.dev website and publishes apps on the Apple App Store.
-            This Privacy Policy explains how we handle your information. The
-            short version: we collect as little as possible and never sell your
-            data.
+            Clarendon Labs LLC (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or
+            &ldquo;our&rdquo;) operates the clarendon.dev website and publishes
+            apps on the Apple App Store. This Privacy Policy explains how we
+            handle your information. The short version: we collect as little
+            as possible and never sell your data.
           </p>
 
           <h2>Information we collect</h2>
@@ -74,7 +74,7 @@ export default function Privacy() {
             <a href="mailto:hello@clarendon.dev">hello@clarendon.dev</a> or
             write to:
           </p>
-          <address className="not-italic mono text-[13px] text-mute mt-2">
+          <address className="not-italic mono text-[15px] text-ink-2 mt-2">
             Clarendon Labs LLC
             <br />
             4016 N Clarendon Ave, Unit 4N

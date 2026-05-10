@@ -1,62 +1,80 @@
 import Link from 'next/link'
+import Mark from './Mark'
 
-type NavProps = { active?: 'Apps' | 'Rolligan' | 'Changelog' | 'About' | 'Support' }
+export type NavActive =
+  | 'Apps'
+  | 'Rolligan'
+  | 'Cruise Mate'
+  | 'Secret Santa'
+  | 'About'
+  | 'Support'
 
-const links: { label: NavProps['active']; href: string; external?: boolean }[] = [
+type Item =
+  | { label: NavActive; href: string; external?: false }
+  | { label: NavActive; href: string; external: true }
+
+const items: Item[] = [
   { label: 'Apps', href: '/#catalog' },
   { label: 'Rolligan', href: 'https://rolligan.com', external: true },
-  { label: 'Changelog', href: '/#changelog' },
+  { label: 'Cruise Mate', href: '/#catalog' },
+  { label: 'Secret Santa', href: '/#catalog' },
   { label: 'About', href: '/about' },
   { label: 'Support', href: '/support' },
 ]
 
-export default function Nav({ active }: NavProps) {
+export default function Nav({ active }: { active?: NavActive }) {
   return (
-    <header className="border-b border-line bg-bg px-8 py-3.5 flex items-center justify-between">
-      <Link href="/" className="flex items-center gap-3">
-        <span
-          className="w-[22px] h-[22px] bg-ink rounded flex items-center justify-center font-semibold text-[13px]"
-          style={{ color: 'var(--accent)' }}
-          aria-hidden
+    <header
+      className="sticky top-0 z-40 border-b"
+      style={{
+        background: 'rgb(251 251 253 / 0.8)',
+        backdropFilter: 'saturate(180%) blur(20px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+        borderColor: 'rgb(0 0 0 / 0.05)',
+      }}
+    >
+      <nav className="container-narrow h-11 flex items-center justify-between">
+        <Link
+          href="/"
+          aria-label="Clarendon Labs home"
+          className="flex items-center gap-1.5 text-ink"
         >
-          C
-        </span>
-        <span className="text-sm font-medium text-ink">clarendon</span>
-        <span className="mono text-mute text-[13px]">/labs</span>
-      </Link>
+          <Mark size={18} />
+        </Link>
 
-      <nav className="hidden md:flex gap-7">
-        {links.map((l) =>
-          l.external ? (
-            <a
-              key={l.label}
-              href={l.href}
-              target="_blank"
-              rel="noreferrer"
-              className={`nav-link${active === l.label ? ' active' : ''}`}
-            >
-              {l.label}
-            </a>
-          ) : (
-            <Link
-              key={l.label}
-              href={l.href}
-              className={`nav-link${active === l.label ? ' active' : ''}`}
-            >
-              {l.label}
-            </Link>
-          )
-        )}
-      </nav>
+        <div className="hidden md:flex">
+          {items.map((it) => {
+            const cls = `text-[12px] px-2.5 h-11 inline-flex items-center transition-opacity ${
+              active === it.label
+                ? 'text-ink opacity-100'
+                : 'text-ink-2 opacity-[0.88] hover:opacity-100'
+            }`
+            return it.external ? (
+              <a
+                key={it.label}
+                href={it.href}
+                target="_blank"
+                rel="noreferrer"
+                className={cls}
+              >
+                {it.label}
+              </a>
+            ) : (
+              <Link key={it.label} href={it.href} className={cls}>
+                {it.label}
+              </Link>
+            )
+          })}
+        </div>
 
-      <div className="flex items-center gap-2.5">
-        <span className="chip hidden sm:inline-flex">
-          <span className="dot" /> v2026.05 · spring
-        </span>
-        <a href="mailto:hello@clarendon.dev" className="btn btn-primary">
-          Get in touch <span className="ascii">→</span>
+        <a
+          href="mailto:hello@clarendon.dev"
+          className="text-[12px] text-ink-2 px-2.5 h-11 inline-flex items-center hover:text-ink transition-colors"
+          aria-label="Contact"
+        >
+          Contact
         </a>
-      </div>
+      </nav>
     </header>
   )
 }

@@ -1,5 +1,5 @@
 import Nav from '@/components/Nav'
-import StatusBar from '@/components/StatusBar'
+import Ribbon from '@/components/Ribbon'
 import Footer from '@/components/Footer'
 
 export const metadata = {
@@ -9,19 +9,19 @@ export const metadata = {
 export default function Terms() {
   return (
     <main>
-      <StatusBar />
+      <Ribbon />
       <Nav />
 
-      <section className="px-8 py-14 border-b border-line">
-        <span className="micro">{"// "}terms of service</span>
-        <h1 className="text-[2.75rem] sm:text-[3.25rem] mt-3 mb-3">
+      <section className="bg-bg px-6 pt-24 pb-12 text-center">
+        <div className="eyebrow mb-2">Legal</div>
+        <h1 className="display mb-3" style={{ fontSize: 'clamp(40px, 6vw, 72px)' }}>
           Terms of Service
         </h1>
-        <p className="mono text-[12px] text-mute">LAST UPDATED · APRIL 18, 2026</p>
+        <p className="text-[14px] text-ink-3">Last updated · April 18, 2026</p>
       </section>
 
-      <section className="px-8 py-12">
-        <div className="max-w-[720px] workbench-prose">
+      <section className="bg-bg px-6 pb-24">
+        <div className="container-narrow max-w-[760px] workbench-prose">
           <h2>Acceptance</h2>
           <p>
             By downloading or using any Clarendon Labs app, you agree to these
@@ -37,8 +37,9 @@ export default function Terms() {
 
           <h2>Disclaimer of warranties</h2>
           <p>
-            Our apps are provided “as is” without warranty of any kind. We
-            don&apos;t guarantee they&apos;ll be error-free or uninterrupted.
+            Our apps are provided &ldquo;as is&rdquo; without warranty of any
+            kind. We don&apos;t guarantee they&apos;ll be error-free or
+            uninterrupted.
           </p>
 
           <h2>Limitation of liability</h2>
