@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "mcp__ad1cdc92-a456-4488-8379-c5bff13731eb__deploy_to_vercel"
+    ]
+  }
+}
