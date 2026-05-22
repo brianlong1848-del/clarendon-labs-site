@@ -12,7 +12,7 @@ export default function Hero() {
       <div className="relative">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-bg-2 border border-line-soft rounded-full text-[13px] text-ink-2 mb-6">
           <span className="live-dot" />
-          Independent iOS studio · Chicago · est. 2025
+          Independent iOS studio · Chicago · est. 2026
         </div>
         <h1 className="display mb-3.5">
           Apps for play.
