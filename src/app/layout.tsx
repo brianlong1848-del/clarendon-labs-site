@@ -4,7 +4,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'Clarendon Labs — An independent iOS studio',
   description:
-    'Clarendon Labs is a small iOS studio in Chicago building two kinds of software: games you play with friends, and lifestyle tools you keep on your home screen.',
+    'Clarendon Labs is a small iOS studio in Chicago building party games and the apps you gather around — Gag Order, Rolligan, and YulePick.',
   metadataBase: new URL('https://clarendon.dev'),
   icons: {
     icon: '/favicon.svg',

@@ -2,7 +2,7 @@ import Reveal from './Reveal'
 
 type Status = 'Live' | 'In development' | 'Coming Dec 2026' | 'Coming 2027'
 type Theme = 'accent' | 'grey' | 'dark'
-type Art = 'dice' | 'santa' | 'cruise' | 'logbook'
+type Art = 'dice' | 'santa' | 'cruise'
 
 type App = {
   name: string
@@ -47,13 +47,6 @@ const rows: Row[] = [
         status: 'In development',
         theme: 'dark',
         art: 'cruise',
-      },
-      {
-        name: 'Logbook',
-        blurb: 'Home maintenance log',
-        status: 'Coming 2027',
-        theme: 'grey',
-        art: 'logbook',
       },
     ],
   },
@@ -194,43 +187,6 @@ function CruiseArt() {
   )
 }
 
-function LogbookArt() {
-  const items: [string, string, string][] = [
-    ['Furnace filter', '14d ago', '#34c759'],
-    ['Water heater flush', '3 weeks', '#ff9500'],
-    ['Smoke alarm', 'Annual', 'rgb(var(--accent))'],
-  ]
-  return (
-    <div
-      className="text-left"
-      style={{
-        width: 320,
-        background: '#fff',
-        border: '1px solid rgb(var(--line-soft))',
-        borderRadius: 18,
-        padding: 16,
-        boxShadow: '0 24px 48px -16px rgba(0,0,0,.18)',
-      }}
-    >
-      {items.map(([t, d, c]) => (
-        <div
-          key={t}
-          className="flex items-center gap-3 py-2.5"
-          style={{ borderBottom: '1px solid rgb(var(--line-soft))' }}
-        >
-          <span
-            className="rounded-full"
-            style={{ width: 10, height: 10, background: c }}
-          />
-          <div className="flex-1">
-            <div className="text-[14px] font-medium">{t}</div>
-            <div className="text-[12px] text-ink-3">{d}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function Tile({ app }: { app: App }) {
   const isDark = app.theme === 'dark'
@@ -277,7 +233,6 @@ function Tile({ app }: { app: App }) {
         {app.art === 'dice' && <DiceArt />}
         {app.art === 'santa' && <SantaArt />}
         {app.art === 'cruise' && <CruiseArt />}
-        {app.art === 'logbook' && <LogbookArt />}
       </div>
     </div>
   )
