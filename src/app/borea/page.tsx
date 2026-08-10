@@ -4,6 +4,9 @@ export const metadata: Metadata = {
   title: 'Borea — The AI macro coach that talks back',
   description:
     'Borea is an AI macro and calorie counter for iPhone. Log meals by voice, photo, or barcode, sync your DEXA scans, and get coaching that reads your actual log instead of handing you generic advice.',
+  // The root layout's metadataBase is clarendon.dev, which would resolve the
+  // preview image to the wrong host. Borea has its own domain now.
+  metadataBase: new URL('https://boreaapp.com'),
   alternates: { canonical: 'https://boreaapp.com' },
   openGraph: {
     title: 'Borea — The AI macro coach that talks back',
@@ -11,8 +14,18 @@ export const metadata: Metadata = {
       'Log meals by voice, photo, or barcode. Get coaching that knows your macros, your DEXA scans, and your goals.',
     url: 'https://boreaapp.com',
     siteName: 'Borea',
-    images: ['/icons/borea.png'],
+    // 1200x630: a square app icon gets cropped or letterboxed by every
+    // preview surface. This is a proper landscape card.
+    images: [{ url: '/borea-og.png', width: 1200, height: 630,
+               alt: 'Borea — the AI macro coach that talks back' }],
     type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Borea — The AI macro coach that talks back',
+    description:
+      'Log meals by voice, photo, or barcode. Get coaching that knows your macros, your DEXA scans, and your goals.',
+    images: ['/borea-og.png'],
   },
 }
 
