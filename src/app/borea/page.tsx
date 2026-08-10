@@ -14,10 +14,8 @@ export const metadata: Metadata = {
       'Log meals by voice, photo, or barcode. Get coaching that knows your macros, your DEXA scans, and your goals.',
     url: 'https://boreaapp.com',
     siteName: 'Borea',
-    // 1200x630: a square app icon gets cropped or letterboxed by every
-    // preview surface. This is a proper landscape card.
-    images: [{ url: '/borea-og.png', width: 1200, height: 630,
-               alt: 'Borea — the AI macro coach that talks back' }],
+    // The card itself comes from opengraph-image.tsx beside this file, which
+    // Next wires up automatically — listing images here would override it.
     type: 'website',
   },
   twitter: {
@@ -25,7 +23,6 @@ export const metadata: Metadata = {
     title: 'Borea — The AI macro coach that talks back',
     description:
       'Log meals by voice, photo, or barcode. Get coaching that knows your macros, your DEXA scans, and your goals.',
-    images: ['/borea-og.png'],
   },
 }
 
@@ -61,109 +58,148 @@ const FAQ = [
 ]
 
 const STYLE = `
-  .borea-page { background:#070b1c; color:#f5f5f7; min-height:100vh; font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  /* ---- Aurora ground -------------------------------------------------
+     One fixed layer behind everything: a night sky, four curtains of light
+     that drift on long, offset cycles, and a star field. Fixed rather than
+     scrolling, so the page feels like it is moving through the sky. */
+  .borea-page { position:relative; background:#04081a; color:#f5f6fb; min-height:100vh; overflow-x:hidden;
+    font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
   .borea-page a { color:inherit; text-decoration:none; }
-  .b-wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
-  .b-nav { display:flex; justify-content:space-between; align-items:center; padding:22px 0; font-size:14px; }
-  .b-nav .mark { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-0.02em; font-size:17px; }
-  .b-nav .mark img { width:28px; height:28px; border-radius:7px; }
-  .b-nav .links { display:flex; gap:22px; color:#a1a6c0; }
+
+  .sky { position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:linear-gradient(175deg,#04081c 0%,#051229 38%,#041a26 68%,#05221a 100%); }
+  .sky b { position:absolute; display:block; border-radius:50%; filter:blur(70px); mix-blend-mode:screen; }
+  .sky b.c1 { top:-22%; left:-18%; width:78%; height:66%; background:radial-gradient(ellipse at center,rgba(34,197,94,.55),transparent 68%); animation:drift1 26s ease-in-out infinite; }
+  .sky b.c2 { top:-30%; left:32%; width:80%; height:70%; background:radial-gradient(ellipse at center,rgba(0,194,255,.45),transparent 68%); animation:drift2 32s ease-in-out infinite; }
+  .sky b.c3 { top:18%;  left:46%; width:72%; height:80%; background:radial-gradient(ellipse at center,rgba(140,115,255,.32),transparent 70%); animation:drift3 38s ease-in-out infinite; }
+  .sky b.c4 { top:52%;  left:-22%; width:82%; height:72%; background:radial-gradient(ellipse at center,rgba(34,197,94,.30),transparent 70%); animation:drift1 30s ease-in-out infinite reverse; }
+  @keyframes drift1 { 0%,100%{transform:translate3d(0,0,0) scale(1)} 50%{transform:translate3d(7%,4%,0) scale(1.13)} }
+  @keyframes drift2 { 0%,100%{transform:translate3d(0,0,0) scale(1.05)} 50%{transform:translate3d(-8%,6%,0) scale(.92)} }
+  @keyframes drift3 { 0%,100%{transform:translate3d(0,0,0) scale(.95)} 50%{transform:translate3d(5%,-5%,0) scale(1.15)} }
+  .stars { position:fixed; inset:0; pointer-events:none; z-index:0; }
+  .stars i { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:.5; animation:tw 4s ease-in-out infinite; }
+  @keyframes tw { 0%,100%{opacity:.18} 50%{opacity:.85} }
+  @media (prefers-reduced-motion: reduce) { .sky b, .stars i, .b-orb i, .b-ring { animation:none !important; } }
+
+  .b-wrap { position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:0 24px; }
+  .b-sec { position:relative; z-index:1; padding:76px 0; }
+  .b-sec + .b-sec { border-top:1px solid rgba(255,255,255,.07); }
+  .b-eyebrow { font-size:12px; letter-spacing:.16em; text-transform:uppercase; font-weight:700;
+    background:linear-gradient(90deg,#22c55e,#00c2ff); -webkit-background-clip:text; background-clip:text; color:transparent; margin:0 0 12px; }
+  .b-sec h2 { margin:0 0 10px; font-size:clamp(28px,3.8vw,42px); font-weight:800; letter-spacing:-0.035em; line-height:1.08; }
+  .b-sec .lede { margin:0 0 34px; color:#a9b0c8; font-size:17px; line-height:1.62; max-width:60ch; }
+
+  /* ---- Nav ---- */
+  .b-nav { display:flex; justify-content:space-between; align-items:center; padding:20px 0; font-size:14px; }
+  .b-nav .mark { display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:-0.01em; font-size:17px; }
+  .b-nav .mark img { width:30px; height:30px; border-radius:8px; }
+  .b-nav .links { display:flex; gap:24px; color:#9aa2bd; }
   .b-nav .links a:hover { color:#fff; }
-  @media (max-width:600px){ .b-nav .links a.hide-sm { display:none; } }
+  @media (max-width:640px){ .b-nav .links a.hide-sm { display:none; } }
 
-  .b-hero { position:relative; text-align:center; padding:76px 0 56px; overflow:hidden; }
-  .b-aurora { position:absolute; inset:0; pointer-events:none;
-    background:
-      radial-gradient(60% 42% at 18% 0%, rgba(34,197,94,.26), transparent 65%),
-      radial-gradient(55% 40% at 78% 6%, rgba(30,111,255,.30), transparent 65%),
-      radial-gradient(40% 32% at 55% 18%, rgba(140,115,255,.20), transparent 70%);
-    filter: blur(6px); }
-  .b-star { position:absolute; width:3px; height:3px; border-radius:50%; background:#fff; opacity:.6; }
-  .b-hero .icon { width:104px; height:104px; border-radius:25px; margin:0 auto 24px; box-shadow:0 18px 50px -12px rgba(34,197,94,.45); position:relative; }
-  .b-hero h1 { margin:0; font-size:clamp(48px,8vw,96px); font-weight:800; letter-spacing:-0.045em; line-height:1; position:relative; }
-  .b-hero h1 .stop { background:linear-gradient(120deg,#22c55e,#00c2ff,#1e6fff); -webkit-background-clip:text; background-clip:text; color:transparent; }
-  .b-hero .tag { font-size:clamp(18px,2.2vw,23px); color:#c9cede; margin:18px auto 0; max-width:46ch; line-height:1.45; position:relative; }
-  .b-pill { display:inline-flex; align-items:center; gap:8px; margin-top:26px; padding:9px 18px; border-radius:999px; font-size:13.5px; font-weight:500; color:#d9f7ec; background:rgba(34,197,94,.10); border:1px solid rgba(34,197,94,.35); position:relative; }
-  .b-pill .dot { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 10px #22c55e; }
+  /* ---- Hero ---- */
+  .b-hero { position:relative; z-index:1; text-align:center; padding:74px 0 56px; }
+  .b-hero .icon { width:112px; height:112px; border-radius:27px; margin:0 auto 26px; display:block;
+    box-shadow:0 26px 70px -18px rgba(34,197,94,.65), 0 0 0 1px rgba(255,255,255,.08); }
+  .b-hero h1 { margin:0; font-size:clamp(52px,9vw,104px); font-weight:800; letter-spacing:-0.05em; line-height:.98; }
+  .b-hero h1 .stop { background:linear-gradient(120deg,#22c55e,#00c2ff,#8c73ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .b-hero .tag { font-size:clamp(19px,2.3vw,25px); color:#c3cadd; margin:20px auto 0; max-width:46ch; line-height:1.42; }
+  .b-pill { display:inline-flex; align-items:center; gap:9px; margin-top:28px; padding:10px 20px; border-radius:999px; font-size:13.5px; font-weight:600; color:#d9f7ec;
+    background:rgba(34,197,94,.10); border:1px solid rgba(34,197,94,.38); backdrop-filter:blur(8px); }
+  .b-pill .dot { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px #22c55e; animation:tw 2.4s ease-in-out infinite; }
 
-  .b-sec { padding:56px 0; border-top:1px solid rgba(255,255,255,.07); }
-  .b-sec h2 { margin:0 0 8px; font-size:clamp(26px,3.6vw,38px); font-weight:750; letter-spacing:-0.03em; }
-  .b-sec .lede { margin:0 0 32px; color:#a9aec6; font-size:16.5px; line-height:1.6; max-width:60ch; }
+  /* ---- Phones ---- */
+  .b-phones { display:flex; justify-content:center; align-items:flex-end; gap:26px; padding:20px 0 4px; perspective:1400px; }
+  .b-phone { width:230px; border-radius:38px; padding:9px; background:linear-gradient(160deg,rgba(255,255,255,.20),rgba(255,255,255,.04));
+    box-shadow:0 40px 90px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.07); }
+  .b-phone img { display:block; width:100%; border-radius:30px; }
+  .b-phone.side { width:200px; opacity:.85; }
+  .b-phone.l { transform:rotateY(15deg) translateY(16px); }
+  .b-phone.r { transform:rotateY(-15deg) translateY(16px); }
+  @media (max-width:820px){ .b-phone.side { display:none; } }
 
-  .b-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
-  @media (max-width:860px){ .b-steps { grid-template-columns:1fr; } }
-  .b-step { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.09); border-radius:20px; padding:26px; }
-  .b-step .n { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:9px; font-size:14px; font-weight:700; background:rgba(30,111,255,.18); color:#7fb2ff; margin-bottom:14px; }
-  .b-step h3 { margin:0 0 8px; font-size:17.5px; font-weight:650; letter-spacing:-0.015em; }
-  .b-step p { margin:0; font-size:14.5px; line-height:1.55; color:#a9aec6; }
-
+  /* ---- Cards ---- */
   .b-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
-  @media (max-width:860px){ .b-grid { grid-template-columns:1fr; } }
-  .b-card { background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.09); border-radius:20px; padding:26px; }
-  .b-card h3 { margin:0 0 8px; font-size:18px; font-weight:650; letter-spacing:-0.015em; }
-  .b-card p { margin:0; font-size:14.5px; line-height:1.55; color:#a9aec6; }
-  .b-card .ic { font-size:24px; margin-bottom:14px; display:block; }
+  .b-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  @media (max-width:880px){ .b-grid, .b-steps { grid-template-columns:1fr; } }
+  .b-card, .b-step { position:relative; border-radius:22px; padding:26px; overflow:hidden;
+    background:linear-gradient(165deg,rgba(255,255,255,.075),rgba(255,255,255,.025));
+    border:1px solid rgba(255,255,255,.10); backdrop-filter:blur(14px);
+    transition:transform .25s ease, border-color .25s ease; }
+  .b-card::before, .b-step::before { content:''; position:absolute; inset:0 0 auto 0; height:1px;
+    background:linear-gradient(90deg,transparent,rgba(0,194,255,.65),rgba(34,197,94,.55),transparent); opacity:.75; }
+  .b-card:hover, .b-step:hover { transform:translateY(-3px); border-color:rgba(0,194,255,.32); }
+  .b-card h3, .b-step h3 { margin:0 0 8px; font-size:18px; font-weight:700; letter-spacing:-0.02em; }
+  .b-card p, .b-step p { margin:0; font-size:14.5px; line-height:1.6; color:#a6adc6; }
+  .b-card .ic { font-size:25px; margin-bottom:14px; display:block; }
+  .b-step .n { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:10px; font-size:14px; font-weight:800; margin-bottom:14px;
+    background:linear-gradient(140deg,rgba(0,194,255,.28),rgba(34,197,94,.20)); color:#bfe9ff; border:1px solid rgba(0,194,255,.32); }
 
-  .b-coach { display:grid; grid-template-columns:220px 1fr; gap:32px; align-items:center; }
-  @media (max-width:820px){ .b-coach { grid-template-columns:1fr; gap:24px; justify-items:center; } }
-
-  /* The coach as it appears in the app: a night-sky sphere with aurora
-     curtains moving inside it. Pure CSS so it costs nothing to load. */
-  .b-orb-wrap { position:relative; width:180px; height:180px; display:grid; place-items:center; }
-  .b-orb { position:relative; width:150px; height:150px; border-radius:50%; overflow:hidden;
-    background:radial-gradient(circle at 34% 30%, #0d1738 0%, #050a1a 60%, #01030a 100%);
-    box-shadow:0 0 46px -6px rgba(34,197,94,.42), inset 0 0 30px rgba(0,0,0,.75); }
-  .b-orb i.band { position:absolute; left:-40%; width:180%; height:42%; border-radius:50%;
-    filter:blur(13px); opacity:.55; }
-  .b-orb i.b1 { top:12%; background:linear-gradient(90deg,transparent,rgba(140,115,255,.85),transparent); animation:bDrift 7.5s ease-in-out infinite; }
-  .b-orb i.b2 { top:33%; background:linear-gradient(90deg,transparent,rgba(0,194,255,.85),transparent); animation:bDrift 6s ease-in-out infinite reverse; }
-  .b-orb i.b3 { top:54%; background:linear-gradient(90deg,transparent,rgba(34,197,94,.95),transparent); animation:bDrift 5s ease-in-out infinite; }
-  .b-orb i.star { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:.75; animation:twinkle 3.4s ease-in-out infinite; }
-  .b-ring { position:absolute; border-radius:50%; border:1px solid rgba(0,194,255,.35); width:150px; height:150px; animation:ringPulse 2.6s ease-out infinite; }
+  /* ---- Coach ---- */
+  .b-coach { display:grid; grid-template-columns:230px 1fr; gap:34px; align-items:center; }
+  @media (max-width:880px){ .b-coach { grid-template-columns:1fr; gap:26px; justify-items:center; } }
+  .b-orb-wrap { position:relative; width:190px; height:190px; display:grid; place-items:center; }
+  .b-orb { position:relative; width:158px; height:158px; border-radius:50%; overflow:hidden;
+    background:radial-gradient(circle at 34% 30%,#0d1738 0%,#050a1a 60%,#01030a 100%);
+    box-shadow:0 0 56px -6px rgba(34,197,94,.5), inset 0 0 34px rgba(0,0,0,.8); }
+  .b-orb i.band { position:absolute; left:-40%; width:180%; height:42%; border-radius:50%; filter:blur(13px); opacity:.55; }
+  .b-orb i.b1 { top:12%; background:linear-gradient(90deg,transparent,rgba(140,115,255,.9),transparent); animation:bDrift 7.5s ease-in-out infinite; }
+  .b-orb i.b2 { top:33%; background:linear-gradient(90deg,transparent,rgba(0,194,255,.9),transparent); animation:bDrift 6s ease-in-out infinite reverse; }
+  .b-orb i.b3 { top:54%; background:linear-gradient(90deg,transparent,rgba(34,197,94,1),transparent); animation:bDrift 5s ease-in-out infinite; }
+  .b-orb i.star { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:.75; animation:tw 3.4s ease-in-out infinite; }
+  .b-ring { position:absolute; border-radius:50%; border:1px solid rgba(0,194,255,.35); width:158px; height:158px; animation:ringPulse 2.6s ease-out infinite; }
   .b-ring.r2 { border-color:rgba(34,197,94,.30); animation-delay:1.3s; }
-  @keyframes bDrift { 0%,100% { transform:translateX(-8%) scaleY(.85); opacity:.4; }
-                      50%      { transform:translateX(8%)  scaleY(1.15); opacity:.75; } }
-  @keyframes twinkle { 0%,100% { opacity:.25; } 50% { opacity:.9; } }
-  @keyframes ringPulse { 0% { transform:scale(.92); opacity:.75; } 100% { transform:scale(1.55); opacity:0; } }
-  @media (prefers-reduced-motion: reduce) {
-    .b-orb i.band, .b-orb i.star, .b-ring { animation:none; }
-  }
-  .b-orb-cap { margin-top:14px; font-size:12px; letter-spacing:.10em; text-transform:uppercase; color:#7f86a5; font-weight:650; text-align:center; }
+  @keyframes bDrift { 0%,100%{transform:translateX(-8%) scaleY(.85); opacity:.4} 50%{transform:translateX(8%) scaleY(1.15); opacity:.78} }
+  @keyframes ringPulse { 0%{transform:scale(.92); opacity:.7} 100%{transform:scale(1.6); opacity:0} }
+  .b-orb-cap { margin-top:14px; font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:#7d85a4; font-weight:700; text-align:center; }
 
-  .b-chat { max-width:620px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.10); border-radius:22px; padding:24px; }
-  .b-msg { margin:0 0 14px; font-size:15px; line-height:1.55; }
+  .b-chat { background:linear-gradient(165deg,rgba(255,255,255,.075),rgba(255,255,255,.025));
+    border:1px solid rgba(255,255,255,.11); border-radius:24px; padding:26px; backdrop-filter:blur(14px); }
+  .b-msg { margin:0 0 16px; font-size:15.5px; line-height:1.6; }
   .b-msg:last-child { margin-bottom:0; }
-  .b-msg .who { display:block; font-size:11.5px; letter-spacing:.09em; text-transform:uppercase; color:#7f86a5; margin-bottom:5px; font-weight:650; }
-  .b-msg.you { color:#dfe3f2; }
-  .b-msg.coach { color:#bfe9d4; }
+  .b-msg .who { display:block; font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:#7d85a4; margin-bottom:6px; font-weight:700; }
+  .b-msg.you { color:#dde2f1; }
+  .b-msg.coach { color:#c3ecd8; }
 
-  .b-price { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; max-width:640px; }
+  /* ---- Pricing ---- */
+  .b-price { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; max-width:660px; }
   @media (max-width:700px){ .b-price { grid-template-columns:1fr; } }
-  .b-plan { background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.10); border-radius:20px; padding:24px; }
-  .b-plan.best { border-color:rgba(34,197,94,.45); background:rgba(34,197,94,.07); }
-  .b-plan .name { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:#8f96b4; font-weight:650; }
-  .b-plan .amt { font-size:34px; font-weight:800; letter-spacing:-0.03em; margin:8px 0 2px; }
-  .b-plan .per { font-size:14px; color:#a9aec6; }
-  .b-plan .save { display:inline-block; margin-top:10px; font-size:12.5px; font-weight:650; color:#7ef0c9; }
+  .b-plan { position:relative; border-radius:22px; padding:26px; overflow:hidden;
+    background:linear-gradient(165deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.11); backdrop-filter:blur(14px); }
+  .b-plan.best { border-color:rgba(34,197,94,.5); background:linear-gradient(165deg,rgba(34,197,94,.16),rgba(34,197,94,.03)); }
+  .b-plan .name { font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#8d94b1; font-weight:700; }
+  .b-plan .amt { font-size:38px; font-weight:800; letter-spacing:-0.035em; margin:10px 0 2px; }
+  .b-plan .per { font-size:14px; color:#a6adc6; }
+  .b-plan .save { display:inline-block; margin-top:12px; font-size:12.5px; font-weight:700; color:#7ef0c9; }
 
-  .b-faq { max-width:760px; }
-  .b-q { border-top:1px solid rgba(255,255,255,.08); padding:20px 0; }
+  /* ---- FAQ ---- */
+  .b-faq { max-width:780px; }
+  .b-q { border-top:1px solid rgba(255,255,255,.09); padding:22px 0; }
   .b-q:first-child { border-top:none; }
-  .b-q h3 { margin:0 0 8px; font-size:17px; font-weight:650; letter-spacing:-0.015em; }
-  .b-q p { margin:0; font-size:15px; line-height:1.6; color:#a9aec6; }
+  .b-q h3 { margin:0 0 8px; font-size:17.5px; font-weight:700; letter-spacing:-0.02em; }
+  .b-q p { margin:0; font-size:15.5px; line-height:1.62; color:#a6adc6; }
 
-  .b-cta { text-align:center; padding:56px 0 72px; border-top:1px solid rgba(255,255,255,.07); }
-  .b-cta .note { color:#a9aec6; font-size:16px; max-width:52ch; margin:0 auto 22px; line-height:1.55; }
-  /* Selector has to out-specify ".borea-page a { color: inherit }" above,
-     or the label inherits the page's near-white ink and vanishes into the
-     pale button. Two classes beats one class plus an element. */
-  .borea-page a.b-btn { display:inline-flex; align-items:center; gap:9px; background:#f5f5f7; color:#0b1024; font-weight:600; font-size:15px; padding:13px 24px; border-radius:14px; }
-  .borea-page a.b-btn:hover { background:#fff; color:#0b1024; }
-
-  .b-foot { border-top:1px solid rgba(255,255,255,.08); padding:26px 0 44px; display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:13.5px; color:#8a90ad; }
+  /* ---- CTA + footer ---- */
+  .b-cta { position:relative; z-index:1; text-align:center; padding:70px 0 84px; border-top:1px solid rgba(255,255,255,.07); }
+  .b-cta .note { color:#b3bad0; font-size:17px; max-width:52ch; margin:0 auto 26px; line-height:1.55; }
+  .borea-page a.b-btn { display:inline-flex; align-items:center; gap:9px; background:#f2f6ff; color:#0a1024;
+    font-weight:700; font-size:15.5px; padding:15px 28px; border-radius:15px;
+    box-shadow:0 16px 40px -14px rgba(0,194,255,.75); transition:transform .2s ease; }
+  .borea-page a.b-btn:hover { background:#fff; color:#0a1024; transform:translateY(-2px); }
+  .b-foot { position:relative; z-index:1; border-top:1px solid rgba(255,255,255,.08); padding:26px 0 44px;
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:13.5px; color:#848bab; }
   .b-foot .links { display:flex; gap:20px; }
   .b-foot a:hover { color:#fff; }
 `
+
+const STARS = Array.from({ length: 46 }, (_, i) => {
+  // Deterministic so server and client markup match.
+  const x = (i * 97) % 100
+  const y = (i * 61) % 100
+  const d = ((i * 37) % 40) / 10
+  return `<i style="top:${y}%;left:${x}%;animation-delay:${d}s"></i>`
+}).join('')
 
 const faqHtml = FAQ.map(
   (f) => `<div class="b-q"><h3>${f.q}</h3><p>${f.a}</p></div>`,
@@ -171,6 +207,8 @@ const faqHtml = FAQ.map(
 
 const BODY = `
 <div class="borea-page">
+  <div class="sky"><b class="c1"></b><b class="c2"></b><b class="c3"></b><b class="c4"></b></div>
+  <div class="stars">${STARS}</div>
   <div class="b-wrap">
     <nav class="b-nav">
       <a href="/" class="mark"><img src="/icons/borea.png" alt="" width="28" height="28"/>Borea</a>
@@ -184,8 +222,6 @@ const BODY = `
   </div>
 
   <header class="b-hero">
-    <div class="b-aurora"></div>
-    <span class="b-star" style="top:14%;left:12%"></span><span class="b-star" style="top:8%;left:38%"></span><span class="b-star" style="top:20%;left:64%;width:2px;height:2px"></span><span class="b-star" style="top:10%;left:86%"></span><span class="b-star" style="top:30%;left:26%;width:2px;height:2px"></span><span class="b-star" style="top:26%;left:90%"></span>
     <div class="b-wrap">
       <img class="icon" src="/icons/borea.png" alt="Borea app icon" width="104" height="104"/>
       <h1>Borea<span class="stop">.</span></h1>
@@ -197,6 +233,7 @@ const BODY = `
   <main>
     <section class="b-sec" id="how">
       <div class="b-wrap">
+        <p class="b-eyebrow">How it works</p>
         <h2>Three taps, or none at all</h2>
         <p class="lede">Most tracking apps die on the friction of logging. Borea is built so the boring part takes seconds and the useful part happens on its own.</p>
         <div class="b-steps">
@@ -209,6 +246,7 @@ const BODY = `
 
     <section class="b-sec" id="coach">
       <div class="b-wrap">
+        <p class="b-eyebrow">The coach</p>
         <h2>A coach, not a search box</h2>
         <p class="lede">Borea reads what you actually ate and what your body actually did. It has opinions, it shows its working, and it would rather be honest than encouraging.</p>
         <div class="b-coach">
@@ -236,6 +274,7 @@ const BODY = `
 
     <section class="b-sec">
       <div class="b-wrap">
+        <p class="b-eyebrow">Features</p>
         <h2>What&rsquo;s in it</h2>
         <div class="b-grid">
           <div class="b-card"><span class="ic">&#127908;</span><h3>Say it, it&rsquo;s logged</h3><p>&ldquo;Two eggs, sourdough toast, and the same Greek yogurt bar I had yesterday.&rdquo; Borea works out the macros &mdash; grams weighed, sodium included.</p></div>
@@ -250,6 +289,7 @@ const BODY = `
 
     <section class="b-sec">
       <div class="b-wrap">
+        <p class="b-eyebrow">Privacy</p>
         <h2>Your health data stays yours</h2>
         <p class="lede">Your log, your weigh-ins and your progress photos live on your iPhone. When you ask the coach a question, the numbers needed to answer it are sent to process that question &mdash; nothing more. Your health data is never used for advertising, never sold, and never used to train a model. Delete the app and it goes with it.</p>
         <a class="b-btn" href="/privacy">Read the privacy policy &rarr;</a>
@@ -258,6 +298,7 @@ const BODY = `
 
     <section class="b-sec" id="pricing">
       <div class="b-wrap">
+        <p class="b-eyebrow">Pricing</p>
         <h2>One subscription, everything in it</h2>
         <p class="lede">No credit packs, no locked features, no upsell for the coach. Seven days free, cancel in two taps.</p>
         <div class="b-price">
@@ -269,6 +310,7 @@ const BODY = `
 
     <section class="b-sec" id="faq">
       <div class="b-wrap">
+        <p class="b-eyebrow">FAQ</p>
         <h2>Questions</h2>
         <div class="b-faq">${faqHtml}</div>
       </div>
