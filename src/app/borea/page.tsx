@@ -91,6 +91,32 @@ const STYLE = `
   .b-card p { margin:0; font-size:14.5px; line-height:1.55; color:#a9aec6; }
   .b-card .ic { font-size:24px; margin-bottom:14px; display:block; }
 
+  .b-coach { display:grid; grid-template-columns:220px 1fr; gap:32px; align-items:center; }
+  @media (max-width:820px){ .b-coach { grid-template-columns:1fr; gap:24px; justify-items:center; } }
+
+  /* The coach as it appears in the app: a night-sky sphere with aurora
+     curtains moving inside it. Pure CSS so it costs nothing to load. */
+  .b-orb-wrap { position:relative; width:180px; height:180px; display:grid; place-items:center; }
+  .b-orb { position:relative; width:150px; height:150px; border-radius:50%; overflow:hidden;
+    background:radial-gradient(circle at 34% 30%, #0d1738 0%, #050a1a 60%, #01030a 100%);
+    box-shadow:0 0 46px -6px rgba(34,197,94,.42), inset 0 0 30px rgba(0,0,0,.75); }
+  .b-orb i.band { position:absolute; left:-40%; width:180%; height:42%; border-radius:50%;
+    filter:blur(13px); opacity:.55; }
+  .b-orb i.b1 { top:12%; background:linear-gradient(90deg,transparent,rgba(140,115,255,.85),transparent); animation:bDrift 7.5s ease-in-out infinite; }
+  .b-orb i.b2 { top:33%; background:linear-gradient(90deg,transparent,rgba(0,194,255,.85),transparent); animation:bDrift 6s ease-in-out infinite reverse; }
+  .b-orb i.b3 { top:54%; background:linear-gradient(90deg,transparent,rgba(34,197,94,.95),transparent); animation:bDrift 5s ease-in-out infinite; }
+  .b-orb i.star { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:.75; animation:twinkle 3.4s ease-in-out infinite; }
+  .b-ring { position:absolute; border-radius:50%; border:1px solid rgba(0,194,255,.35); width:150px; height:150px; animation:ringPulse 2.6s ease-out infinite; }
+  .b-ring.r2 { border-color:rgba(34,197,94,.30); animation-delay:1.3s; }
+  @keyframes bDrift { 0%,100% { transform:translateX(-8%) scaleY(.85); opacity:.4; }
+                      50%      { transform:translateX(8%)  scaleY(1.15); opacity:.75; } }
+  @keyframes twinkle { 0%,100% { opacity:.25; } 50% { opacity:.9; } }
+  @keyframes ringPulse { 0% { transform:scale(.92); opacity:.75; } 100% { transform:scale(1.55); opacity:0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .b-orb i.band, .b-orb i.star, .b-ring { animation:none; }
+  }
+  .b-orb-cap { margin-top:14px; font-size:12px; letter-spacing:.10em; text-transform:uppercase; color:#7f86a5; font-weight:650; text-align:center; }
+
   .b-chat { max-width:620px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.10); border-radius:22px; padding:24px; }
   .b-msg { margin:0 0 14px; font-size:15px; line-height:1.55; }
   .b-msg:last-child { margin-bottom:0; }
@@ -172,9 +198,25 @@ const BODY = `
       <div class="b-wrap">
         <h2>A coach, not a search box</h2>
         <p class="lede">Borea reads what you actually ate and what your body actually did. It has opinions, it shows its working, and it would rather be honest than encouraging.</p>
+        <div class="b-coach">
+          <div>
+            <div class="b-orb-wrap">
+              <span class="b-ring"></span>
+              <span class="b-ring r2"></span>
+              <div class="b-orb">
+                <i class="band b1"></i><i class="band b2"></i><i class="band b3"></i>
+                <i class="star" style="top:18%;left:26%"></i><i class="star" style="top:31%;left:68%;animation-delay:.6s"></i>
+                <i class="star" style="top:52%;left:18%;animation-delay:1.1s"></i><i class="star" style="top:44%;left:82%;animation-delay:1.7s"></i>
+                <i class="star" style="top:70%;left:40%;animation-delay:.3s"></i><i class="star" style="top:76%;left:64%;animation-delay:2.1s"></i>
+                <i class="star" style="top:24%;left:47%;animation-delay:1.4s"></i><i class="star" style="top:62%;left:73%;animation-delay:.9s"></i>
+              </div>
+            </div>
+            <div class="b-orb-cap">The coach, thinking</div>
+          </div>
         <div class="b-chat">
           <p class="b-msg you"><span class="who">You</span>Why is my weight up when I hit my calories all week?</p>
           <p class="b-msg coach"><span class="who">Borea</span>Because you ate 4,800&nbsp;mg of sodium on Saturday and 1,100 on Sunday. That&rsquo;s water, not fat &mdash; your seven-day average is still down 0.9&nbsp;lb, and your last DEXA says the lean mass is holding. Nothing is wrong. Drink, and ignore the scale until Wednesday.</p>
+        </div>
         </div>
       </div>
     </section>
