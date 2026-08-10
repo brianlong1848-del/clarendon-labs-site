@@ -16,6 +16,18 @@ const nextConfig = {
           has: [{ type: 'host', value: BOREA_HOST }],
           destination: '/borea',
         },
+        // Borea has its own privacy policy and terms now, so the apex serves
+        // those rather than the studio-wide pages.
+        {
+          source: '/privacy',
+          has: [{ type: 'host', value: BOREA_HOST }],
+          destination: '/borea/privacy',
+        },
+        {
+          source: '/terms',
+          has: [{ type: 'host', value: BOREA_HOST }],
+          destination: '/borea/terms',
+        },
       ],
     }
   },
