@@ -115,8 +115,11 @@ const STYLE = `
 
   .b-cta { text-align:center; padding:56px 0 72px; border-top:1px solid rgba(255,255,255,.07); }
   .b-cta .note { color:#a9aec6; font-size:16px; max-width:52ch; margin:0 auto 22px; line-height:1.55; }
-  .b-btn { display:inline-flex; align-items:center; gap:9px; background:#f5f5f7; color:#0b1024; font-weight:600; font-size:15px; padding:13px 24px; border-radius:14px; }
-  .b-btn:hover { background:#fff; }
+  /* Selector has to out-specify ".borea-page a { color: inherit }" above,
+     or the label inherits the page's near-white ink and vanishes into the
+     pale button. Two classes beats one class plus an element. */
+  .borea-page a.b-btn { display:inline-flex; align-items:center; gap:9px; background:#f5f5f7; color:#0b1024; font-weight:600; font-size:15px; padding:13px 24px; border-radius:14px; }
+  .borea-page a.b-btn:hover { background:#fff; color:#0b1024; }
 
   .b-foot { border-top:1px solid rgba(255,255,255,.08); padding:26px 0 44px; display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:13.5px; color:#8a90ad; }
   .b-foot .links { display:flex; gap:20px; }
