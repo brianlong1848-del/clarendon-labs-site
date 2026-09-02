@@ -1,11 +1,13 @@
 import type { Metadata } from 'next'
 import { LEGAL_STYLE, shell } from '../LegalShell'
+import { BOREA_ICONS } from '../copy'
 
 export const metadata: Metadata = {
   title: 'Borea — Privacy Policy',
   description:
     'What Borea collects, what stays on your iPhone, what is sent when you use the AI coach, and what is never done with your health data.',
   metadataBase: new URL('https://boreaapp.com'),
+  icons: BOREA_ICONS,
   alternates: { canonical: 'https://boreaapp.com/privacy' },
 }
 

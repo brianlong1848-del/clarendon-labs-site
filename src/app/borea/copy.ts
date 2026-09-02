@@ -14,6 +14,18 @@ export const APP_STORE_URL = 'https://apps.apple.com/app/id6799219647'
 // Absolute rather than relative, because this page is served from two hosts:
 // boreaapp.com (via rewrites in next.config.mjs) and clarendon.dev/borea. A
 // relative /fr resolves correctly on the first and 404s on the second.
+// Borea has its own domain, so it gets its own tab icon rather than inheriting
+// the Clarendon "C" from the root layout. SVG first for sharpness, a 32px PNG
+// and an .ico behind it for browsers that ignore SVG favicons.
+export const BOREA_ICONS = {
+  icon: [
+    { url: '/borea-favicon.svg', type: 'image/svg+xml' },
+    { url: '/borea-favicon-32.png', type: 'image/png', sizes: '32x32' },
+    { url: '/borea-favicon.ico', sizes: '48x48' },
+  ],
+  apple: '/borea-apple-touch-icon.png',
+}
+
 export const EN_URL = 'https://boreaapp.com/'
 export const FR_URL = 'https://boreaapp.com/fr'
 

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Borea">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1a3c"/>
+      <stop offset="1" stop-color="#04081a"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0.12" y1="0.92" x2="0.9" y2="0.16">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="0.5" stop-color="#10c3af"/>
+      <stop offset="1" stop-color="#00a6ff"/>
+    </linearGradient>
+    <linearGradient id="aurora" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22c55e" stop-opacity="0"/>
+      <stop offset="0.3" stop-color="#22c55e" stop-opacity=".85"/>
+      <stop offset="0.62" stop-color="#00c2ff" stop-opacity=".8"/>
+      <stop offset="0.88" stop-color="#8c73ff" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#8c73ff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-120%" width="180%" height="340%">
+      <feGaussianBlur stdDeviation="4.2"/>
+    </filter>
+    <clipPath id="squircle">
+      <rect width="64" height="64" rx="14"/>
+    </clipPath>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#sky)"/>
+
+  <!-- The aurora, clipped to the tile so the blur cannot bleed past the corners. -->
+  <g clip-path="url(#squircle)">
+    <ellipse cx="33" cy="12" rx="34" ry="6.5" fill="url(#aurora)" filter="url(#soft)"/>
+  </g>
+
+  <!-- The ring: open at the top, the same arc the app draws. Geometry is fixed
+       rather than dash-based so it stays exact at 16px. -->
+  <path d="M39.95 21.28 A15 15 0 1 1 24.05 21.28"
+        fill="none" stroke="url(#ring)" stroke-width="7.4" stroke-linecap="round"/>
+
+  <!-- The two ends of the arc, as in the app icon: light on the left, blue on the right. -->
+  <circle cx="24.05" cy="21.28" r="4.1" fill="#ffffff"/>
+  <circle cx="39.95" cy="21.28" r="4.1" fill="#1e6fff"/>
+</svg>
