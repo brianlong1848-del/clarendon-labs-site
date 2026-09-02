@@ -1,11 +1,13 @@
 import type { Metadata } from 'next'
 import { LEGAL_STYLE, shell } from '../LegalShell'
+import { BOREA_ICONS } from '../copy'
 
 export const metadata: Metadata = {
   title: 'Borea — Terms of Use',
   description:
     'The terms under which Clarendon Labs LLC provides Borea: your licence, subscriptions and billing, what the coach is and is not, and the limits of our liability.',
   metadataBase: new URL('https://boreaapp.com'),
+  icons: BOREA_ICONS,
   alternates: { canonical: 'https://boreaapp.com/terms' },
 }
 

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import BoreaShell from '../shell'
-import { fr, EN_URL, FR_URL } from '../copy'
+import { fr, EN_URL, FR_URL, BOREA_ICONS } from '../copy'
 
 // The French page. Served at boreaapp.com/fr through a rewrite in
 // next.config.mjs, and directly at clarendon.dev/borea/fr.
@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   title: fr.meta.title,
   description: fr.meta.description,
   metadataBase: new URL('https://boreaapp.com'),
+  icons: BOREA_ICONS,
   alternates: {
     canonical: FR_URL,
     languages: { en: EN_URL, 'fr-CA': FR_URL, 'x-default': EN_URL },
