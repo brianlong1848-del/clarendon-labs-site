@@ -28,6 +28,13 @@ const nextConfig = {
           has: [{ type: 'host', value: BOREA_HOST }],
           destination: '/borea/terms',
         },
+        // The French page. Borea ships in Canadian French, so the marketing
+        // site does too; the apex serves it at /fr rather than /borea/fr.
+        {
+          source: '/fr',
+          has: [{ type: 'host', value: BOREA_HOST }],
+          destination: '/borea/fr',
+        },
       ],
     }
   },
