@@ -34,6 +34,7 @@ export type Faq = { q: string; a: string }
 export type Copy = {
   lang: string
   htmlLang: string
+  shotDir: string
   otherLangLabel: string
   otherLangHref: string
   otherLangHreflang: string
@@ -65,6 +66,7 @@ export type Copy = {
 export const en: Copy = {
   lang: 'en',
   htmlLang: 'en',
+  shotDir: '/borea',
   otherLangLabel: 'FR',
   otherLangHref: FR_URL,
   otherLangHreflang: 'fr-CA',
@@ -169,6 +171,7 @@ export const en: Copy = {
 export const fr: Copy = {
   lang: 'fr',
   htmlLang: 'fr-CA',
+  shotDir: '/borea/fr',
   otherLangLabel: 'EN',
   otherLangHref: EN_URL,
   otherLangHreflang: 'en',

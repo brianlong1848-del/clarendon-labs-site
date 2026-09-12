@@ -245,9 +245,9 @@ function buildBody(c: Copy) {
       ${downloadButton(c.hero.download)}
       <p class="b-dl-note">${c.hero.downloadNote}</p>
       <div class="b-phones">
-        <div class="b-phone side l"><img src="/borea/brief.webp" alt="${c.shots.brief}" width="640" height="1391" loading="eager"/></div>
-        <div class="b-phone"><img src="/borea/today.webp" alt="${c.shots.today}" width="640" height="1391" loading="eager" fetchpriority="high"/></div>
-        <div class="b-phone side r"><img src="/borea/trends.webp" alt="${c.shots.trends}" width="640" height="1391" loading="eager"/></div>
+        <div class="b-phone side l"><img src="${c.shotDir}/brief.webp" alt="${c.shots.brief}" width="640" height="1391" loading="eager"/></div>
+        <div class="b-phone"><img src="${c.shotDir}/today.webp" alt="${c.shots.today}" width="640" height="1391" loading="eager" fetchpriority="high"/></div>
+        <div class="b-phone side r"><img src="${c.shotDir}/trends.webp" alt="${c.shots.trends}" width="640" height="1391" loading="eager"/></div>
       </div>
     </div>
   </header>
@@ -260,7 +260,7 @@ function buildBody(c: Copy) {
         <p class="lede">${c.how.lede}</p>
         <div class="b-split">
           <div class="b-steps">${steps}</div>
-          <div class="b-phone"><img src="/borea/log.webp" alt="${c.shots.log}" width="640" height="1391" loading="lazy"/></div>
+          <div class="b-phone"><img src="${c.shotDir}/log.webp" alt="${c.shots.log}" width="640" height="1391" loading="lazy"/></div>
         </div>
       </div>
     </section>
@@ -298,7 +298,7 @@ function buildBody(c: Copy) {
     <section class="b-sec">
       <div class="b-wrap">
         <div class="b-split flip">
-          <div class="b-phone wide"><img src="/borea/widgets.webp" alt="${c.shots.widgets}" width="640" height="1391" loading="lazy"/></div>
+          <div class="b-phone wide"><img src="${c.shotDir}/widgets.webp" alt="${c.shots.widgets}" width="640" height="1391" loading="lazy"/></div>
           <div>
             <p class="b-eyebrow">${c.widgets.eyebrow}</p>
             <h2>${c.widgets.h2}</h2>
