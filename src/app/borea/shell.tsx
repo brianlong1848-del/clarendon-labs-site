@@ -27,7 +27,7 @@ const STYLE = `
   .stars { position:fixed; inset:0; pointer-events:none; z-index:0; }
   .stars i { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:.5; animation:tw 4s ease-in-out infinite; }
   @keyframes tw { 0%,100%{opacity:.18} 50%{opacity:.85} }
-  @media (prefers-reduced-motion: reduce) { .sky b, .stars i, .b-orb i, .b-ring { animation:none !important; } }
+  @media (prefers-reduced-motion: reduce) { .sky b, .stars i { animation:none !important; } }
 
   .b-wrap { position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:0 24px; }
   .b-sec { position:relative; z-index:1; padding:76px 0; }
@@ -104,20 +104,16 @@ const STYLE = `
   /* ---- Coach ---- */
   .b-coach { display:grid; grid-template-columns:230px 1fr; gap:34px; align-items:center; }
   @media (max-width:880px){ .b-coach { grid-template-columns:1fr; gap:26px; justify-items:center; } }
-  .b-orb-wrap { position:relative; width:190px; height:190px; display:grid; place-items:center; }
-  .b-orb { position:relative; width:158px; height:158px; border-radius:50%; overflow:hidden;
-    background:radial-gradient(circle at 34% 30%,#0d1738 0%,#050a1a 60%,#01030a 100%);
-    box-shadow:0 0 56px -6px rgba(34,197,94,.5), inset 0 0 34px rgba(0,0,0,.8); }
-  .b-orb i.band { position:absolute; left:-40%; width:180%; height:42%; border-radius:50%; filter:blur(13px); opacity:.55; }
-  .b-orb i.b1 { top:12%; background:linear-gradient(90deg,transparent,rgba(140,115,255,.9),transparent); animation:bDrift 7.5s ease-in-out infinite; }
-  .b-orb i.b2 { top:33%; background:linear-gradient(90deg,transparent,rgba(0,194,255,.9),transparent); animation:bDrift 6s ease-in-out infinite reverse; }
-  .b-orb i.b3 { top:54%; background:linear-gradient(90deg,transparent,rgba(34,197,94,1),transparent); animation:bDrift 5s ease-in-out infinite; }
-  .b-orb i.star { position:absolute; width:2px; height:2px; border-radius:50%; background:#fff; opacity:.75; animation:tw 3.4s ease-in-out infinite; }
-  .b-ring { position:absolute; border-radius:50%; border:1px solid rgba(0,194,255,.35); width:158px; height:158px; animation:ringPulse 2.6s ease-out infinite; }
-  .b-ring.r2 { border-color:rgba(34,197,94,.30); animation-delay:1.3s; }
-  @keyframes bDrift { 0%,100%{transform:translateX(-8%) scaleY(.85); opacity:.4} 50%{transform:translateX(8%) scaleY(1.15); opacity:.78} }
-  @keyframes ringPulse { 0%{transform:scale(.92); opacity:.7} 100%{transform:scale(1.6); opacity:0} }
-  .b-orb-cap { margin-top:14px; font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:#7d85a4; font-weight:700; text-align:center; }
+  .b-orb-wrap { position:relative; width:190px; height:190px; margin:0 auto; display:grid; place-items:center; }
+  .b-orb { width:170px; height:170px; border-radius:50%; overflow:hidden; display:block;
+    border:1px solid rgba(255,255,255,.14); box-shadow:0 0 44px rgba(34,197,94,.5); background:#080d21; }
+  .b-orb canvas { display:block; width:100%; height:100%; }
+  .b-orb-cap { margin-top:16px; font-size:15px; font-weight:700; color:#f2f6ff; text-align:center; letter-spacing:-0.01em; }
+  .b-phase { margin-top:6px; min-height:18px; font-size:13px; color:rgba(242,246,255,.75); text-align:center; transition:opacity .35s; }
+  .b-phase.fade { opacity:0; }
+  .b-horizon { position:relative; width:190px; height:8px; margin:16px auto 0; border-radius:99px; background:rgba(255,255,255,.10); overflow:visible; }
+  .b-horizon i { position:absolute; left:0; top:0; height:100%; width:8px; border-radius:99px;
+    background:linear-gradient(90deg,#22c55e,#00c2ff,#8c73ff); box-shadow:0 0 6px rgba(0,194,255,.6); transition:width .15s linear; }
 
   .b-chat { background:linear-gradient(165deg,rgba(255,255,255,.075),rgba(255,255,255,.025));
     border:1px solid rgba(255,255,255,.11); border-radius:24px; padding:26px; backdrop-filter:blur(14px); }
@@ -277,17 +273,11 @@ function buildBody(c: Copy) {
         <div class="b-coach">
           <div>
             <div class="b-orb-wrap">
-              <span class="b-ring"></span>
-              <span class="b-ring r2"></span>
-              <div class="b-orb">
-                <i class="band b1"></i><i class="band b2"></i><i class="band b3"></i>
-                <i class="star" style="top:18%;left:26%"></i><i class="star" style="top:31%;left:68%;animation-delay:.6s"></i>
-                <i class="star" style="top:52%;left:18%;animation-delay:1.1s"></i><i class="star" style="top:44%;left:82%;animation-delay:1.7s"></i>
-                <i class="star" style="top:70%;left:40%;animation-delay:.3s"></i><i class="star" style="top:76%;left:64%;animation-delay:2.1s"></i>
-                <i class="star" style="top:24%;left:47%;animation-delay:1.4s"></i><i class="star" style="top:62%;left:73%;animation-delay:.9s"></i>
-              </div>
+              <div class="b-orb"><canvas id="b-aurora" width="170" height="170" aria-hidden="true"></canvas></div>
             </div>
             <div class="b-orb-cap">${c.coach.orbCaption}</div>
+            <div class="b-phase" id="b-phase" data-phases="${c.coach.phases.join('|')}">${c.coach.phases[0]}</div>
+            <div class="b-horizon" aria-hidden="true"><i id="b-horizon"></i></div>
           </div>
         <div class="b-chat">
           <p class="b-msg you"><span class="who">${c.coach.you}</span>${c.coach.question}</p>
@@ -398,6 +388,56 @@ function buildJsonLd(c: Copy) {
   }
 }
 
+
+/** The coach's thinking overlay, ported from AuroraThinking.swift: three sine
+ *  aurora bands with curtains over 26 twinkling stars, a phase line on the
+ *  app's timings, and the horizon bar that fills 1 - e^(-t/7). */
+const AURORA_JS = `(function(){
+var cv=document.getElementById('b-aurora'),ph=document.getElementById('b-phase'),bar=document.getElementById('b-horizon');
+if(!cv||!ph||!bar)return;
+var ctx=cv.getContext('2d');if(!ctx)return;
+var S=170,K=230/S,d=Math.min(window.devicePixelRatio||1,2);
+cv.width=S*d;cv.height=S*d;ctx.scale(d,d);
+var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var bands=[['34,197,94',.42,26/K,.9],['0,194,255',.55,20/K,1.3],['140,115,255',.66,16/K,.7]];
+function draw(t){
+  var g=ctx.createLinearGradient(0,0,0,S);g.addColorStop(0,'rgb(8,13,33)');g.addColorStop(1,'rgb(5,26,31)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,S,S);
+  var seed=9;
+  for(var i=0;i<26;i++){seed+=37.7;var x=seed%S,y=(seed*1.7)%(S*.8),tw=.35+.3*Math.sin(t*1.3+seed);
+    ctx.fillStyle='rgba(255,255,255,'+tw.toFixed(3)+')';ctx.beginPath();ctx.arc(x+1,y+1,1,0,6.2832);ctx.fill();}
+  for(var b=0;b<bands.length;b++){var c=bands[b][0],baseY=S*bands[b][1],amp=bands[b][2],sp=bands[b][3];
+    ctx.beginPath();
+    for(var px=0;px<=S;px+=2){var y=baseY+amp*Math.sin(px*K/34+t*sp)+amp*.5*Math.sin(px*K/13-t*sp*.7);
+      if(px===0)ctx.moveTo(0,y);else ctx.lineTo(px,y);}
+    ctx.save();ctx.lineTo(S,S);ctx.lineTo(0,S);ctx.closePath();
+    var cg=ctx.createLinearGradient(0,baseY-amp,0,baseY+70/K);cg.addColorStop(0,'rgba('+c+',.34)');cg.addColorStop(1,'rgba('+c+',0)');
+    ctx.fillStyle=cg;ctx.fill();ctx.restore();
+    ctx.beginPath();
+    for(var qx=0;qx<=S;qx+=2){var qy=baseY+amp*Math.sin(qx*K/34+t*sp)+amp*.5*Math.sin(qx*K/13-t*sp*.7);
+      if(qx===0)ctx.moveTo(0,qy);else ctx.lineTo(qx,qy);}
+    ctx.strokeStyle='rgba('+c+',.85)';ctx.lineWidth=2;ctx.stroke();}
+}
+var phases=(ph.getAttribute('data-phases')||'').split('|'),after=[0,3,6,10],CYCLE=14,W=bar.parentNode.clientWidth||190;
+function setPhase(i){if(ph.textContent===phases[i])return;ph.classList.add('fade');setTimeout(function(){ph.textContent=phases[i];ph.classList.remove('fade');},350);}
+if(reduce){draw(0);bar.style.width=Math.round(W*(1-Math.exp(-7/7)))+'px';return;}
+var started=null,last=0,running=false,raf=0;
+function frame(now){
+  if(!running)return;
+  raf=requestAnimationFrame(frame);
+  if(now-last<33)return;last=now;
+  if(started===null)started=now;
+  var t=now/1000,e=((now-started)/1000)%CYCLE;
+  draw(t);
+  var idx=0;for(var i=0;i<after.length;i++)if(after[i]<=e)idx=i;setPhase(idx);
+  bar.style.width=Math.max(8,W*(1-Math.exp(-e/7)))+'px';
+}
+function start(){if(running)return;running=true;raf=requestAnimationFrame(frame);}
+function stop(){running=false;cancelAnimationFrame(raf);}
+if('IntersectionObserver' in window){new IntersectionObserver(function(es){es[0].isIntersecting?start():stop();},{threshold:.1}).observe(cv);}else start();
+document.addEventListener('visibilitychange',function(){document.hidden?stop():start();});
+})();`
+
 export default function BoreaShell({ c }: { c: Copy }) {
   return (
     <>
@@ -407,6 +447,7 @@ export default function BoreaShell({ c }: { c: Copy }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(c)) }}
       />
       <div lang={c.htmlLang} dangerouslySetInnerHTML={{ __html: buildBody(c) }} />
+      <script dangerouslySetInnerHTML={{ __html: AURORA_JS }} />
     </>
   )
 }

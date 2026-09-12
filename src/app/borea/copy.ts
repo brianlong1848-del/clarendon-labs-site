@@ -42,7 +42,7 @@ export type Copy = {
   hero: { tagline: string; download: string; downloadNote: string }
   how: { eyebrow: string; h2: string; lede: string; steps: { h: string; p: string }[] }
   coach: {
-    eyebrow: string; h2: string; lede: string; orbCaption: string
+    eyebrow: string; h2: string; lede: string; orbCaption: string; phases: string[]
     you: string; borea: string; question: string; answer: string
   }
   features: { eyebrow: string; h2: string; cards: { ic: string; h: string; p: string }[] }
@@ -97,6 +97,7 @@ export const en: Copy = {
     h2: 'A coach, not a search box',
     lede: 'Borea reads what you actually ate and what your body actually did. It has opinions, it shows its working, and it would rather be honest than encouraging.',
     orbCaption: 'The coach, thinking',
+    phases: ['Reading your week…', 'Weighing today&rsquo;s macros…', 'Consulting your DEXA trend…', 'Writing back…'],
     you: 'You',
     borea: 'Borea',
     question: 'Why is my weight up when I hit my calories all week?',
@@ -200,6 +201,7 @@ export const fr: Copy = {
     h2: 'Un coach, pas une boîte de recherche',
     lede: 'Borea lit ce que vous avez réellement mangé et ce que votre corps a réellement fait. Elle a des opinions, elle montre son raisonnement, et elle préfère être honnête qu&rsquo;encourageante.',
     orbCaption: 'Le coach réfléchit',
+    phases: ['Lecture de votre semaine…', 'Évaluation des macros du jour…', 'Consultation de votre tendance DEXA…', 'Rédaction de la réponse…'],
     you: 'Vous',
     borea: 'Borea',
     question: 'Pourquoi mon poids monte alors que j&rsquo;ai respecté mes calories toute la semaine&nbsp;?',
