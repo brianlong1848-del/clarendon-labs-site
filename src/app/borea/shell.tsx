@@ -44,6 +44,7 @@ const STYLE = `
   .b-nav .links { display:flex; gap:24px; color:#9aa2bd; }
   .b-nav .links a:hover { color:#fff; }
   @media (max-width:640px){ .b-nav .links a.hide-sm { display:none; } }
+  @media (max-width:480px){ .b-nav .links a:not(.lang) { display:none; } }
 
   /* ---- Hero ---- */
   .b-hero { position:relative; z-index:1; text-align:center; padding:74px 0 56px; }
@@ -56,32 +57,49 @@ const STYLE = `
     background:rgba(34,197,94,.10); border:1px solid rgba(34,197,94,.38); backdrop-filter:blur(8px); }
   .b-pill .dot { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px #22c55e; animation:tw 2.4s ease-in-out infinite; }
 
-  /* ---- Phones ---- */
-  .b-phones { display:flex; justify-content:center; align-items:flex-end; gap:26px; padding:20px 0 4px; perspective:1400px; }
-  .b-phone { width:230px; border-radius:38px; padding:9px; background:linear-gradient(160deg,rgba(255,255,255,.20),rgba(255,255,255,.04));
-    box-shadow:0 40px 90px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.07); }
-  .b-phone img { display:block; width:100%; border-radius:30px; }
-  .b-phone.side { width:200px; opacity:.85; }
-  .b-phone.l { transform:rotateY(15deg) translateY(16px); }
-  .b-phone.r { transform:rotateY(-15deg) translateY(16px); }
-  @media (max-width:820px){ .b-phone.side { display:none; } }
+  /* ---- Phones ----------------------------------------------------------
+     Real screenshots from the app, in a thin frame. The frame is deliberately
+     plain — no notch, no buttons drawn on — because the screenshot already
+     carries the iPhone chrome and a second layer of it reads as a mockup
+     kit. The side phones are lower and tilted, so the eye lands on Today. */
+  .b-phones { display:flex; justify-content:center; align-items:flex-end; gap:22px; padding:54px 0 0; perspective:1600px; }
+  .b-phone { width:250px; border-radius:40px; padding:8px; background:linear-gradient(160deg,rgba(255,255,255,.18),rgba(255,255,255,.03));
+    box-shadow:0 50px 110px -34px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.08), 0 0 90px -20px rgba(0,194,255,.35); }
+  .b-phone img { display:block; width:100%; height:auto; border-radius:32px; }
+  .b-phone.side { width:214px; opacity:.82; }
+  .b-phone.l { transform:rotateY(14deg) translateY(28px); }
+  .b-phone.r { transform:rotateY(-14deg) translateY(28px); }
+  @media (max-width:820px){ .b-phone.side { display:none; } .b-phones { padding-top:40px; } .b-phone { width:230px; } }
+  .b-hero { padding-bottom:64px; }
 
-  /* ---- Cards ---- */
-  .b-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
-  .b-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
-  @media (max-width:880px){ .b-grid, .b-steps { grid-template-columns:1fr; } }
-  .b-card, .b-step { position:relative; border-radius:22px; padding:26px; overflow:hidden;
-    background:linear-gradient(165deg,rgba(255,255,255,.075),rgba(255,255,255,.025));
-    border:1px solid rgba(255,255,255,.10); backdrop-filter:blur(14px);
-    transition:transform .25s ease, border-color .25s ease; }
-  .b-card::before, .b-step::before { content:''; position:absolute; inset:0 0 auto 0; height:1px;
-    background:linear-gradient(90deg,transparent,rgba(0,194,255,.65),rgba(34,197,94,.55),transparent); opacity:.75; }
-  .b-card:hover, .b-step:hover { transform:translateY(-3px); border-color:rgba(0,194,255,.32); }
-  .b-card h3, .b-step h3 { margin:0 0 8px; font-size:18px; font-weight:700; letter-spacing:-0.02em; }
-  .b-card p, .b-step p { margin:0; font-size:14.5px; line-height:1.6; color:#a6adc6; }
-  .b-card .ic { font-size:25px; margin-bottom:14px; display:block; }
-  .b-step .n { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:10px; font-size:14px; font-weight:800; margin-bottom:14px;
+  /* ---- Two-column sections: text beside a phone ---- */
+  .b-split { display:grid; grid-template-columns:1.1fr .9fr; gap:48px; align-items:center; }
+  .b-split.flip { grid-template-columns:.9fr 1.1fr; }
+  .b-split.flip > :first-child { order:2; }
+  @media (max-width:880px){ .b-split, .b-split.flip { grid-template-columns:1fr; gap:30px; } .b-split.flip > :first-child { order:0; } }
+  .b-split .b-phone { margin:0 auto; width:260px; }
+  .b-split .b-phone.wide { width:280px; }
+  @media (max-width:880px){ .b-split .b-phone, .b-split .b-phone.wide { width:230px; } }
+
+  /* ---- Steps: a rail, not three cards ---- */
+  .b-steps { display:flex; flex-direction:column; }
+  .b-step { position:relative; display:grid; grid-template-columns:44px 1fr; gap:16px; padding:20px 0; border-top:1px solid rgba(255,255,255,.09); }
+  .b-step:first-child { border-top:none; padding-top:4px; }
+  .b-step h3 { margin:0 0 6px; font-size:18px; font-weight:700; letter-spacing:-0.02em; }
+  .b-step p { margin:0; font-size:15px; line-height:1.6; color:#a6adc6; max-width:48ch; }
+  .b-step .n { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:11px; font-size:14px; font-weight:800; margin-top:1px;
     background:linear-gradient(140deg,rgba(0,194,255,.28),rgba(34,197,94,.20)); color:#bfe9ff; border:1px solid rgba(0,194,255,.32); }
+
+  /* ---- Features: rows with a glyph, two columns ---- */
+  .b-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:0 44px; }
+  @media (max-width:760px){ .b-grid { grid-template-columns:1fr; } }
+  .b-card { display:grid; grid-template-columns:34px 1fr; gap:16px; padding:22px 0; border-top:1px solid rgba(255,255,255,.09); }
+  .b-grid .b-card:nth-child(-n+2) { border-top:none; padding-top:6px; }
+  @media (max-width:760px){ .b-grid .b-card:nth-child(2) { border-top:1px solid rgba(255,255,255,.09); padding-top:22px; } }
+  .b-card h3 { margin:0 0 6px; font-size:18px; font-weight:700; letter-spacing:-0.02em; }
+  .b-card p { margin:0; font-size:15px; line-height:1.6; color:#a6adc6; }
+  .b-card .ic { width:30px; height:30px; margin-top:1px; color:#7ef0c9; }
+  .b-card .ic svg { width:30px; height:30px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 
   /* ---- Coach ---- */
   .b-coach { display:grid; grid-template-columns:230px 1fr; gap:34px; align-items:center; }
@@ -172,6 +190,20 @@ const STARS = Array.from({ length: 46 }, (_, i) => {
   return `<i style="top:${y}%;left:${x}%;animation-delay:${d}s"></i>`
 }).join('')
 
+// Feature glyphs. Line drawings in the accent, one stroke weight, no
+// coloured tile behind them. Emoji were here before: a microphone, a camera,
+// a test tube, a calendar, a clapperboard, a milky way — the same six emoji
+// every generated landing page reaches for.
+const ICONS: Record<string, string> = {
+  mic: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>`,
+  scan: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 9v6M11 9v6M14 9v6M16.5 9v6"/></svg>`,
+  dexa: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M8 21l4-8 4 8M7 10l5 3 5-3"/></svg>`,
+  plan: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4M8 15l2.5 2.5L16 12"/></svg>`,
+  sun: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>`,
+  reel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4M10.5 9.5v5l4-2.5z"/></svg>`,
+  aurora: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-4 5-4 8 0s5 4 10-1M3 10c3-4 5-4 8 0s5 4 10-1"/><circle cx="6" cy="5" r=".6"/><circle cx="16" cy="4" r=".6"/></svg>`,
+}
+
 // Apple's mark, inlined so the button needs no network request and no asset.
 const APPLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.36 12.78c.02-2.4 1.96-3.55 2.05-3.6-1.12-1.63-2.86-1.86-3.48-1.89-1.48-.15-2.89.87-3.64.87-.75 0-1.91-.85-3.14-.83-1.61.02-3.1.94-3.93 2.38-1.68 2.91-.43 7.22 1.2 9.58.8 1.16 1.75 2.46 3 2.41 1.21-.05 1.66-.78 3.12-.78 1.46 0 1.87.78 3.14.76 1.3-.02 2.12-1.18 2.91-2.34.92-1.34 1.3-2.64 1.32-2.71-.03-.01-2.53-.97-2.55-3.85zM14.0 5.8c.66-.8 1.11-1.91.99-3.02-.95.04-2.11.64-2.8 1.43-.61.7-1.15 1.83-1.01 2.91 1.07.08 2.15-.54 2.82-1.32z"/></svg>`
 
@@ -185,11 +217,11 @@ function buildBody(c: Copy) {
     .join('')
 
   const steps = c.how.steps
-    .map((s, i) => `<div class="b-step"><span class="n">${i + 1}</span><h3>${s.h}</h3><p>${s.p}</p></div>`)
+    .map((s, i) => `<div class="b-step"><span class="n">${i + 1}</span><div><h3>${s.h}</h3><p>${s.p}</p></div></div>`)
     .join('')
 
   const cards = c.features.cards
-    .map((f) => `<div class="b-card"><span class="ic">${f.ic}</span><h3>${f.h}</h3><p>${f.p}</p></div>`)
+    .map((f) => `<div class="b-card"><span class="ic">${ICONS[f.ic] ?? ''}</span><div><h3>${f.h}</h3><p>${f.p}</p></div></div>`)
     .join('')
 
   return `
@@ -216,6 +248,11 @@ function buildBody(c: Copy) {
       <p class="tag">${c.hero.tagline}</p>
       ${downloadButton(c.hero.download)}
       <p class="b-dl-note">${c.hero.downloadNote}</p>
+      <div class="b-phones">
+        <div class="b-phone side l"><img src="/borea/brief.webp" alt="${c.shots.brief}" width="640" height="1391" loading="eager"/></div>
+        <div class="b-phone"><img src="/borea/today.webp" alt="${c.shots.today}" width="640" height="1391" loading="eager" fetchpriority="high"/></div>
+        <div class="b-phone side r"><img src="/borea/trends.webp" alt="${c.shots.trends}" width="640" height="1391" loading="eager"/></div>
+      </div>
     </div>
   </header>
 
@@ -225,7 +262,10 @@ function buildBody(c: Copy) {
         <p class="b-eyebrow">${c.how.eyebrow}</p>
         <h2>${c.how.h2}</h2>
         <p class="lede">${c.how.lede}</p>
-        <div class="b-steps">${steps}</div>
+        <div class="b-split">
+          <div class="b-steps">${steps}</div>
+          <div class="b-phone"><img src="/borea/log.webp" alt="${c.shots.log}" width="640" height="1391" loading="lazy"/></div>
+        </div>
       </div>
     </section>
 
@@ -262,6 +302,19 @@ function buildBody(c: Copy) {
         <p class="b-eyebrow">${c.features.eyebrow}</p>
         <h2>${c.features.h2}</h2>
         <div class="b-grid">${cards}</div>
+      </div>
+    </section>
+
+    <section class="b-sec">
+      <div class="b-wrap">
+        <div class="b-split flip">
+          <div class="b-phone wide"><img src="/borea/widgets.webp" alt="${c.shots.widgets}" width="640" height="1391" loading="lazy"/></div>
+          <div>
+            <p class="b-eyebrow">${c.widgets.eyebrow}</p>
+            <h2>${c.widgets.h2}</h2>
+            <p class="lede" style="margin-bottom:0">${c.widgets.lede}</p>
+          </div>
+        </div>
       </div>
     </section>
 

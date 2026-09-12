@@ -46,6 +46,11 @@ export type Copy = {
     you: string; borea: string; question: string; answer: string
   }
   features: { eyebrow: string; h2: string; cards: { ic: string; h: string; p: string }[] }
+  // Alt text for the real screenshots. Written as what the screen shows,
+  // not "screenshot of…", so a screen reader gets the same content a sighted
+  // visitor does.
+  shots: { today: string; brief: string; trends: string; log: string; widgets: string }
+  widgets: { eyebrow: string; h2: string; lede: string }
   privacy: { eyebrow: string; h2: string; lede: string; cta: string; href: string }
   pricing: {
     eyebrow: string; h2: string; lede: string
@@ -102,13 +107,25 @@ export const en: Copy = {
     eyebrow: 'Features',
     h2: 'What&rsquo;s in it',
     cards: [
-      { ic: '&#127908;', h: 'Say it, it&rsquo;s logged', p: '&ldquo;Two eggs, sourdough toast, and the same Greek yogurt bar I had yesterday.&rdquo; Borea works out the macros &mdash; grams weighed, sodium included.' },
-      { ic: '&#128247;', h: 'Scan &amp; weigh', p: 'Barcodes, photos of plates, and weighed portions in grams or ounces. Serving math is handled for you, every place you log.' },
-      { ic: '&#129514;', h: 'DEXA-aware', p: 'Sync body-composition scans and watch fat and lean mass move separately, so the advice protects muscle instead of chasing the scale.' },
-      { ic: '&#128197;', h: 'Plans with a spine', p: 'Pick a target and a date. If the maths doesn&rsquo;t work Borea says so, with humour, and offers the date that does &mdash; or the result that date can actually deliver.' },
-      { ic: '&#127909;', h: 'Transformation reels', p: 'Progress photos are body-aligned with Vision, then played back as a morph you can export as a GIF to text or a 9:16 video for Reels and TikTok.' },
-      { ic: '&#127756;', h: 'Northern-lights widgets', p: 'Water bottles that fill, protein batteries that charge, and a weight-journey arc &mdash; all glowing on an aurora night sky.' },
+      { ic: 'mic', h: 'Say it, it&rsquo;s logged', p: '&ldquo;Two eggs, sourdough toast, and the same Greek yogurt bar I had yesterday.&rdquo; Borea works out the macros &mdash; grams weighed, sodium included.' },
+      { ic: 'scan', h: 'Scan &amp; weigh', p: 'Barcodes, photos of plates, and weighed portions in grams or ounces. Serving math is handled for you, every place you log.' },
+      { ic: 'dexa', h: 'DEXA-aware', p: 'Sync body-composition scans and watch fat and lean mass move separately, so the advice protects muscle instead of chasing the scale.' },
+      { ic: 'plan', h: 'Plans with a spine', p: 'Pick a target and a date. If the maths doesn&rsquo;t work Borea says so, with humour, and offers the date that does &mdash; or the result that date can actually deliver.' },
+      { ic: 'reel', h: 'Transformation reels', p: 'Progress photos are body-aligned with Vision, then played back as a morph you can export as a GIF to text or a 9:16 video for Reels and TikTok.' },
+      { ic: 'sun', h: 'A brief every morning', p: 'Before you eat, the coach reads yesterday, your weigh-in and what today is for, and writes three lines: what to hit, what to skip, and why. Peak week, travel day, rest day &mdash; it changes.' },
     ],
+  },
+  shots: {
+    today: 'Borea&rsquo;s Today screen: the aurora calorie ring reading 200 kcal left, protein, carbs and fat bars beneath it, and a Coach&rsquo;s brief.',
+    brief: 'The Coach&rsquo;s brief on a peak-week day: taper water, keep food familiar, with dos and avoids listed.',
+    trends: 'The Trends screen: body fat 18.2%, down 3.0 points since November, above lean-mass and fat-mass tiles.',
+    log: 'The Log a meal screen with the aurora microphone, ready to hear what you ate.',
+    widgets: 'An iPhone Home Screen with Borea&rsquo;s aurora widgets: the calorie ring, a protein battery, and a water bottle filling.',
+  },
+  widgets: {
+    eyebrow: 'Widgets',
+    h2: 'The sky, on your Home Screen',
+    lede: 'A water bottle that fills as you drink, a protein battery that charges through the day, and the calorie ring &mdash; each one a glance, none of them a chore. They read the same numbers as the app, so what the widget says is what the coach knows.',
   },
   privacy: {
     eyebrow: 'Privacy',
@@ -193,13 +210,25 @@ export const fr: Copy = {
     eyebrow: 'Fonctions',
     h2: 'Ce qu&rsquo;il y a dedans',
     cards: [
-      { ic: '&#127908;', h: 'Dites-le, c&rsquo;est enregistré', p: '&laquo;&nbsp;Deux œufs, une rôtie au levain, et la même barre de yogourt grec qu&rsquo;hier.&nbsp;&raquo; Borea calcule les macros &mdash; grammes pesés, sodium inclus.' },
-      { ic: '&#128247;', h: 'Scannez et pesez', p: 'Codes-barres, photos d&rsquo;assiettes, et portions pesées en grammes ou en onces. Le calcul des portions est fait pour vous, partout où vous enregistrez.' },
-      { ic: '&#129514;', h: 'Pensée pour le DEXA', p: 'Synchronisez vos scans de composition corporelle et voyez le gras et la masse maigre bouger séparément, pour que les conseils protègent le muscle au lieu de courir après la balance.' },
-      { ic: '&#128197;', h: 'Des plans avec une colonne', p: 'Choisissez une cible et une date. Si le calcul ne tient pas, Borea le dit, avec humour, et propose la date qui fonctionne &mdash; ou le résultat que cette date peut réellement donner.' },
-      { ic: '&#127909;', h: 'Séquences de transformation', p: 'Les photos de progression sont alignées sur le corps avec Vision, puis rejouées en fondu que vous pouvez exporter en GIF à envoyer par message, ou en vidéo 9:16 pour les Reels et TikTok.' },
-      { ic: '&#127756;', h: 'Widgets aurore boréale', p: 'Des bouteilles d&rsquo;eau qui se remplissent, des piles de protéines qui se chargent, et un arc du parcours de poids &mdash; le tout éclairé sur un ciel d&rsquo;aurore.' },
+      { ic: 'mic', h: 'Dites-le, c&rsquo;est enregistré', p: '&laquo;&nbsp;Deux œufs, une rôtie au levain, et la même barre de yogourt grec qu&rsquo;hier.&nbsp;&raquo; Borea calcule les macros &mdash; grammes pesés, sodium inclus.' },
+      { ic: 'scan', h: 'Scannez et pesez', p: 'Codes-barres, photos d&rsquo;assiettes, et portions pesées en grammes ou en onces. Le calcul des portions est fait pour vous, partout où vous enregistrez.' },
+      { ic: 'dexa', h: 'Pensée pour le DEXA', p: 'Synchronisez vos scans de composition corporelle et voyez le gras et la masse maigre bouger séparément, pour que les conseils protègent le muscle au lieu de courir après la balance.' },
+      { ic: 'plan', h: 'Des plans avec une colonne', p: 'Choisissez une cible et une date. Si le calcul ne tient pas, Borea le dit, avec humour, et propose la date qui fonctionne &mdash; ou le résultat que cette date peut réellement donner.' },
+      { ic: 'reel', h: 'Séquences de transformation', p: 'Les photos de progression sont alignées sur le corps avec Vision, puis rejouées en fondu que vous pouvez exporter en GIF à envoyer par message, ou en vidéo 9:16 pour les Reels et TikTok.' },
+      { ic: 'sun', h: 'Un brief chaque matin', p: 'Avant de manger, le coach relit la veille, votre pesée et ce que la journée demande, puis écrit trois lignes&nbsp;: quoi viser, quoi éviter, et pourquoi. Semaine de pointe, jour de voyage, jour de repos &mdash; ça change.' },
     ],
+  },
+  shots: {
+    today: 'L&rsquo;écran Aujourd&rsquo;hui de Borea&nbsp;: l&rsquo;anneau de calories aurore indiquant 200 kcal restantes, les barres de protéines, glucides et lipides en dessous, et le brief du coach.',
+    brief: 'Le brief du coach un jour de semaine de pointe&nbsp;: réduire l&rsquo;eau, garder des aliments familiers, avec les choses à faire et à éviter.',
+    trends: 'L&rsquo;écran Tendances&nbsp;: 18,2&nbsp;% de gras corporel, en baisse de 3,0 points depuis novembre, au-dessus des tuiles de masse maigre et de masse grasse.',
+    log: 'L&rsquo;écran Enregistrer un repas avec le micro aurore, prêt à entendre ce que vous avez mangé.',
+    widgets: 'Un écran d&rsquo;accueil d&rsquo;iPhone avec les widgets aurore de Borea&nbsp;: l&rsquo;anneau de calories, une pile de protéines et une bouteille d&rsquo;eau qui se remplit.',
+  },
+  widgets: {
+    eyebrow: 'Widgets',
+    h2: 'Le ciel, sur votre écran d&rsquo;accueil',
+    lede: 'Une bouteille d&rsquo;eau qui se remplit à mesure que vous buvez, une pile de protéines qui se charge au fil de la journée, et l&rsquo;anneau de calories &mdash; chacun un coup d&rsquo;œil, aucun une corvée. Ils lisent les mêmes chiffres que l&rsquo;appli, alors ce que dit le widget, le coach le sait.',
   },
   privacy: {
     eyebrow: 'Confidentialité',
