@@ -19,7 +19,14 @@ export async function fetchInstagram(igAccountId?: string): Promise<InstagramMet
       `${base}/${igAccountId}?fields=followers_count,media_count&access_token=${token}`,
       { cache: 'no-store', signal: AbortSignal.timeout(8000) },
     )
-    if (!profileRes.ok) return null
+    if (!profileRes.ok) {
+      // Surface Meta's reason in Vercel's runtime logs (never the token itself):
+      // expired token, missing permission, or a Page id where an IG id belongs.
+      const err = await profileRes.json().catch(() => null)
+      console.error(`[instagram] ${igAccountId}: HTTP ${profileRes.status}`,
+        err?.error ? `${err.error.type ?? ''} ${err.error.code ?? ''}/${err.error.error_subcode ?? ''} ${err.error.message ?? ''}` : '')
+      return null
+    }
     const profile = await profileRes.json()
 
     let reach30d: number | null = null
@@ -44,7 +51,8 @@ export async function fetchInstagram(igAccountId?: string): Promise<InstagramMet
       posts: profile.media_count ?? 0,
       reach30d,
     }
-  } catch {
+  } catch (e) {
+    console.error(`[instagram] ${igAccountId}: request failed`, e instanceof Error ? e.message : '')
     return null
   }
 }

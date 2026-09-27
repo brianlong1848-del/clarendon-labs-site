@@ -21,6 +21,7 @@ type AppStoreMetrics = {
   last30: StoreTally & { days: number }
   otherCurrencies: string[]
   series: { date: string; installs: number; proceeds: number }[]
+  countries?: { code: string; installs: number; proceeds: number }[]
 } | null
 type InstagramMetrics = { followers: number; posts: number; reach30d: number | null } | null
 type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
@@ -205,6 +206,15 @@ export default function AnalyticsPage() {
                     <p style={{ fontSize: 11.5, color: C.soft, marginTop: 10, lineHeight: 1.5 }}>
                       {app.appStore.reportDate}: {num(app.appStore.day.installs)} new ·{' '}
                       {num(app.appStore.day.redownloads)} re-downloads · {num(app.appStore.day.updates)} updates
+                      {(() => {
+                        const cs = app.appStore.countries ?? []
+                        const total = cs.reduce((n, c) => n + c.installs, 0)
+                        if (!total) return null
+                        const regions = typeof Intl.DisplayNames === 'function'
+                          ? new Intl.DisplayNames(['en'], { type: 'region' }) : null
+                        return <><br />Top countries (30d): {cs.slice(0, 3).map((c) =>
+                          `${regions?.of(c.code) ?? c.code} ${Math.round((c.installs / total) * 100)}%`).join(' · ')}</>
+                      })()}
                       {app.appStore.otherCurrencies.length > 0 &&
                         <><br />USD only — also sold in {app.appStore.otherCurrencies.join(', ')}</>}
                     </p>

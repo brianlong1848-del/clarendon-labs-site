@@ -51,6 +51,7 @@ type Row = {
   units: number
   proceeds: number // per unit
   currency: string
+  country: string // storefront, ISO 3166-1 alpha-2 (e.g. "US")
 }
 
 export type AppStoreMetrics = {
@@ -62,6 +63,8 @@ export type AppStoreMetrics = {
   last30: { installs: number; redownloads: number; updates: number; proceeds: number; days: number }
   /** Non-USD proceeds currencies seen in the window (not included in proceeds). */
   otherCurrencies: string[]
+  /** Last-30-day installs and USD proceeds by storefront country, most installs first. */
+  countries: { code: string; installs: number; proceeds: number }[]
   /** One point per published day in the window, oldest first — for charts. */
   series: { date: string; installs: number; proceeds: number }[]
 } | null
@@ -125,6 +128,7 @@ async function fetchDay(date: string, jwt: string, vendor: string): Promise<DayR
     const at = (name: string) => cols.indexOf(name)
     const iId = at('Apple Identifier'), iParent = at('Parent Identifier'), iType = at('Product Type Identifier')
     const iUnits = at('Units'), iProceeds = at('Developer Proceeds'), iCur = at('Currency of Proceeds')
+    const iCountry = at('Country Code')
     if (iId === -1 || iUnits === -1 || iType === -1) return 'error'
 
     return lines.map((line) => {
@@ -136,6 +140,7 @@ async function fetchDay(date: string, jwt: string, vendor: string): Promise<DayR
         units: Number(c[iUnits] ?? 0) || 0,
         proceeds: iProceeds === -1 ? 0 : Number(c[iProceeds] ?? 0) || 0,
         currency: iCur === -1 ? 'USD' : (c[iCur] ?? '').trim(),
+        country: iCountry === -1 ? '' : (c[iCountry] ?? '').trim().toUpperCase(),
       }
     })
   } catch {
@@ -183,23 +188,32 @@ function getSku(appleAppId: string, jwt: string): Promise<string | null> {
 
 // ─── Tally ───────────────────────────────────────────────────────────────────
 
-function tally(rows: Row[], appleAppId: string, sku: string | null, other: Set<string>) {
+type CountryTotals = Map<string, { installs: number; proceeds: number }>
+
+function tally(rows: Row[], appleAppId: string, sku: string | null, other: Set<string>,
+               countries?: CountryTotals) {
   const t = { installs: 0, redownloads: 0, updates: 0, proceeds: 0 }
   for (const r of rows) {
     const isApp = r.appleId === appleAppId
     const isChild = !!sku && r.parent === sku && !isApp
     if (!isApp && !isChild) continue
 
-    if (isApp) {
-      if (INSTALL.has(r.type)) t.installs += r.units
-      else if (REDOWNLOAD.has(r.type)) t.redownloads += r.units
-      else if (UPDATE.has(r.type)) t.updates += r.units
-    }
+    const install = isApp && INSTALL.has(r.type)
+    if (install) t.installs += r.units
+    else if (isApp && REDOWNLOAD.has(r.type)) t.redownloads += r.units
+    else if (isApp && UPDATE.has(r.type)) t.updates += r.units
 
     const amount = r.units * r.proceeds
-    if (amount === 0) continue
-    if (r.currency === 'USD') t.proceeds += amount
-    else if (r.currency) other.add(r.currency)
+    const usd = r.currency === 'USD' ? amount : 0
+    if (amount !== 0 && r.currency !== 'USD' && r.currency) other.add(r.currency)
+    t.proceeds += usd
+
+    if (countries && r.country && (install || usd !== 0)) {
+      const c = countries.get(r.country) ?? { installs: 0, proceeds: 0 }
+      if (install) c.installs += r.units
+      c.proceeds += usd
+      countries.set(r.country, c)
+    }
   }
   return t
 }
@@ -227,6 +241,7 @@ export async function fetchAppStore(appleAppId: string): Promise<AppStoreMetrics
   if (window.some((d) => d === 'error')) return null // partial data would read as a real dip
 
   const other = new Set<string>()
+  const byCountry: CountryTotals = new Map()
   const latest = tally(window[0] as Row[], appleAppId, sku, other)
   const sum = { installs: 0, redownloads: 0, updates: 0, proceeds: 0 }
   const series: { date: string; installs: number; proceeds: number }[] = []
@@ -236,7 +251,7 @@ export async function fetchAppStore(appleAppId: string): Promise<AppStoreMetrics
       series.push({ date, installs: 0, proceeds: 0 }) // a real zero-sales day
       return
     }
-    const t = tally(d, appleAppId, sku, other)
+    const t = tally(d, appleAppId, sku, other, byCountry)
     sum.installs += t.installs
     sum.redownloads += t.redownloads
     sum.updates += t.updates
@@ -251,5 +266,8 @@ export async function fetchAppStore(appleAppId: string): Promise<AppStoreMetrics
     last30: { ...sum, proceeds: round2(sum.proceeds), days: window.length },
     otherCurrencies: Array.from(other).sort(),
     series,
+    countries: Array.from(byCountry, ([code, v]) => ({ code, installs: v.installs, proceeds: round2(v.proceeds) }))
+      .filter((c) => c.installs > 0 || c.proceeds > 0)
+      .sort((a, b) => b.installs - a.installs || b.proceeds - a.proceeds),
   }
 }
