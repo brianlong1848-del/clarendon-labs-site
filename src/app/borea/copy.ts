@@ -9,7 +9,7 @@
 // not machine French dressed up, and it should not be edited into France
 // French — "souper" is deliberate.
 
-export const APP_STORE_URL = 'https://apps.apple.com/app/id6799219647'
+export const APP_STORE_URL = 'https://apps.apple.com/us/app/borea/id6799219647'
 
 // Absolute rather than relative, because this page is served from two hosts:
 // boreaapp.com (via rewrites in next.config.mjs) and clarendon.dev/borea. A

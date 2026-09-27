@@ -176,6 +176,10 @@ const STYLE = `
   .b-dl-note { margin:14px 0 0; font-size:13.5px; color:#8f97b4; }
   .b-cta .b-dl { margin-top:4px; }
   @media (prefers-reduced-motion: reduce) { .b-dl { transition:none; } .b-dl:hover { transform:none; } }
+  .b-badge { display:inline-block; line-height:0; margin-top:30px; transition:opacity .2s ease; }
+  .b-badge img { height:40px; width:auto; display:block; }
+  .b-badge:hover { opacity:.85; }
+  .b-cta .b-badge { margin-top:4px; }
 `
 
 const STARS = Array.from({ length: 46 }, (_, i) => {
@@ -201,10 +205,11 @@ const ICONS: Record<string, string> = {
 }
 
 // Apple's mark, inlined so the button needs no network request and no asset.
-const APPLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.36 12.78c.02-2.4 1.96-3.55 2.05-3.6-1.12-1.63-2.86-1.86-3.48-1.89-1.48-.15-2.89.87-3.64.87-.75 0-1.91-.85-3.14-.83-1.61.02-3.1.94-3.93 2.38-1.68 2.91-.43 7.22 1.2 9.58.8 1.16 1.75 2.46 3 2.41 1.21-.05 1.66-.78 3.12-.78 1.46 0 1.87.78 3.14.76 1.3-.02 2.12-1.18 2.91-2.34.92-1.34 1.3-2.64 1.32-2.71-.03-.01-2.53-.97-2.55-3.85zM14.0 5.8c.66-.8 1.11-1.91.99-3.02-.95.04-2.11.64-2.8 1.43-.61.7-1.15 1.83-1.01 2.91 1.07.08 2.15-.54 2.82-1.32z"/></svg>`
-
-function downloadButton(label: string) {
-  return `<a class="b-dl" href="${APP_STORE_URL}">${APPLE}${label}</a>`
+function downloadButton(label: string, c: Copy) {
+  const badge = c.htmlLang.startsWith('fr')
+    ? '/assets/app-store-badge-fr.svg'
+    : '/assets/app-store-badge.svg'
+  return `<a class="b-badge" href="${APP_STORE_URL}" aria-label="${label}"><img src="${badge}" alt="${label}" width="120" height="40" /></a>`
 }
 
 function buildBody(c: Copy) {
@@ -242,7 +247,7 @@ function buildBody(c: Copy) {
       <img class="icon" src="/icons/borea.png" alt="Borea" width="104" height="104"/>
       <h1>Borea<span class="stop">.</span></h1>
       <p class="tag">${c.hero.tagline}</p>
-      ${downloadButton(c.hero.download)}
+      ${downloadButton(c.hero.download, c)}
       <p class="b-dl-note">${c.hero.downloadNote}</p>
       <div class="b-phones">
         <div class="b-phone side l"><img src="${c.shotDir}/brief.webp" alt="${c.shots.brief}" width="640" height="1391" loading="eager"/></div>
@@ -340,7 +345,7 @@ function buildBody(c: Copy) {
     <section class="b-cta">
       <div class="b-wrap">
         <p class="note">${c.cta.note}</p>
-        ${downloadButton(c.cta.download)}
+        ${downloadButton(c.cta.download, c)}
         <p class="b-dl-note"><a href="${c.cta.contactHref}">${c.cta.contact}</a></p>
       </div>
     </section>
