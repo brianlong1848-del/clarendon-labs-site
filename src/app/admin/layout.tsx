@@ -5,6 +5,13 @@ import type { Metadata } from 'next'
 export const metadata: Metadata = {
   title: 'Console — Clarendon Labs',
   robots: { index: false, follow: false, nocache: true },
+  icons: {
+    icon: [
+      { url: '/brand/clarendon-icon.svg', type: 'image/svg+xml' },
+      { url: '/brand/clarendon-favicon-32.png', sizes: '32x32', type: 'image/png' },
+    ],
+    apple: '/brand/clarendon-apple-touch-icon.png',
+  },
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

@@ -62,6 +62,8 @@ export type AppStoreMetrics = {
   last30: { installs: number; redownloads: number; updates: number; proceeds: number; days: number }
   /** Non-USD proceeds currencies seen in the window (not included in proceeds). */
   otherCurrencies: string[]
+  /** One point per published day in the window, oldest first — for charts. */
+  series: { date: string; installs: number; proceeds: number }[]
 } | null
 
 function signAppStoreJWT(): string | null {
@@ -227,19 +229,27 @@ export async function fetchAppStore(appleAppId: string): Promise<AppStoreMetrics
   const other = new Set<string>()
   const latest = tally(window[0] as Row[], appleAppId, sku, other)
   const sum = { installs: 0, redownloads: 0, updates: 0, proceeds: 0 }
-  for (const d of window) {
-    if (!Array.isArray(d)) continue
+  const series: { date: string; installs: number; proceeds: number }[] = []
+  window.forEach((d, i) => {
+    const date = dates[firstPublished + i]
+    if (!Array.isArray(d)) {
+      series.push({ date, installs: 0, proceeds: 0 }) // a real zero-sales day
+      return
+    }
     const t = tally(d, appleAppId, sku, other)
     sum.installs += t.installs
     sum.redownloads += t.redownloads
     sum.updates += t.updates
     sum.proceeds += t.proceeds
-  }
+    series.push({ date, installs: t.installs, proceeds: round2(t.proceeds) })
+  })
+  series.reverse()
 
   return {
     reportDate: dates[firstPublished],
     day: { ...latest, proceeds: round2(latest.proceeds) },
     last30: { ...sum, proceeds: round2(sum.proceeds), days: window.length },
     otherCurrencies: Array.from(other).sort(),
+    series,
   }
 }

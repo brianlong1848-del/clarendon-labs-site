@@ -49,10 +49,15 @@ export function AdminShell({ title, subtitle, actions, children }: {
       <aside style={{ width: 240, flexShrink: 0, background: C.card,
                       borderRight: `1px solid ${C.rule}`, boxSizing: 'border-box',
                       padding: '28px 18px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ padding: '0 10px', marginBottom: 30 }}>
-          <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.18em',
-                        textTransform: 'uppercase', color: C.soft }}>Clarendon Labs</div>
-          <div style={{ fontFamily: C.serif, fontSize: 21, fontWeight: 800, marginTop: 4 }}>Studio</div>
+        <div style={{ padding: '0 10px', marginBottom: 30, display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/clarendon-mark.svg" alt="Clarendon Labs" width={34} height={25}
+               style={{ display: 'block', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.18em',
+                          textTransform: 'uppercase', color: C.soft }}>Clarendon Labs</div>
+            <div style={{ fontFamily: C.serif, fontSize: 20, fontWeight: 800, marginTop: 1 }}>Studio</div>
+          </div>
         </div>
 
         <div style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em',

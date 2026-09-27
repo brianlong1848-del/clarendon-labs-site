@@ -20,6 +20,7 @@ type AppStoreMetrics = {
   day: StoreTally
   last30: StoreTally & { days: number }
   otherCurrencies: string[]
+  series: { date: string; installs: number; proceeds: number }[]
 } | null
 type InstagramMetrics = { followers: number; posts: number; reach30d: number | null } | null
 type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
