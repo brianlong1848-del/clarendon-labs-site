@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
+import { AdminShell, C, btn } from '@/components/AdminNav'
 
 // ─── /analytics — per-app data ───────────────────────────────────────────────
 //
@@ -19,16 +20,6 @@ type TikTokMetrics = { spend: number; impressions: number; clicks: number } | nu
 type AppRow = {
   id: string; name: string; accent: string
   appStore: AppStoreMetrics; instagram: InstagramMetrics; tiktok: TikTokMetrics
-}
-
-const C = {
-  paper: '#0B0D11', card: '#12151D', card2: '#161A24',
-  ink: '#EEF1F6', ink2: '#B7BDC9', soft: '#7E8595',
-  rule: 'rgba(255,255,255,.08)', rule2: 'rgba(255,255,255,.14)',
-  mint: '#53E6B4', amber: '#FBBF24', red: '#F0509A',
-  mono: "'IBM Plex Mono','SF Mono',Menlo,monospace",
-  sans: "'Archivo',-apple-system,'Helvetica Neue',Arial,sans-serif",
-  serif: "'Besley',Georgia,serif",
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -72,17 +63,10 @@ export default function AnalyticsPage() {
   }
 
   const input: React.CSSProperties = {
-    background: 'rgba(255,255,255,.04)', border: `1px solid ${C.rule2}`,
+    background: C.card2, border: `1px solid ${C.rule2}`,
     borderRadius: 10, padding: '12px 14px', color: C.ink,
     fontFamily: C.sans, fontSize: 15, width: '100%',
   }
-  const btn = (kind: 'solid' | 'ghost' | 'mint'): React.CSSProperties => ({
-    fontFamily: C.sans, fontWeight: 600, fontSize: 14, padding: '10px 18px',
-    borderRadius: 10, cursor: 'pointer', lineHeight: 1.2,
-    border: `1px solid ${kind === 'ghost' ? C.rule2 : 'transparent'}`,
-    background: kind === 'mint' ? C.mint : kind === 'solid' ? C.ink : 'rgba(255,255,255,.03)',
-    color: kind === 'ghost' ? C.ink : '#06251B',
-  })
   const label: React.CSSProperties = {
     fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em',
     textTransform: 'uppercase', color: C.soft,
@@ -98,6 +82,21 @@ export default function AnalyticsPage() {
   const notConnected = (what: string) => (
     <p style={{ fontSize: 13.5, color: C.soft }}>Not connected yet — needs {what}.</p>
   )
+
+  // Totals across every app — the first thing an owner looks for, ahead of
+  // any single app's breakdown. Only sums the sources that are actually
+  // connected, so a source nobody's wired up yet doesn't read as zero.
+  const totals = apps.reduce(
+    (acc, a) => ({
+      proceeds: acc.proceeds + (a.appStore?.proceeds ?? 0),
+      downloads: acc.downloads + (a.appStore?.downloads ?? 0),
+      spend: acc.spend + (a.tiktok?.spend ?? 0),
+      impressions: acc.impressions + (a.tiktok?.impressions ?? 0),
+    }),
+    { proceeds: 0, downloads: 0, spend: 0, impressions: 0 },
+  )
+  const anyAppStore = apps.some((a) => a.appStore)
+  const anyTikTok = apps.some((a) => a.tiktok)
 
   if (!authed) {
     return (
@@ -121,25 +120,58 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <main style={{ background: C.paper, minHeight: '100dvh', color: C.ink,
-                   fontFamily: C.sans, padding: '32px 20px 80px' }}>
-      <div style={{ maxWidth: 980, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-          <h1 style={{ fontFamily: C.serif, fontSize: 34, fontWeight: 900 }}>Analytics</h1>
-          <span style={{ ...label }}>
-            {loading ? 'refreshing…' : `${apps.length} app${apps.length === 1 ? '' : 's'}`}
-          </span>
-          <button style={{ ...btn('ghost'), marginLeft: 'auto' }} onClick={() => load(pw)}>
-            Refresh
-          </button>
-          <button style={btn('ghost')} onClick={() => {
-            sessionStorage.removeItem('clarendon:console'); setAuthed(false); setPw('')
-          }}>Sign out</button>
+    <AdminShell
+      title="Analytics"
+      subtitle="Revenue and growth across every Clarendon Labs app, in one place."
+      actions={<>
+        <span style={{ ...label }}>
+          {loading ? 'refreshing…' : `${apps.length} app${apps.length === 1 ? '' : 's'}`}
+        </span>
+        <button style={btn('ghost')} onClick={() => load(pw)}>Refresh</button>
+        <button style={btn('ghost')} onClick={() => {
+          sessionStorage.removeItem('clarendon:console'); setAuthed(false); setPw('')
+        }}>Sign out</button>
+      </>}
+    >
+        {error && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{error}</p>}
+
+        {/* Totals first — the number a business owner checks before any single
+            app's breakdown. Shown only once at least one source is connected. */}
+        {(anyAppStore || anyTikTok) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
+            {anyAppStore && (
+              <>
+                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
+                  <div style={label}>Total revenue</div>
+                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{money(totals.proceeds)}</div>
+                </div>
+                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
+                  <div style={label}>Total downloads</div>
+                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.downloads)}</div>
+                </div>
+              </>
+            )}
+            {anyTikTok && (
+              <>
+                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
+                  <div style={label}>Total ad spend</div>
+                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{money(totals.spend)}</div>
+                </div>
+                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
+                  <div style={label}>Total impressions</div>
+                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.impressions)}</div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontFamily: C.mono, fontSize: 11.5, letterSpacing: '.18em', textTransform: 'uppercase', color: C.soft }}>By app</span>
+          <span style={{ flex: 1, height: 1, background: C.rule }} />
         </div>
 
-        {error && <p style={{ color: C.soft, fontSize: 14, marginTop: 16 }}>{error}</p>}
-
-        <div style={{ display: 'grid', gap: 20, marginTop: 28 }}>
+        <div style={{ display: 'grid', gap: 20 }}>
           {apps.map((app) => (
             <section key={app.id} style={{ background: C.card, border: `1px solid ${C.rule}`,
                                             borderRadius: 16, padding: 24 }}>
@@ -200,7 +232,6 @@ export default function AnalyticsPage() {
             </section>
           ))}
         </div>
-      </div>
-    </main>
+    </AdminShell>
   )
 }

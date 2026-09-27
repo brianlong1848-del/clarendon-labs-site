@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
+import { AdminShell, C, btn } from '@/components/AdminNav'
 
 // ─── /admin — the studio console ─────────────────────────────────────────────
 //
@@ -28,16 +29,6 @@ const PACKS = [
   ['lesbian', 'Lesbian'], ['transenby', 'Dolls'],
 ] as const
 const TIERS = ['free', 'core', 'afterdark'] as const
-
-const C = {
-  paper: '#0B0D11', card: '#12151D', card2: '#161A24',
-  ink: '#EEF1F6', ink2: '#B7BDC9', soft: '#7E8595',
-  rule: 'rgba(255,255,255,.08)', rule2: 'rgba(255,255,255,.14)',
-  mint: '#53E6B4', amber: '#FBBF24', red: '#F0509A',
-  mono: "'IBM Plex Mono','SF Mono',Menlo,monospace",
-  sans: "'Archivo',-apple-system,'Helvetica Neue',Arial,sans-serif",
-  serif: "'Besley',Georgia,serif",
-}
 
 export default function ConsolePage() {
   const [pw, setPw] = useState('')
@@ -112,17 +103,10 @@ export default function ConsolePage() {
   }
 
   const input: React.CSSProperties = {
-    background: 'rgba(255,255,255,.04)', border: `1px solid ${C.rule2}`,
+    background: C.card2, border: `1px solid ${C.rule2}`,
     borderRadius: 10, padding: '12px 14px', color: C.ink,
     fontFamily: C.sans, fontSize: 15, width: '100%',
   }
-  const btn = (kind: 'solid' | 'ghost' | 'mint'): React.CSSProperties => ({
-    fontFamily: C.sans, fontWeight: 600, fontSize: 14, padding: '10px 18px',
-    borderRadius: 10, cursor: 'pointer', lineHeight: 1.2,
-    border: `1px solid ${kind === 'ghost' ? C.rule2 : 'transparent'}`,
-    background: kind === 'mint' ? C.mint : kind === 'solid' ? C.ink : 'rgba(255,255,255,.03)',
-    color: kind === 'ghost' ? C.ink : '#06251B',
-  })
 
   if (!authed) {
     return (
@@ -146,26 +130,23 @@ export default function ConsolePage() {
   }
 
   return (
-    <main style={{ background: C.paper, minHeight: '100dvh', color: C.ink,
-                   fontFamily: C.sans, padding: '32px 20px 80px' }}>
-      <div style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-          <h1 style={{ fontFamily: C.serif, fontSize: 34, fontWeight: 900 }}>Console</h1>
-          <span style={{ fontFamily: C.mono, fontSize: 12, letterSpacing: '.14em',
-                         textTransform: 'uppercase', color: C.soft }}>
-            {loading ? 'refreshing…' : `${apps.length} app${apps.length === 1 ? '' : 's'}`}
-          </span>
-          <button style={{ ...btn('ghost'), marginLeft: 'auto' }} onClick={() => load(pw)}>
-            Refresh
-          </button>
-          <button style={btn('ghost')} onClick={() => {
-            sessionStorage.removeItem('clarendon:console'); setAuthed(false); setPw('')
-          }}>Sign out</button>
-        </div>
-
-        {hint && <p style={{ color: C.soft, fontSize: 14, marginTop: 16 }}>{hint}</p>}
+    <AdminShell
+      title="Console"
+      subtitle="Run every Clarendon app's card queue from one place."
+      actions={<>
+        <span style={{ fontFamily: C.mono, fontSize: 12, letterSpacing: '.14em',
+                       textTransform: 'uppercase', color: C.soft }}>
+          {loading ? 'refreshing…' : `${apps.length} app${apps.length === 1 ? '' : 's'}`}
+        </span>
+        <button style={btn('ghost')} onClick={() => load(pw)}>Refresh</button>
+        <button style={btn('ghost')} onClick={() => {
+          sessionStorage.removeItem('clarendon:console'); setAuthed(false); setPw('')
+        }}>Sign out</button>
+      </>}
+    >
+        {hint && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{hint}</p>}
         {note && (
-          <p style={{ marginTop: 16, padding: 12, borderRadius: 10, fontSize: 14,
+          <p style={{ padding: 12, borderRadius: 10, fontSize: 14,
                       background: C.card, border: `1px solid ${C.rule}` }}>{note}</p>
         )}
 
@@ -292,7 +273,6 @@ export default function ConsolePage() {
             )}
           </section>
         ))}
-      </div>
-    </main>
+    </AdminShell>
   )
 }
