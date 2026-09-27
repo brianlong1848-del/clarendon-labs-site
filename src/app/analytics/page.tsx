@@ -14,7 +14,13 @@ import { AdminShell, C, btn } from '@/components/AdminNav'
 // what each data source needs — a source with nothing configured just shows
 // "Not connected yet" instead of breaking the page.
 
-type AppStoreMetrics = { downloads: number; proceeds: number; reportDate: string } | null
+type StoreTally = { installs: number; redownloads: number; updates: number; proceeds: number }
+type AppStoreMetrics = {
+  reportDate: string
+  day: StoreTally
+  last30: StoreTally & { days: number }
+  otherCurrencies: string[]
+} | null
 type InstagramMetrics = { followers: number; posts: number; reach30d: number | null } | null
 type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
 type AppRow = {
@@ -88,12 +94,12 @@ export default function AnalyticsPage() {
   // connected, so a source nobody's wired up yet doesn't read as zero.
   const totals = apps.reduce(
     (acc, a) => ({
-      proceeds: acc.proceeds + (a.appStore?.proceeds ?? 0),
-      downloads: acc.downloads + (a.appStore?.downloads ?? 0),
+      proceeds: acc.proceeds + (a.appStore?.last30.proceeds ?? 0),
+      installs: acc.installs + (a.appStore?.last30.installs ?? 0),
       spend: acc.spend + (a.tiktok?.spend ?? 0),
       impressions: acc.impressions + (a.tiktok?.impressions ?? 0),
     }),
-    { proceeds: 0, downloads: 0, spend: 0, impressions: 0 },
+    { proceeds: 0, installs: 0, spend: 0, impressions: 0 },
   )
   const anyAppStore = apps.some((a) => a.appStore)
   const anyTikTok = apps.some((a) => a.tiktok)
@@ -142,12 +148,12 @@ export default function AnalyticsPage() {
             {anyAppStore && (
               <>
                 <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>Total revenue</div>
+                  <div style={label}>Revenue · 30 days</div>
                   <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{money(totals.proceeds)}</div>
                 </div>
                 <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>Total downloads</div>
-                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.downloads)}</div>
+                  <div style={label}>New installs · 30 days</div>
+                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.installs)}</div>
                 </div>
               </>
             )}
@@ -188,15 +194,18 @@ export default function AnalyticsPage() {
                   <div style={label}>App Store</div>
                   {app.appStore ? (
                     <div style={{ display: 'flex', gap: 24, marginTop: 10 }}>
-                      {stat(num(app.appStore.downloads), 'downloads')}
-                      {stat(money(app.appStore.proceeds), 'proceeds')}
+                      {stat(num(app.appStore.last30.installs), 'installs · 30d')}
+                      {stat(money(app.appStore.last30.proceeds), 'proceeds · 30d')}
                     </div>
                   ) : (
                     <div style={{ marginTop: 10 }}>{notConnected('an App Store Connect API key')}</div>
                   )}
                   {app.appStore && (
-                    <p style={{ fontSize: 11.5, color: C.soft, marginTop: 10 }}>
-                      Day of {app.appStore.reportDate}
+                    <p style={{ fontSize: 11.5, color: C.soft, marginTop: 10, lineHeight: 1.5 }}>
+                      {app.appStore.reportDate}: {num(app.appStore.day.installs)} new ·{' '}
+                      {num(app.appStore.day.redownloads)} re-downloads · {num(app.appStore.day.updates)} updates
+                      {app.appStore.otherCurrencies.length > 0 &&
+                        <><br />USD only — also sold in {app.appStore.otherCurrencies.join(', ')}</>}
                     </p>
                   )}
                 </div>
