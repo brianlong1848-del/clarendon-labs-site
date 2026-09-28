@@ -17,7 +17,10 @@ let cache: { at: number; items: Raw[]; status: SourceStatus[] } | null = null
 
 async function gather(force = false) {
   if (!force && cache && Date.now() - cache.at < 45_000) return cache
-  const results = await Promise.all(ADAPTERS.map((a) => a.collect().catch((e) => ({ items: [] as Raw[], status: [{ source: a.source, label: a.label, connected: false, count: 0, reason: (e as Error).message }] }))))
+  type Collected = { items: Raw[]; status: SourceStatus[] }
+  const results: Collected[] = await Promise.all(ADAPTERS.map((a): Promise<Collected> => a.collect().catch((e): Collected => ({
+    items: [], status: [{ source: a.source, label: a.label, connected: false, count: 0, reason: (e as Error).message }],
+  }))))
   cache = { at: Date.now(), items: results.flatMap((r) => r.items), status: [...results.flatMap((r) => r.status), ...upcoming] }
   return cache
 }
