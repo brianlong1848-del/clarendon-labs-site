@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { AdminShell, C, btn } from '@/components/AdminNav'
 
@@ -24,10 +25,11 @@ type AppStoreMetrics = {
   countries?: { code: string; installs: number; proceeds: number }[]
 } | null
 type InstagramMetrics = { followers: number; posts: number; reach30d: number | null } | null
+type FacebookMetrics = { name: string; followers: number; posts30d: number | null } | null
 type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
 type AppRow = {
   id: string; name: string; accent: string
-  appStore: AppStoreMetrics; instagram: InstagramMetrics; tiktok: TikTokMetrics
+  appStore: AppStoreMetrics; instagram: InstagramMetrics; facebook?: FacebookMetrics; tiktok: TikTokMetrics
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -187,6 +189,8 @@ export default function AnalyticsPage() {
                 <span style={{ width: 8, height: 8, borderRadius: 99, background: app.accent,
                                boxShadow: `0 0 8px ${app.accent}` }} />
                 <h2 style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 800 }}>{app.name}</h2>
+                <span style={{ flex: 1 }} />
+                <Link href={`/analytics/${app.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 13 }}>Map & details →</Link>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
@@ -232,6 +236,19 @@ export default function AnalyticsPage() {
                     </div>
                   ) : (
                     <div style={{ marginTop: 10 }}>{notConnected('a Meta access token + account id')}</div>
+                  )}
+                </div>
+
+                <div style={{ background: C.card2, border: `1px solid ${C.rule}`,
+                             borderRadius: 12, padding: 16 }}>
+                  <div style={label}>Facebook</div>
+                  {app.facebook ? (
+                    <div style={{ display: 'flex', gap: 24, marginTop: 10, flexWrap: 'wrap' }}>
+                      {stat(num(app.facebook.followers), 'followers')}
+                      {app.facebook.posts30d != null && stat(num(app.facebook.posts30d), 'posts · 30d')}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 10 }}>{notConnected('its Instagram linked to a Facebook Page')}</div>
                   )}
                 </div>
 

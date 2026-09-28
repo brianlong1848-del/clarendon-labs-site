@@ -4,6 +4,7 @@ import { analyticsRegistry } from '@/lib/analytics/registry'
 import { fetchTikTok } from '@/lib/analytics/tiktok'
 import { fetchInstagram } from '@/lib/analytics/instagram'
 import { fetchAppStore } from '@/lib/analytics/appstore'
+import { fetchFacebook } from '@/lib/analytics/facebook'
 
 // ─── /api/analytics ──────────────────────────────────────────────────────────
 //
@@ -24,12 +25,13 @@ export async function GET(req: Request) {
   const apps = analyticsRegistry()
   const rows = await Promise.all(
     apps.map(async (app) => {
-      const [appStore, instagram, tiktok] = await Promise.all([
+      const [appStore, instagram, facebook, tiktok] = await Promise.all([
         fetchAppStore(app.appStoreId),
         fetchInstagram(app.instagramAccountId),
+        fetchFacebook(app.instagramAccountId),
         fetchTikTok(app.tiktokAdvertiserId),
       ])
-      return { id: app.id, name: app.name, accent: app.accent, appStore, instagram, tiktok }
+      return { id: app.id, name: app.name, accent: app.accent, appStore, instagram, facebook, tiktok }
     }),
   )
 
