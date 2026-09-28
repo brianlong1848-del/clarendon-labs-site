@@ -28,13 +28,18 @@ export type ConsoleApp = {
 
 /** Configured apps only. An app with no URL/token is simply absent from the
  *  console rather than rendering a broken panel. */
+const DEFS: Omit<ConsoleApp, 'baseUrl' | 'token'>[] = [
+  { id: 'gagorder', name: 'Gag Order', accent: '#F0509A' },
+  { id: 'rolligan', name: 'Rolligan', accent: '#F2814F' },
+  { id: 'yulepick', name: 'YulePick', accent: '#E8474C' },
+  { id: 'borea', name: 'Borea', accent: '#22D3C4' },
+]
+
+/** Every studio app, configured or not — for "connect this" placeholders. */
+export const allApps = () => DEFS.map((d) => ({ ...d }))
+
 export function registry(): ConsoleApp[] {
-  const defs: Omit<ConsoleApp, 'baseUrl' | 'token'>[] = [
-    { id: 'gagorder', name: 'Gag Order', accent: '#F0509A' },
-    { id: 'rolligan', name: 'Rolligan', accent: '#F2814F' },
-    { id: 'yulepick', name: 'YulePick', accent: '#E8474C' },
-    { id: 'borea', name: 'Borea', accent: '#22D3C4' },
-  ]
+  const defs = DEFS
   return defs
     .map((d) => ({
       ...d,

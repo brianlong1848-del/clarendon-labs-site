@@ -6,9 +6,9 @@
 
 import type { Adapter, InboxAction, InboxItem, SourceStatus } from './types'
 import { facebookComments, facebookMessages, instagramComments, instagramDMs } from './meta'
-import { appAdmin, appStoreReviews, upcoming } from './sources'
+import { appAdmin, appStoreReviews, inAppFeedback, upcoming } from './sources'
 
-export const ADAPTERS: Adapter[] = [instagramDMs, instagramComments, facebookMessages, facebookComments, appStoreReviews, appAdmin]
+export const ADAPTERS: Adapter[] = [instagramDMs, instagramComments, facebookMessages, facebookComments, appStoreReviews, appAdmin, inAppFeedback]
 
 type Raw = Omit<InboxItem, 'state'>
 type StateRow = { item_id: string; status: 'open' | 'done'; read_at: string | null; snoozed_until: string | null; note: string | null }

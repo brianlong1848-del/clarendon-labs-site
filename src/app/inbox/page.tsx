@@ -25,7 +25,7 @@ const APPS: Record<string, { name: string; icon: string }> = {
 }
 const SOURCE_NAME: Record<string, string> = {
   instagram_dm: 'Instagram DM', instagram_comment: 'Instagram comment', facebook_message: 'Messenger',
-  facebook_comment: 'Facebook comment', appstore_review: 'App Store review', app_admin: 'In-app',
+  facebook_comment: 'Facebook comment', appstore_review: 'App Store review', app_admin: 'In-app', app_feedback: 'In-app feedback',
   threads_reply: 'Threads', tiktok_comment: 'TikTok', support_email: 'Email',
 }
 const KINDS: { id: Kind; label: string }[] = [

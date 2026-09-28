@@ -156,6 +156,37 @@ export const appAdmin: Adapter = {
   },
 }
 
+// ── In-app feedback (clarendon.dev/api/feedback → studio_feedback) ────────
+type FeedbackRow = { id: string; app_id: string; message: string; email: string | null; name: string | null; kind: string; platform: string | null; app_version: string | null; device: string | null; created_at: string }
+const KIND_LABEL: Record<string, string> = { feedback: 'Feedback', bug: 'Bug report', idea: 'Idea', support: 'Support request' }
+
+export const inAppFeedback: Adapter = {
+  source: 'app_feedback',
+  label: 'In-app feedback',
+  async collect() {
+    const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) return { items: [], status: [{ source: 'app_feedback', label: 'In-app feedback', connected: false, count: 0, reason: 'Supabase not configured on clarendon.dev.' }] }
+    const since = new Date(Date.now() - 60 * 86400_000).toISOString()
+    const res = await fetch(`${url}/rest/v1/studio_feedback?select=*&created_at=gte.${since}&order=created_at.desc&limit=200`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` }, cache: 'no-store' })
+    const rows = (res.ok ? await res.json() : []) as FeedbackRow[]
+    const items: Item[] = rows.map((r) => ({
+      id: `app_feedback:${r.id}`, source: 'app_feedback', kind: 'feedback', app: r.app_id,
+      author: { name: r.name || (r.email ? r.email.split('@')[0] : 'Anonymous'), handle: r.email ?? undefined },
+      title: KIND_LABEL[r.kind] ?? 'Feedback', text: r.message, at: r.created_at,
+      url: r.email ? `mailto:${r.email}?subject=${encodeURIComponent(`Re: your ${KIND_LABEL[r.kind]?.toLowerCase() ?? 'feedback'}`)}` : undefined,
+      context: { label: [KIND_LABEL[r.kind] ?? 'Feedback', r.platform, r.app_version && `v${r.app_version}`, r.device].filter(Boolean).join(' · ') },
+      thread: [{ from: 'them', name: r.name ?? undefined, text: r.message, at: r.created_at }],
+      needsReply: !!r.email || r.kind === 'bug' || r.kind === 'support',
+      actions: [],
+      replyNote: r.email ? 'Replies go by email — Open ↗ starts one in Mail.' : 'Sent without an email address, so there’s no way to reply.',
+    }))
+    const apps = ['rolligan', 'gagorder', 'yulepick', 'borea']
+    return { items, status: apps.map((a) => ({ source: 'app_feedback' as const, app: a, label: 'In-app feedback', connected: true, count: items.filter((i) => i.app === a).length,
+      reason: undefined })) }
+  },
+}
+
 // ── Not wired yet — listed so the setup panel shows the whole map ───────────
 export const upcoming: SourceStatus[] = [
   { source: 'threads_reply', label: 'Threads replies', connected: false, count: 0, reason: 'Arrives with the Threads connection (one sign-in per app account).' },

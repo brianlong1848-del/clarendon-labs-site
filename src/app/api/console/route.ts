@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { registry, consoleAuthed, type ConsoleApp } from '@/lib/console'
+import { registry, allApps, consoleAuthed, type ConsoleApp } from '@/lib/console'
 
 // ─── /api/console ────────────────────────────────────────────────────────────
 //
@@ -36,6 +36,8 @@ async function pull(app: ConsoleApp) {
     return {
       id: app.id, name: app.name, accent: app.accent, ms, ok: true,
       pending: data.pending ?? [], live: data.live ?? [],
+      stats: Array.isArray(data.stats) ? data.stats : undefined,
+      recent: Array.isArray(data.recent) ? data.recent : undefined,
     }
   } catch (err) {
     return {
@@ -51,14 +53,15 @@ async function pull(app: ConsoleApp) {
 export async function GET(req: Request) {
   if (!consoleAuthed(req)) return deny()
   const apps = registry()
+  const missing = allApps().filter((a) => !apps.some((x) => x.id === a.id))
   if (!apps.length) {
     return NextResponse.json({
-      apps: [],
+      apps: [], missing,
       hint: 'No apps configured. Set <APP>_ADMIN_URL and <APP>_ADMIN_TOKEN.',
     })
   }
   // In parallel: one slow app shouldn't decide how fast the console loads.
-  return NextResponse.json({ apps: await Promise.all(apps.map(pull)) })
+  return NextResponse.json({ apps: await Promise.all(apps.map(pull)), missing })
 }
 
 /** Forward an action to the app that owns it. This route deliberately does not

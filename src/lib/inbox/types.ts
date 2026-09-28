@@ -12,7 +12,7 @@ export type SourceId =
   | 'instagram_dm' | 'instagram_comment'
   | 'facebook_message' | 'facebook_comment'
   | 'threads_reply' | 'tiktok_comment'
-  | 'appstore_review' | 'app_admin' | 'support_email'
+  | 'appstore_review' | 'app_admin' | 'app_feedback' | 'support_email'
 
 export type InboxAction = 'reply' | 'hide' | 'unhide' | 'approve' | 'reject' | 'done' | 'reopen' | 'read' | 'snooze'
 
