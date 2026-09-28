@@ -33,14 +33,36 @@ export async function GET(req: Request) {
   if (!consoleAuthed(req)) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
 
   const url = new URL(req.url)
-  const app = analyticsRegistry().find((a) => a.id === url.searchParams.get('app'))
-  if (!app) return NextResponse.json({ error: 'unknown app' }, { status: 404 })
+  const wanted = url.searchParams.get('app')
+  // app=all merges every app — the studio-wide map on /analytics and Home.
+  const apps = wanted === 'all' ? analyticsRegistry() : analyticsRegistry().filter((a) => a.id === wanted)
+  if (!apps.length) return NextResponse.json({ error: 'unknown app' }, { status: 404 })
+  const app = { id: wanted === 'all' ? 'all' : apps[0].id }
   const country = url.searchParams.get('country')?.toUpperCase() ?? null
 
-  const [store, audience] = await Promise.all([
-    fetchAppStore(app.appStoreId),
-    fetchAudience(app.instagramAccountId),
-  ])
+  const perApp = await Promise.all(apps.map((a) => Promise.all([fetchAppStore(a.appStoreId), fetchAudience(a.instagramAccountId)])))
+  const stores = perApp.map(([s]) => s).filter(Boolean)
+  const audiences = perApp.map(([, a]) => a)
+  const store = stores.length ? {
+    reportDate: stores.map((s) => s!.reportDate).sort().pop() ?? null,
+    countries: (() => {
+      const m = new Map<string, { code: string; installs: number; proceeds: number }>()
+      for (const s of stores) for (const c of s!.countries ?? []) {
+        const r = m.get(c.code) ?? { code: c.code, installs: 0, proceeds: 0 }
+        r.installs += c.installs; r.proceeds += c.proceeds; m.set(c.code, r)
+      }
+      return Array.from(m.values())
+    })(),
+  } : null
+  const audience = {
+    status: audiences.some((a) => a.status === 'ok') ? 'ok' as const : audiences[0]?.status ?? 'not_connected' as const,
+    countries: (() => {
+      const m = new Map<string, number>()
+      for (const a of audiences) for (const c of a.countries) m.set(c.code, (m.get(c.code) ?? 0) + c.followers)
+      return Array.from(m.entries()).map(([code, followers]) => ({ code, followers })).sort((a, b) => b.followers - a.followers)
+    })(),
+    cities: audiences.flatMap((a) => a.cities),
+  }
   const ads = { status: 'not_connected' as const, note: 'Region-level results appear here once Meta or TikTok ads run for this app.' }
 
   if (!country) {

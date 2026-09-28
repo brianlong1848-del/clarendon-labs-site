@@ -2,6 +2,8 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { AdminShell, C, btn } from '@/components/AdminNav'
+import { GeoExplorer } from '@/components/GeoExplorer'
+import { GeoMap } from '@/components/GeoMap'
 
 // ─── /analytics — per-app data ───────────────────────────────────────────────
 //
@@ -176,6 +178,8 @@ export default function AnalyticsPage() {
           </div>
         )}
 
+        {anyAppStore && <GeoExplorer pw={pw} app="all" title="All apps · world" />}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontFamily: C.mono, fontSize: 11.5, letterSpacing: '.18em', textTransform: 'uppercase', color: C.soft }}>By app</span>
           <span style={{ flex: 1, height: 1, background: C.rule }} />
@@ -186,8 +190,9 @@ export default function AnalyticsPage() {
             <section key={app.id} style={{ background: C.card, border: `1px solid ${C.rule}`,
                                             borderRadius: 16, padding: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: app.accent,
-                               boxShadow: `0 0 8px ${app.accent}` }} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/icons/${app.id}.png`} alt="" width={44} height={44}
+                     style={{ borderRadius: 11, boxShadow: '0 4px 12px rgba(20,20,19,.14)', flexShrink: 0 }} />
                 <h2 style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 800 }}>{app.name}</h2>
                 <span style={{ flex: 1 }} />
                 <Link href={`/analytics/${app.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 13 }}>Map & details →</Link>
@@ -266,6 +271,23 @@ export default function AnalyticsPage() {
                   )}
                 </div>
               </div>
+
+              {(app.appStore?.countries?.length ?? 0) > 0 && (
+                <Link href={`/analytics/${app.id}`} aria-label={`${app.name} map`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 220px', gap: 18, alignItems: 'center', marginTop: 20, textDecoration: 'none', color: C.ink }}>
+                  <GeoMap scope="world" height={170} accent={app.accent}
+                    values={(app.appStore?.countries ?? []).map((c) => ({ code: c.code, value: c.installs }))} />
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft }}>Installs by country · 30d</div>
+                    {(app.appStore?.countries ?? []).slice(0, 4).map((c) => (
+                      <div key={c.code} style={{ display: 'flex', fontSize: 13 }}>
+                        <span>{typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }).of(c.code) : c.code}</span>
+                        <span style={{ flex: 1 }} /><b>{num(c.installs)}</b>
+                      </div>
+                    ))}
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.mint }}>Open map, money & states →</span>
+                  </div>
+                </Link>
+              )}
             </section>
           ))}
         </div>
