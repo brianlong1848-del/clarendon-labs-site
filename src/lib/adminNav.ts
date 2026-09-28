@@ -12,4 +12,5 @@ export type AdminNavItem = { href: string; label: string }
 export const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin', label: 'Console' },
   { href: '/analytics', label: 'Analytics' },
+  { href: '/post', label: 'Post' },
 ]
