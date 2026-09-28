@@ -69,7 +69,7 @@ export type AppStoreMetrics = {
   series: { date: string; installs: number; proceeds: number }[]
 } | null
 
-function signAppStoreJWT(): string | null {
+export function signAppStoreJWT(): string | null {
   const keyId = process.env.ASC_KEY_ID
   const issuerId = process.env.ASC_ISSUER_ID
   const privateKey = process.env.ASC_PRIVATE_KEY?.replace(/\\n/g, '\n')
