@@ -44,12 +44,25 @@ export function AdminShell({ title, subtitle, actions, children }: {
 }) {
   const pathname = usePathname()
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh', background: C.paper,
+    <div className="adm-shell" style={{ display: 'flex', minHeight: '100dvh', background: C.paper,
                   fontFamily: C.sans, color: C.ink }}>
-      <aside style={{ width: 240, flexShrink: 0, background: C.card,
+      {/* Phone layout: the 240px sidebar becomes a scrolling top bar so pages fit a narrow screen. */}
+      <style>{`
+        @media (max-width: 760px) {
+          .adm-shell { flex-direction: column !important; }
+          .adm-aside { width: 100% !important; flex-direction: row !important; align-items: center !important; overflow-x: auto; padding: 10px 12px !important; border-right: 0 !important; border-bottom: 1px solid ${C.rule}; gap: 6px !important; position: sticky; top: 0; z-index: 5; }
+          .adm-aside a { white-space: nowrap; flex: none; padding: 8px 12px !important; }
+          .adm-brand { margin: 0 8px 0 0 !important; padding: 0 !important; flex: none; }
+          .adm-brand > div { display: none !important; }
+          .adm-hide { display: none !important; }
+          .adm-main { padding: 20px 16px 40px !important; }
+          .adm-main h1 { font-size: 26px !important; }
+        }
+      `}</style>
+      <aside className="adm-aside" style={{ width: 240, flexShrink: 0, background: C.card,
                       borderRight: `1px solid ${C.rule}`, boxSizing: 'border-box',
                       padding: '28px 18px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ padding: '0 10px', marginBottom: 30, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="adm-brand" style={{ padding: '0 10px', marginBottom: 30, display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/clarendon-mark.svg" alt="Clarendon Labs" width={34} height={25}
                style={{ display: 'block', flexShrink: 0 }} />
@@ -60,7 +73,7 @@ export function AdminShell({ title, subtitle, actions, children }: {
           </div>
         </div>
 
-        <div style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em',
+        <div className="adm-hide" style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em',
                       textTransform: 'uppercase', color: C.faint, padding: '0 10px', marginBottom: 6 }}>
           Studio
         </div>
@@ -80,18 +93,18 @@ export function AdminShell({ title, subtitle, actions, children }: {
           )
         })}
 
-        <div style={{ height: 1, background: C.rule, margin: '16px 10px' }} />
+        <div className="adm-hide" style={{ height: 1, background: C.rule, margin: '16px 10px' }} />
 
-        <div style={{ margin: '0 10px', padding: '10px 12px', border: `1px dashed ${C.rule2}`,
+        <div className="adm-hide" style={{ margin: '0 10px', padding: '10px 12px', border: `1px dashed ${C.rule2}`,
                       borderRadius: 10, color: C.faint, fontFamily: C.mono, fontSize: 12,
                       textAlign: 'center' }}>
           + Add a page
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div className="adm-hide" style={{ flex: 1 }} />
       </aside>
 
-      <main style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '40px 48px',
+      <main className="adm-main" style={{ flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '40px 48px',
                      display: 'flex', flexDirection: 'column', gap: 26 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
                       gap: 20, flexWrap: 'wrap' }}>
