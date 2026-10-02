@@ -28,6 +28,8 @@ export default function Triage() {
   const [remaining, setRemaining] = useState(0)
   const [loaded, setLoaded] = useState(false)
   const [picking, setPicking] = useState(false)
+  const [splitMode, setSplitMode] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
   const [category, setCategory] = useState('software')
   const [makeRule, setMakeRule] = useState(true)
   const [last, setLast] = useState<Last | null>(null)
@@ -42,17 +44,18 @@ export default function Triage() {
   useEffect(() => { load() }, [load])
 
   const cur = items[0]
-  useEffect(() => { if (cur) { setCategory(guessCategory(cur.plaid_category)); setPicking(false) } }, [cur?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (cur) { setCategory(guessCategory(cur.plaid_category)); setPicking(false); setSplitMode(false); setSelected([]) } }, [cur?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const decide = useCallback(async (status: 'business' | 'personal' | 'ignored', app_slug: string | null = null) => {
+  const decide = useCallback(async (status: 'business' | 'personal' | 'ignored', app_slug: string | null = null, split: string[] | null = null) => {
     if (!cur || busy.current) return
     busy.current = true
     const res = await fetch('/api/money/triage', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: cur.id, status, app_slug, schedule_c: status === 'business' ? category : null, makeRule }) }).catch(() => null)
+      body: JSON.stringify({ id: cur.id, status, app_slug, split_apps: split, schedule_c: status === 'business' ? category : null, makeRule }) }).catch(() => null)
     busy.current = false
     if (!res || !res.ok) { setMsg('Could not save that — try again.'); return }
     const d = await res.json()
-    const appName = app_slug ? apps.find((a) => a.slug === app_slug)?.name : 'shared'
+    const nameOf = (x: string) => apps.find((a) => a.slug === x)?.name ?? x
+    const appName = split ? split.map(nameOf).join(' + ') : app_slug ? nameOf(app_slug) : 'shared'
     setLast({ id: cur.id, label: `${cur.merchant ?? 'Transaction'} → ${status}${status === 'business' ? ` (${appName})` : ''}` })
     setMsg(d.alsoApplied ? `Rule saved — ${d.alsoApplied} more from this merchant handled too.` : null)
     setPicking(false); await load()
@@ -66,16 +69,22 @@ export default function Triage() {
     busy.current = false; setLast(null); setMsg('Undone.'); await load()
   }, [last, load])
 
+  const toggle = (slug: string) => setSelected((cur) => (cur.includes(slug) ? cur.filter((x) => x !== slug) : [...cur, slug]))
+  const confirmSplit = () => { if (selected.length >= 2) decide('business', null, selected); else if (selected.length === 1) decide('business', selected[0]) }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement)?.tagName === 'SELECT') return
       const k = e.key.toLowerCase()
       if (picking && /^[0-9]$/.test(k)) {
         const n = Number(k)
+        if (splitMode) { if (apps[n - 1]) toggle(apps[n - 1].slug); return }
         if (n === 0) decide('business', null)
         else if (apps[n - 1]) decide('business', apps[n - 1].slug)
         return
       }
+      if (picking && k === 's') { setSplitMode((v) => !v); setSelected([]); return }
+      if (picking && splitMode && k === 'enter') { confirmSplit(); return }
       if (k === 'b' && cur) setPicking(true)
       else if (k === 'p') decide('personal')
       else if (k === 'i') decide('ignored')
@@ -84,7 +93,7 @@ export default function Triage() {
       else if (k === 'escape') setPicking(false)
     }
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
-  }, [picking, cur, apps, decide, undo])
+  }, [picking, splitMode, selected, cur, apps, decide, undo])
 
   const personalAcct = cur?.account?.ownership === 'personal'
   const keycap: React.CSSProperties = { fontFamily: C.mono, fontSize: 11, border: `1px solid ${C.rule2}`, borderRadius: 5, padding: '1px 6px', marginRight: 6, color: C.ink2 }
@@ -126,12 +135,16 @@ export default function Triage() {
               </div>
             ) : (
               <div style={{ marginTop: 22 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft, marginBottom: 8 }}>Which app? press a number</div>
+                <div style={{ fontFamily: C.mono, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft, marginBottom: 8 }}>{splitMode ? 'Tick the apps sharing this cost, evenly split' : 'Which app? press a number'}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button style={btn('ghost')} onClick={() => decide('business', null)}><span style={keycap}>0</span>Shared</button>
+                  {!splitMode && <button style={btn('ghost')} onClick={() => decide('business', null)}><span style={keycap}>0</span>Shared (all apps)</button>}
                   {apps.map((a, i) => (
-                    <button key={a.slug} style={btn('ghost')} onClick={() => decide('business', a.slug)}><span style={keycap}>{i + 1}</span><AppIcon slug={a.slug} />{a.name}</button>
+                    <button key={a.slug} style={splitMode && selected.includes(a.slug) ? { ...btn('mint'), color: '#fff' } : btn('ghost')} onClick={() => (splitMode ? toggle(a.slug) : decide('business', a.slug))}><span style={keycap}>{i + 1}</span><AppIcon slug={a.slug} />{a.name}{splitMode && selected.includes(a.slug) ? ' ✓' : ''}</button>
                   ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+                  <button style={btn(splitMode ? 'solid' : 'ghost')} onClick={() => { setSplitMode((v) => !v); setSelected([]) }}><span style={keycap}>S</span>{splitMode ? 'Splitting — pick 2 or more' : 'Split between several apps'}</button>
+                  {splitMode && <button style={btn('mint')} disabled={selected.length < 1} onClick={confirmSplit}>Confirm <span style={{ ...keycap, marginLeft: 6, marginRight: 0, color: '#fff', borderColor: 'rgba(255,255,255,.5)' }}>Enter</span></button>}
                 </div>
                 <select value={category} onChange={(e) => setCategory(e.target.value)}
                   style={{ marginTop: 12, padding: '9px 12px', borderRadius: 10, border: `1px solid ${C.rule2}`, fontSize: 14, width: '100%' }}>

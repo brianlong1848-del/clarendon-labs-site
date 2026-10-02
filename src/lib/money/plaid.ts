@@ -36,7 +36,7 @@ export const siteOrigin = (req: Request) => process.env.SITE_ORIGIN ?? new URL(r
 
 // ─── Rules engine ────────────────────────────────────────────────────────────
 
-type Rule = { id: string; match_merchant: string; set_status: string; set_app: string | null; set_schedule_c: string | null; priority: number }
+type Rule = { id: string; match_merchant: string; set_status: string; set_app: string | null; set_split_apps: string[] | null; set_schedule_c: string | null; priority: number }
 
 const likeToRegex = (pat: string) =>
   new RegExp('^' + pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'i')
@@ -81,7 +81,7 @@ export async function syncItem(db: StudioDb, itemId: string) {
       const fresh = (page.added as any[]).filter((t) => !t.pending).map((t) => {
         const row: Record<string, unknown> = toRow(t, db.owner, accountId.get(t.account_id) ?? null)
         const rule = match(String(row.merchant ?? ''), String(row.raw_description ?? ''))
-        if (rule) Object.assign(row, { status: rule.set_status, app_slug: rule.set_app, schedule_c: rule.set_schedule_c, rule_id: rule.id })
+        if (rule) Object.assign(row, { status: rule.set_status, app_slug: rule.set_split_apps ? null : rule.set_app, split_apps: rule.set_split_apps ?? null, schedule_c: rule.set_schedule_c, rule_id: rule.id })
         return row
       })
       const ins = await db.insertIgnore('transactions', fresh, 'external_id')

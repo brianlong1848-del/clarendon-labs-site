@@ -21,7 +21,7 @@ export async function GET() {
   return NextResponse.json({ items: queue.data, remaining: count.count ?? 0, apps: apps.data ?? [] })
 }
 
-type Body = { id: string; status: 'business' | 'personal' | 'ignored' | 'unreviewed'; app_slug?: string | null; schedule_c?: string | null; makeRule?: boolean }
+type Body = { id: string; status: 'business' | 'personal' | 'ignored' | 'unreviewed'; app_slug?: string | null; split_apps?: string[] | null; schedule_c?: string | null; makeRule?: boolean }
 
 export async function POST(req: Request) {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
@@ -31,7 +31,8 @@ export async function POST(req: Request) {
   }
   const sb = supabaseServer()
   const isBiz = b.status === 'business'
-  const fields = { status: b.status, app_slug: isBiz ? b.app_slug ?? null : null, schedule_c: isBiz ? b.schedule_c ?? null : null }
+  const split = isBiz && Array.isArray(b.split_apps) && b.split_apps.length >= 2 ? Array.from(new Set(b.split_apps)) : null
+  const fields = { status: b.status, app_slug: isBiz && !split ? b.app_slug ?? null : null, split_apps: split, schedule_c: isBiz ? b.schedule_c ?? null : null }
 
   const { data: tx, error } = await sb.from('transactions').update(fields).eq('id', b.id).select('merchant').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
   if (b.makeRule && tx?.merchant && b.status !== 'unreviewed') {
     const pattern = `%${tx.merchant.replace(/[%_\\]/g, '')}%`
     const rule = await sb.from('rules').insert({
-      match_merchant: pattern, set_status: b.status, set_app: fields.app_slug, set_schedule_c: fields.schedule_c, priority: 80,
+      match_merchant: pattern, set_status: b.status, set_app: fields.app_slug, set_split_apps: fields.split_apps, set_schedule_c: fields.schedule_c, priority: 80,
     }).select('id').single()
     if (rule.error) return NextResponse.json({ error: rule.error.message }, { status: 500 })
     // Apply the new rule to everything already waiting from the same merchant.
