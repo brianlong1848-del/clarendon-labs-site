@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/yulepick-recurring",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/asc-revenue",
+      "schedule": "0 14 * * *"
     }
   ]
 }

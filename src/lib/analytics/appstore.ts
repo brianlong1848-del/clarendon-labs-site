@@ -44,7 +44,7 @@ const INSTALL = new Set(['1', '1F', '1T', 'F1'])
 const REDOWNLOAD = new Set(['3', '3F', '3T', 'F3'])
 const UPDATE = new Set(['7', '7F', '7T', 'F7'])
 
-type Row = {
+export type Row = {
   appleId: string
   parent: string
   type: string
@@ -99,7 +99,7 @@ export function signAppStoreJWT(): string | null {
 
 // ─── Per-instance caches ─────────────────────────────────────────────────────
 
-type DayResult = Row[] | 'missing' | 'error'
+export type DayResult = Row[] | 'missing' | 'error'
 const dayCache = new Map<string, { at: number; value: Promise<DayResult> }>()
 const skuCache = new Map<string, Promise<string | null>>()
 const MISSING_TTL_MS = 60 * 60 * 1000 // re-ask about unpublished days hourly
@@ -148,7 +148,7 @@ async function fetchDay(date: string, jwt: string, vendor: string): Promise<DayR
   }
 }
 
-function getDay(date: string, jwt: string, vendor: string): Promise<DayResult> {
+export function getDay(date: string, jwt: string, vendor: string): Promise<DayResult> {
   const hit = dayCache.get(date)
   if (hit) {
     // Keep good reports forever; retry errors immediately and "missing" hourly.
@@ -170,7 +170,7 @@ function getDay(date: string, jwt: string, vendor: string): Promise<DayResult> {
   }
 }
 
-function getSku(appleAppId: string, jwt: string): Promise<string | null> {
+export function getSku(appleAppId: string, jwt: string): Promise<string | null> {
   const hit = skuCache.get(appleAppId)
   if (hit) return hit
   const value = fetch(`${API}/v1/apps/${appleAppId}?fields[apps]=sku`, {
