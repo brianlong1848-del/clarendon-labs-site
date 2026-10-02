@@ -33,6 +33,7 @@ const DEFS: Omit<ConsoleApp, 'baseUrl' | 'token'>[] = [
   { id: 'rolligan', name: 'Rolligan', accent: '#F2814F' },
   { id: 'yulepick', name: 'YulePick', accent: '#E8474C' },
   { id: 'borea', name: 'Borea', accent: '#22D3C4' },
+  { id: 'jinglewire', name: 'Jinglewire', accent: '#1F6B3A' },
 ]
 
 /** Every studio app, configured or not — for "connect this" placeholders. */

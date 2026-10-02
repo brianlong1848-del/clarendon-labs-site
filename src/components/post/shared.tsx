@@ -5,7 +5,7 @@ import type { Platform } from '@/lib/publish/rules'
 // Shared bits for the /post composer: types that mirror /api/publish, the
 // platform glyphs, and small UI atoms.
 
-export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string }
+export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string; connect?: 'threads' }
 export type PublishApp = { id: string; name: string; accent: string; icon: string; accounts: Account[] }
 export type TargetState = { platform: Platform; format: string; status: string; permalink?: string; error?: string }
 export type QueuedPost = {

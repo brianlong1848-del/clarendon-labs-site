@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { C, btn } from '@/components/AdminNav'
 import {
-  PLATFORMS, FORMAT_LABEL, defaultFormat, validate, captionFor, ratioName,
+  PLATFORMS, FORMAT_LABEL, defaultFormat, fbReelOK, validate, captionFor, ratioName,
   type Format, type MediaItem, type Platform, type Target,
 } from '@/lib/publish/rules'
 import { Preview } from './Preview'
@@ -90,7 +90,18 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [dragKey, setDragKey] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const mediaKey = useRef('')
+  const [connecting, setConnecting] = useState(false)
+
+  const connectThreads = async () => {
+    setConnecting(true); setError(null)
+    const res = await fetch(`/api/publish/threads/connect?app=${appId}`, { method: 'POST', headers: { 'x-console-password': pw } }).catch(() => null)
+    const out = await res?.json().catch(() => ({})) ?? {}
+    if (res?.ok && out.url) window.location.href = out.url
+    else { setConnecting(false); setError(out.error ?? 'Couldn’t start the Threads sign-in.') }
+  }
 
   const app = apps.find((a) => a.id === appId)
   const account = useCallback((p: Platform) => app?.accounts.find((a) => a.platform === p), [app])
@@ -104,15 +115,12 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   }, [apps])
   useEffect(() => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ caption, appId })) } catch { /* ignore */ } }, [caption, appId])
 
-  // Destinations this app can't post to are switched off (and shown why),
-  // and ready ones default on for Instagram.
+  // Every place this app can post to starts switched on ("post everywhere");
+  // ones it can't are off, with the reason shown as the fix.
   useEffect(() => {
     setDest((d) => {
       const next = { ...d }
-      for (const p of PLATFORMS) {
-        const ready = !!account(p.id)?.ready
-        next[p.id] = { ...next[p.id], on: ready && (next[p.id].on || p.id === 'instagram') }
-      }
+      for (const p of PLATFORMS) next[p.id] = { ...next[p.id], on: !!account(p.id)?.ready }
       return next
     })
   }, [account])
@@ -125,7 +133,15 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       const f = d.instagram.format
       const oneVideo = media.length === 1 && media[0].kind === 'video'
       const ok = f === 'reel' ? oneVideo : f === 'story' ? media.length <= 1 : !oneVideo
-      return ok ? d : { ...d, instagram: { ...d.instagram, format: defaultFormat('instagram', media) } }
+      const next = ok ? d : { ...d, instagram: { ...d.instagram, format: defaultFormat('instagram', media) } }
+      // New media → Facebook picks its default (a vertical clip becomes a Reel);
+      // same media → keep your choice unless it no longer fits.
+      const key = media.map((m) => `${m.kind}${m.width}x${m.height}:${Math.round(m.duration ?? 0)}`).join()
+      const changed = key !== mediaKey.current
+      mediaKey.current = key
+      const fbValid = d.facebook.format === 'post' || (oneVideo && fbReelOK(media[0]))
+      const fb = changed || !fbValid ? defaultFormat('facebook', media) : d.facebook.format
+      return fb === next.facebook.format ? next : { ...next, facebook: { ...next.facebook, format: fb } }
     })
   }, [media])
 
@@ -365,7 +381,30 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                         { value: 'story', label: 'Story', disabled: media.length > 1, title: 'One photo or video, gone in 24 hours' },
                       ]} />
                   )}
+                  {p.id === 'facebook' && acc?.ready && oneVideo && (
+                    <Segmented<Format> value={dest.facebook.format} disabled={!on}
+                      onChange={(f) => setDest((d) => ({ ...d, facebook: { ...d.facebook, format: f } }))}
+                      options={[
+                        { value: 'post', label: 'Video', title: 'A regular video post on the Page' },
+                        { value: 'reel', label: 'Reel', disabled: !fbReelOK(media[0]), title: fbReelOK(media[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' },
+                      ]} />
+                  )}
                   {!acc?.ready && acc?.reason && <p style={{ margin: 0, fontSize: 12, color: C.ink2, lineHeight: 1.45 }}>{acc.reason}</p>}
+                  {!acc?.ready && acc?.connect === 'threads' && (
+                    <button onClick={connectThreads} disabled={connecting} style={{ ...btn('solid'), justifySelf: 'start', fontSize: 13, padding: '8px 14px' }}>
+                      {connecting ? 'Opening Threads…' : 'Connect Threads'}
+                    </button>
+                  )}
+                  {p.id === 'tiktok' && !acc?.ready && oneVideo && items[0]?.url && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: C.ink, width: '100%' }}>Post it yourself</span>
+                      <button style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px' }}
+                        onClick={() => { navigator.clipboard?.writeText(captionFor('tiktok', caption, tailor ? overrides : {})); setCopied(true); setTimeout(() => setCopied(false), 1800) }}>
+                        {copied ? 'Copied ✓' : 'Copy caption'}
+                      </button>
+                      <a href={items[0].url} target="_blank" rel="noreferrer" download style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px', textDecoration: 'none' }}>Open video</a>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -385,7 +424,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                 <PlatformGlyph platform={t.platform} size={16} />
               </button>
             ))}
-            {previewTarget?.platform === 'instagram' && <span style={{ fontSize: 12, color: C.soft, marginLeft: 'auto' }}>{FORMAT_LABEL[previewTarget.format]}</span>}
+            {(previewTarget?.platform === 'instagram' || previewTarget?.platform === 'facebook') && <span style={{ fontSize: 12, color: C.soft, marginLeft: 'auto' }}>{FORMAT_LABEL[previewTarget.format]}</span>}
           </div>
           {previewTarget ? (
             <Preview platform={previewTarget.platform} format={previewTarget.format} appName={app?.name ?? ''}

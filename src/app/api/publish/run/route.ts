@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { claim, duePosts } from '@/lib/publish/store'
 import { run } from '@/lib/publish/runner'
+import { refreshThreadsTokens } from '@/lib/publish/tokens'
 
 // Poked every 5 minutes by pg_cron in Supabase. Only ever publishes posts
 // whose scheduled time has passed (or that are mid-publish), so it needs no
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 async function handle() {
+  await refreshThreadsTokens().catch(() => {})
   const due = await duePosts().catch(() => [])
   const results: { id: string; status: string }[] = []
   const started = Date.now()

@@ -2,34 +2,37 @@
 //
 // SERVER ONLY. One function per platform that takes a queued post one step
 // further and reports where it got to. Steps, not one long call, because
-// Instagram and Threads process video asynchronously: we create the
-// container, and a later run (every 5 minutes, or the composer's own polling)
-// publishes it once Meta says FINISHED.
+// Instagram, Threads and Facebook Reels process video asynchronously: we
+// create the container, and a later run (every 5 minutes, or the composer's
+// own polling) publishes it once the platform says it's ready.
 //
-// Credentials, all server-side:
-//   instagram — META_ACCESS_TOKEN (system user) + <APP>_IG_ACCOUNT_ID
-//   facebook  — the same token; each Page's own token comes from /me/accounts.
-//               Posting needs pages_manage_posts on the token.
-//   threads   — THREADS_TOKEN_<APP> (Threads is a separate login from Meta
-//               Business; one long-lived token per app account)
+// How each app finds its accounts — nothing per-app to configure beyond
+// META_ACCESS_TOKEN, so a new app is one line in PUBLISH_APPS:
+//   facebook  — the Page: <APP>_FB_PAGE_ID, else the known id below, else the
+//               Page whose name matches the app. Page token from /me/accounts.
+//   instagram — <APP>_IG_ACCOUNT_ID, else the Instagram linked to that Page.
+//   threads   — connected once from /post ("Connect Threads", OAuth) and kept
+//               in studio_social_tokens, refreshed by the 5-minute runner.
+//               THREADS_TOKEN_<APP> still works as a manual override.
 //   tiktok    — not wired: public posting needs TikTok's app audit first.
 
 import type { MediaItem, Platform } from './rules'
 import { captionFor } from './rules'
 import type { Post, TargetState } from './store'
+import { getToken } from './tokens'
 
 const G = 'https://graph.facebook.com/v21.0'
 const T = 'https://graph.threads.net/v1.0'
 
 export const PUBLISH_APPS = [
-  { id: 'rolligan', name: 'Rolligan', accent: '#F2814F' },
-  { id: 'gagorder', name: 'Gag Order', accent: '#F0509A' },
-  { id: 'yulepick', name: 'YulePick', accent: '#E8474C' },
-  { id: 'borea', name: 'Borea', accent: '#22D3C4' },
+  { id: 'rolligan', name: 'Rolligan', accent: '#F2814F', pageId: '1432102143309065' },
+  { id: 'gagorder', name: 'Gag Order', accent: '#F0509A', pageId: '1384167881445516' },
+  { id: 'yulepick', name: 'YulePick', accent: '#E8474C', pageId: '1379556148567077' },
+  { id: 'borea', name: 'Borea', accent: '#22D3C4', pageId: '1365844183274727' },
+  { id: 'jinglewire', name: 'Jinglewire', accent: '#1F6B3A', pageId: '' },
 ] as const
 
-const igId = (app: string) => process.env[`${app.toUpperCase()}_IG_ACCOUNT_ID`]
-const threadsToken = (app: string) => process.env[`THREADS_TOKEN_${app.toUpperCase()}`]
+const envFor = (app: string, key: string) => process.env[`${app.toUpperCase()}_${key}`]
 const metaToken = () => process.env.META_ACCESS_TOKEN
 
 async function call(url: string, init: RequestInit = {}) {
@@ -41,10 +44,10 @@ async function call(url: string, init: RequestInit = {}) {
   }
   return body
 }
-const post = (url: string, params: Record<string, string>) =>
-  call(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params).toString() })
+const post = (url: string, params: Record<string, string>, headers: Record<string, string> = {}) =>
+  call(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers }, body: new URLSearchParams(params).toString() })
 
-// ── Account readiness (drives the composer's destination cards) ──────────────
+// ── Which Page / Instagram belongs to which app ──────────────────────────────
 
 type PageRow = { id: string; name: string; access_token?: string; instagram_business_account?: { id: string } }
 let pagesCache: { at: number; rows: PageRow[] } | null = null
@@ -58,7 +61,27 @@ async function pages(): Promise<PageRow[]> {
   } catch { pagesCache = { at: Date.now(), rows: [] } }
   return pagesCache.rows
 }
-const pageFor = async (app: string) => (await pages()).find((p) => p.instagram_business_account?.id === igId(app))
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+async function pageFor(appId: string): Promise<PageRow | undefined> {
+  const app = PUBLISH_APPS.find((a) => a.id === appId)
+  if (!app) return undefined
+  const rows = await pages()
+  const wanted = envFor(appId, 'FB_PAGE_ID') || app.pageId
+  const igEnv = envFor(appId, 'IG_ACCOUNT_ID')
+  return (wanted && rows.find((p) => p.id === wanted))
+    || (igEnv && rows.find((p) => p.instagram_business_account?.id === igEnv))
+    || rows.find((p) => norm(p.name) === norm(app.name))
+    || undefined
+}
+
+async function igFor(appId: string): Promise<string | undefined> {
+  return envFor(appId, 'IG_ACCOUNT_ID') || (await pageFor(appId))?.instagram_business_account?.id
+}
+
+async function threadsToken(appId: string): Promise<string | undefined> {
+  return envFor(appId, 'THREADS_TOKEN')?.trim() || process.env[`THREADS_TOKEN_${appId.toUpperCase()}`] || (await getToken('threads', appId))?.token
+}
 
 async function grantedPermissions(): Promise<Set<string>> {
   const token = metaToken()
@@ -69,15 +92,21 @@ async function grantedPermissions(): Promise<Set<string>> {
   } catch { return new Set() }
 }
 
-export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string }
+// ── Account readiness (drives the composer's destination cards) ──────────────
+
+export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string; connect?: 'threads' }
 
 export async function accounts() {
   const perms = await grantedPermissions()
+  const threadsConfigured = !!(process.env.THREADS_APP_ID && process.env.THREADS_APP_SECRET)
   return Promise.all(PUBLISH_APPS.map(async (app) => {
     const out: Account[] = []
-    const ig = igId(app.id)
+    const page = await pageFor(app.id)
+    const ig = await igFor(app.id)
+
     // Instagram
-    if (!metaToken() || !ig) out.push({ platform: 'instagram', ready: false, reason: 'No Instagram account set for this app.' })
+    if (!metaToken()) out.push({ platform: 'instagram', ready: false, reason: 'META_ACCESS_TOKEN isn’t set on this deployment.' })
+    else if (!ig) out.push({ platform: 'instagram', ready: false, reason: page ? `Link ${app.name}’s Instagram to the “${page.name}” Facebook Page (Meta Business Suite → Settings → Instagram).` : `No Facebook Page or Instagram found for ${app.name}. Create its Page, add it to the Clarendon business, and assign it to the Analytics API system user.` })
     else {
       try {
         const p = await call(`${G}/${ig}?fields=username,profile_picture_url&access_token=${metaToken()}`)
@@ -87,26 +116,32 @@ export async function accounts() {
           ? { platform: 'instagram', ready: true, handle: p.username, avatar: p.profile_picture_url }
           : { platform: 'instagram', ready: false, handle: p.username, avatar: p.profile_picture_url, reason: 'Token is missing instagram_content_publish.' })
       } catch (e) {
-        out.push({ platform: 'instagram', ready: false, reason: /does not exist|permission/i.test(String(e)) ? 'Link this Instagram account to its Facebook Page first.' : String((e as Error).message) })
+        out.push({ platform: 'instagram', ready: false, reason: /does not exist|permission/i.test(String(e)) ? 'Assign this Instagram account to the Analytics API system user in Business settings.' : String((e as Error).message) })
       }
     }
+
     // Facebook
-    const page = await pageFor(app.id)
-    if (!page) out.push({ platform: 'facebook', ready: false, reason: 'No Facebook Page linked to this app’s Instagram yet.' })
-    else out.push(perms.has('pages_manage_posts')
-      ? { platform: 'facebook', ready: true, handle: page.name }
-      : { platform: 'facebook', ready: false, handle: page.name, reason: 'Needs pages_manage_posts — add the “Manage everything on your Page” use case to the Meta app, then regenerate the token.' })
+    if (!page) out.push({ platform: 'facebook', ready: false, reason: `The token can’t see a ${app.name} Facebook Page. In Business settings → System users → Analytics API → Assign assets, add the Page with full control.` })
+    else if (perms.size > 0 && !perms.has('pages_manage_posts')) out.push({ platform: 'facebook', ready: false, handle: page.name, reason: 'Needs pages_manage_posts — add the “Manage everything on your Page” use case to the Meta app, then regenerate the token.' })
+    else if (!page.access_token) out.push({ platform: 'facebook', ready: false, handle: page.name, reason: 'The system user can see this Page but can’t post to it — give it full control of the Page.' })
+    else out.push({ platform: 'facebook', ready: true, handle: page.name })
+
     // Threads
-    const tt = threadsToken(app.id)
-    if (!tt) out.push({ platform: 'threads', ready: false, reason: `Connect Threads: sign in as this app’s Threads account and save its token as THREADS_TOKEN_${app.id.toUpperCase()}.` })
+    const tt = await threadsToken(app.id)
+    if (!tt) out.push(threadsConfigured
+      ? { platform: 'threads', ready: false, connect: 'threads', reason: `Sign in to threads.net as ${app.name}’s account, then connect it here.` }
+      : { platform: 'threads', ready: false, reason: 'Threads needs a one-time setup: add the Threads use case to the Meta app and save THREADS_APP_ID + THREADS_APP_SECRET.' })
     else {
       try {
         const me = await call(`${T}/me?fields=username,threads_profile_picture_url&access_token=${tt}`)
         out.push({ platform: 'threads', ready: true, handle: me.username, avatar: me.threads_profile_picture_url })
-      } catch (e) { out.push({ platform: 'threads', ready: false, reason: `Threads token rejected: ${(e as Error).message}` }) }
+      } catch (e) {
+        out.push({ platform: 'threads', ready: false, connect: threadsConfigured ? 'threads' : undefined, reason: `Threads sign-in expired (${(e as Error).message}). Reconnect it.` })
+      }
     }
+
     // TikTok
-    out.push({ platform: 'tiktok', ready: false, reason: 'Public posting unlocks after TikTok approves the app (Content Posting audit). Until then posts could only be private.' })
+    out.push({ platform: 'tiktok', ready: false, reason: 'Direct posting unlocks after TikTok approves the app. Until then, use “Post it yourself” to send the video to your phone.' })
     return { id: app.id, name: app.name, accent: app.accent, icon: `/icons/${app.id}.png`, accounts: out }
   }))
 }
@@ -116,7 +151,7 @@ export async function accounts() {
 type Step = Partial<TargetState>
 
 async function instagram(p: Post, t: TargetState): Promise<Step> {
-  const ig = igId(p.app_id), token = metaToken()
+  const ig = await igFor(p.app_id), token = metaToken()
   if (!ig || !token) return { status: 'failed', error: 'Instagram is not configured for this app.' }
   const caption = t.format === 'story' ? '' : captionFor('instagram', p.caption, p.overrides)
 
@@ -151,13 +186,34 @@ async function instagram(p: Post, t: TargetState): Promise<Step> {
   return { status: 'published', remoteId: published.id, permalink }
 }
 
-async function facebook(p: Post): Promise<Step> {
+async function facebook(p: Post, t: TargetState): Promise<Step> {
   const page = await pageFor(p.app_id)
   if (!page?.access_token) return { status: 'failed', error: 'No Facebook Page (or Page token) for this app.' }
   const token = page.access_token
   const message = captionFor('facebook', p.caption, p.overrides)
   const images = p.media.filter((m) => m.kind === 'image')
   const video = p.media.find((m) => m.kind === 'video')
+
+  // Reels: start an upload session, have Facebook fetch the file from our
+  // storage, then publish — and poll until it's processed.
+  if (t.format === 'reel' && video) {
+    if (!t.containerId) {
+      const start = await post(`${G}/${page.id}/video_reels`, { upload_phase: 'start', access_token: token })
+      await call(`https://rupload.facebook.com/video-upload/v21.0/${start.video_id}`, {
+        method: 'POST', headers: { Authorization: `OAuth ${token}`, file_url: video.url },
+      })
+      await post(`${G}/${page.id}/video_reels`, { upload_phase: 'finish', video_id: start.video_id, video_state: 'PUBLISHED', description: message, access_token: token })
+      return { containerId: start.video_id, status: 'processing' }
+    }
+    const st = await call(`${G}/${t.containerId}?fields=status,permalink_url&access_token=${token}`)
+    const s = st.status ?? {}
+    if (s.video_status === 'error' || s.processing_phase?.status === 'error') return { status: 'failed', error: s.processing_phase?.error?.message ?? 'Facebook couldn’t process the Reel.' }
+    if (s.video_status === 'ready' || s.publishing_phase?.status === 'complete') {
+      return { status: 'published', remoteId: t.containerId, permalink: st.permalink_url ? `https://www.facebook.com${st.permalink_url}` : `https://www.facebook.com/reel/${t.containerId}` }
+    }
+    return { status: 'processing' }
+  }
+
   let id: string
   if (video) {
     id = (await post(`${G}/${page.id}/videos`, { file_url: video.url, description: message, access_token: token })).id
@@ -176,7 +232,7 @@ async function facebook(p: Post): Promise<Step> {
 }
 
 async function threads(p: Post, t: TargetState): Promise<Step> {
-  const token = threadsToken(p.app_id)
+  const token = await threadsToken(p.app_id)
   if (!token) return { status: 'failed', error: 'Threads isn’t connected for this app.' }
   const text = captionFor('threads', p.caption, p.overrides)
   if (!t.containerId) {
@@ -207,7 +263,7 @@ export async function advance(p: Post, t: TargetState): Promise<Step> {
   try {
     switch (t.platform) {
       case 'instagram': return await instagram(p, t)
-      case 'facebook': return await facebook(p)
+      case 'facebook': return await facebook(p, t)
       case 'threads': return await threads(p, t)
       default: return { status: 'failed', error: 'TikTok posting isn’t available until TikTok approves the app.' }
     }

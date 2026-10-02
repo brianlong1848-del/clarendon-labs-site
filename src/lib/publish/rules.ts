@@ -16,7 +16,7 @@ export type Issue = { platform: Platform; level: 'error' | 'warn'; text: string 
 
 export const PLATFORMS: { id: Platform; name: string; formats: Format[]; captionMax: number }[] = [
   { id: 'instagram', name: 'Instagram', formats: ['feed', 'reel', 'story'], captionMax: 2200 },
-  { id: 'facebook', name: 'Facebook', formats: ['post'], captionMax: 63206 },
+  { id: 'facebook', name: 'Facebook', formats: ['post', 'reel'], captionMax: 63206 },
   { id: 'threads', name: 'Threads', formats: ['post'], captionMax: 500 },
   { id: 'tiktok', name: 'TikTok', formats: ['post'], captionMax: 2200 },
 ]
@@ -25,8 +25,16 @@ export const FORMAT_LABEL: Record<Format, string> = { feed: 'Post', reel: 'Reel'
 
 /** Which format a target should default to for this media. */
 export function defaultFormat(platform: Platform, media: MediaItem[]): Format {
+  const oneVideo = media.length === 1 && media[0].kind === 'video'
+  if (platform === 'facebook') return oneVideo && fbReelOK(media[0]) ? 'reel' : 'post'
   if (platform !== 'instagram') return 'post'
-  return media.length === 1 && media[0].kind === 'video' ? 'reel' : 'feed'
+  return oneVideo ? 'reel' : 'feed'
+}
+
+/** Facebook Reels: one vertical video, 3–90 seconds. */
+export function fbReelOK(m: MediaItem) {
+  const d = m.duration ?? 0
+  return m.kind === 'video' && m.height > m.width && d >= 3 && d <= 90
 }
 
 const count = (re: RegExp, s: string) => (s.match(re) ?? []).length
@@ -75,6 +83,15 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
     if (t.platform === 'facebook') {
       if (media.length === 0 && !text.trim()) add(t.platform, 'error', 'Add a caption or media for Facebook.')
       if (videos.length > 1 || (videos.length && images.length)) add(t.platform, 'error', 'Facebook posts take several photos or one video, not a mix.')
+      if (t.format === 'reel') {
+        if (media.length !== 1 || videos.length !== 1) add(t.platform, 'error', 'A Facebook Reel is exactly one video.')
+        else {
+          const d = videos[0].duration ?? 0
+          if (d > 90) add(t.platform, 'error', `Facebook Reels can be up to 90 seconds (this one is ${Math.round(d)}s) — post it as a regular video instead.`)
+          if (d && d < 3) add(t.platform, 'error', 'Facebook Reels must be at least 3 seconds.')
+          if (Math.abs(videos[0].width / videos[0].height - 9 / 16) > 0.08) add(t.platform, 'warn', `This video is ${ratioName(videos[0].width / videos[0].height)}; Facebook Reels look best at 9:16.`)
+        }
+      }
     }
 
     if (t.platform === 'threads') {

@@ -14,7 +14,7 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-const APPS = new Set(['rolligan', 'gagorder', 'yulepick', 'borea'])
+const APPS = new Set(['rolligan', 'gagorder', 'yulepick', 'borea', 'jinglewire'])
 const KINDS = new Set(['feedback', 'bug', 'idea', 'support'])
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' }
 

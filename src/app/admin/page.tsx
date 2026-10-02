@@ -27,12 +27,13 @@ type Draft = { text: string; pack: string; tier: string; format: string }
 const PACKS = [['base', 'Everyone'], ['afterdark', 'After Dark'], ['gay', 'Gay'], ['lesbian', 'Lesbian'], ['transenby', 'Dolls']] as const
 const TIERS = [['free', 'Free'], ['core', 'Core'], ['afterdark', 'After Dark']] as const
 const FORMATS = [['vote', 'Vote'], ['action', 'Action']] as const
-const ORDER = ['rolligan', 'gagorder', 'yulepick', 'borea']
+const ORDER = ['rolligan', 'gagorder', 'yulepick', 'borea', 'jinglewire']
 const NOTES: Record<string, string> = {
   rolligan: 'Rolligan has no server of its own — games stay on players’ phones. Its downloads, money, reviews and social live under Analytics and Inbox; in-app feedback arrives in the Inbox once the “Send feedback” screen ships.',
   yulepick: 'Connect YulePick to see users, exchanges, names drawn and the waitlist here.',
   borea: 'Connect Borea to see active users, AI usage and cost, subscribers and paywall hits here.',
   gagorder: 'Connect Gag Order to review card suggestions here.',
+  jinglewire: 'Jinglewire’s numbers show here once its admin API is connected (JINGLEWIRE_ADMIN_URL + JINGLEWIRE_ADMIN_TOKEN).',
 }
 
 const fmtNum = (v: number | string, format?: 'usd') =>
