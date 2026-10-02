@@ -26,7 +26,7 @@ export async function GET(req: Request) {
   const saved = await db.upsert('revenue', out.rows, 'source,app_slug,period,external_ref')
   if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 })
   return NextResponse.json({
-    ok: true, daysChecked: out.daysChecked, rowsWritten: saved.count,
+    ok: true, daysChecked: out.daysChecked, rowsWritten: out.rows.length,
     otherCurrencies: out.otherCurrencies, failedDays: out.failedDays,
   })
 }
