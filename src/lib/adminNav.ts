@@ -14,5 +14,5 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: '/inbox', label: 'Inbox' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/post', label: 'Post' },
-  { href: '/admin/money/triage', label: 'Money' },
+  { href: '/admin/money', label: 'Money & ROI' },
 ]
