@@ -42,7 +42,7 @@ export function GeoExplorer({ pw, app, accent = C.mint, title }: { pw: string; a
   const [error, setError] = useState<string | null>(null)
 
   const get = useCallback(async (path: string) => {
-    const res = await fetch(path, { headers: { 'x-console-password': pw } })
+    const res = await fetch(path, { headers: {} })
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`)
     return res.json()
   }, [pw])

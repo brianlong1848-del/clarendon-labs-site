@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic'
 const deny = () => NextResponse.json({ error: 'not authorised' }, { status: 401 })
 
 export async function GET(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
 
   const apps = analyticsRegistry()
   const rows = await Promise.all(

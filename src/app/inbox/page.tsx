@@ -69,15 +69,15 @@ export default function InboxPage() {
   const [error, setError] = useState<string | null>(null)
   const [showSources, setShowSources] = useState(false)
 
-  useEffect(() => { setPw(sessionStorage.getItem('clarendon:console') ?? '') }, [])
+  useEffect(() => { setPw('session') }, [])
 
   const load = useCallback(async (force = false) => {
     if (!pw) return
     setLoading(true)
-    const res = await fetch(`/api/inbox${force ? '?refresh=1' : ''}`, { headers: { 'x-console-password': pw } }).catch(() => null)
+    const res = await fetch(`/api/inbox${force ? '?refresh=1' : ''}`, { headers: {} }).catch(() => null)
     setLoading(false)
     if (!res) { setError('Could not reach clarendon.dev.'); return }
-    if (res.status === 401) { sessionStorage.removeItem('clarendon:console'); setPw(''); return }
+    if (res.status === 401) { (window.location.href = '/login'); setPw(''); return }
     const body = await res.json()
     setItems(body.items); setSources(body.sources); setFetchedAt(body.fetchedAt); setError(null)
   }, [pw])
@@ -85,7 +85,7 @@ export default function InboxPage() {
   useEffect(() => { const t = setInterval(() => load(), 60_000); return () => clearInterval(t) }, [load])
 
   const act = useCallback(async (id: string, action: string, payload: Record<string, unknown> = {}) => {
-    const res = await fetch('/api/inbox', { method: 'POST', headers: { 'x-console-password': pw ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, ...payload }) })
+    const res = await fetch('/api/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, ...payload }) })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(body.error ?? 'Something went wrong.')
     // Optimistic local state so the list reacts instantly.

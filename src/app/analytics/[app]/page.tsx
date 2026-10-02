@@ -53,10 +53,10 @@ export default function AppAnalyticsPage() {
   const [detail, setDetail] = useState<GeoCountry | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => { setPw(sessionStorage.getItem('clarendon:console') ?? '') }, [])
+  useEffect(() => { setPw('session') }, [])
 
   const get = useCallback(async (path: string) => {
-    const res = await fetch(path, { headers: { 'x-console-password': pw ?? '' } })
+    const res = await fetch(path, { headers: {} })
     if (res.status === 401) throw new Error('signin')
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`)
     return res.json()

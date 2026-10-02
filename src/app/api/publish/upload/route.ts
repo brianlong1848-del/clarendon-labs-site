@@ -9,7 +9,7 @@ import { signedUpload } from '@/lib/publish/store'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
-  if (!consoleAuthed(req)) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
+  if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   const { appId, filename } = await req.json().catch(() => ({}))
   if (!PUBLISH_APPS.some((a) => a.id === appId)) return NextResponse.json({ error: 'Unknown app.' }, { status: 400 })
   try { return NextResponse.json(await signedUpload(appId, String(filename ?? 'file'))) }

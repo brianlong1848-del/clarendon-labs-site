@@ -46,7 +46,7 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('clarendon:console')
+    const saved = 'session'
     if (saved) { setPw(saved); setAuthed(true) }
   }, [])
 
@@ -54,14 +54,13 @@ export default function AnalyticsPage() {
     setLoading(true); setError(null)
     let res: Response
     try {
-      res = await fetch('/api/analytics', { headers: { 'x-console-password': password } })
+      res = await fetch('/api/analytics', { headers: {} })
     } catch {
       setLoading(false); setError('Could not reach the analytics API.'); return
     }
     setLoading(false)
     if (res.status === 401) {
-      setError('Wrong password.'); setAuthed(false)
-      sessionStorage.removeItem('clarendon:console'); return
+      window.location.href = '/login'; return
     }
     const data = await res.json()
     setApps(data.apps ?? [])
@@ -141,7 +140,7 @@ export default function AnalyticsPage() {
         </span>
         <button style={btn('ghost')} onClick={() => load(pw)}>Refresh</button>
         <button style={btn('ghost')} onClick={() => {
-          sessionStorage.removeItem('clarendon:console'); setAuthed(false); setPw('')
+          fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' })
         }}>Sign out</button>
       </>}
     >

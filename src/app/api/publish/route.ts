@@ -23,12 +23,12 @@ const deny = () => NextResponse.json({ error: 'not authorised' }, { status: 401 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status })
 
 export async function GET(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
   try { return NextResponse.json({ posts: await listPosts() }) } catch (e) { return bad((e as Error).message, 500) }
 }
 
 export async function POST(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
   const body = await req.json().catch(() => null)
   if (!body) return bad('Expected JSON.')
 
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
   const id = new URL(req.url).searchParams.get('id') ?? ''
   const post = await getPost(id).catch(() => null)
   if (!post) return bad('Not found.', 404)
@@ -73,7 +73,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
   const id = new URL(req.url).searchParams.get('id') ?? ''
   const post = await getPost(id).catch(() => null)
   if (!post) return bad('Not found.', 404)

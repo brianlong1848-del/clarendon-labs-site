@@ -50,11 +50,11 @@ export function registry(): ConsoleApp[] {
     .filter((a) => a.baseUrl && a.token)
 }
 
-/** The console's own password. Unset means locked, never open — the usual way a
- *  page like this leaks is defaulting to open when config is missing. */
-export function consoleAuthed(req: Request): boolean {
-  const expected = process.env.CONSOLE_PASSWORD
-  if (!expected) return false
-  const given = req.headers.get('x-console-password') ?? ''
-  return given.length > 0 && given === expected
+/** Server-side admin check for API routes (the middleware also guards them).
+ *  Verified Supabase session for ADMIN_EMAIL with TOTP completed — see
+ *  src/lib/supabase/guard.ts. Replaces the old shared console password. */
+export async function consoleAuthed(): Promise<boolean> {
+  const { supabaseServer } = await import('@/lib/supabase/server')
+  const { isAdmin } = await import('@/lib/supabase/guard')
+  return isAdmin(supabaseServer()).catch(() => false)
 }

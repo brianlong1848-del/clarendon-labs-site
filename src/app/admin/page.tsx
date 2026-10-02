@@ -62,16 +62,16 @@ export default function ConsolePage() {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('clarendon:console')
+    const saved = 'session'
     if (saved) { setPw(saved); setAuthed(true) }
   }, [])
 
   const load = useCallback(async (password: string) => {
     setLoading(true); setError(null)
-    const res = await fetch('/api/console', { headers: { 'x-console-password': password } }).catch(() => null)
+    const res = await fetch('/api/console', { headers: {} }).catch(() => null)
     setLoading(false)
     if (!res) { setError('Could not reach the console API.'); return }
-    if (res.status === 401) { setError('Wrong password.'); setAuthed(false); sessionStorage.removeItem('clarendon:console'); return }
+    if (res.status === 401) { setError('Wrong password.'); setAuthed(false); (window.location.href = '/login'); return }
     const data = await res.json()
     setApps(data.apps ?? []); setMissing(data.missing ?? []); setLoaded(true)
     setDrafts((prev) => {
@@ -92,7 +92,7 @@ export default function ConsolePage() {
   const act = async (appId: string, key: string, payload: Record<string, unknown>) => {
     setBusy(key); setToast(null)
     const res = await fetch('/api/console', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-console-password': pw },
+      method: 'POST', headers: { 'Content-Type': 'application/json'},
       body: JSON.stringify({ appId, ...payload }),
     }).catch(() => null)
     const out = await res?.json().catch(() => ({})) ?? {}
@@ -153,7 +153,7 @@ export default function ConsolePage() {
       actions={<>
         <span style={{ fontSize: 12.5, color: C.soft }}>{loading ? 'Refreshing…' : `${apps.length} of ${apps.length + missing.length} apps connected`}</span>
         <button style={btn('ghost')} onClick={() => load(pw)}>Refresh</button>
-        <button style={btn('ghost')} onClick={() => { sessionStorage.removeItem('clarendon:console'); setAuthed(false); setPw('') }}>Sign out</button>
+        <button style={btn('ghost')} onClick={() => { fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' }) }}>Sign out</button>
       </>}
     >
       <div style={{ display: 'grid', gap: 24 }}>

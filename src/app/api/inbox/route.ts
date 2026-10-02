@@ -16,13 +16,13 @@ export const maxDuration = 60
 const ACTIONS: InboxAction[] = ['reply', 'hide', 'unhide', 'approve', 'reject', 'done', 'reopen', 'read', 'snooze']
 
 export async function GET(req: Request) {
-  if (!consoleAuthed(req)) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
+  if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   const force = new URL(req.url).searchParams.get('refresh') === '1'
   return NextResponse.json(await inbox({ force }))
 }
 
 export async function POST(req: Request) {
-  if (!consoleAuthed(req)) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
+  if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   const body = await req.json().catch(() => null)
   if (!body?.id || !ACTIONS.includes(body.action)) return NextResponse.json({ error: 'Expected { id, action }.' }, { status: 400 })
   const { id, action, ...payload } = body

@@ -30,7 +30,7 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]+/g, ' ').trim()
 
 export async function GET(req: Request) {
-  if (!consoleAuthed(req)) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
+  if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
 
   const url = new URL(req.url)
   const wanted = url.searchParams.get('app')

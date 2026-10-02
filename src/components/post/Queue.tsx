@@ -23,7 +23,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/publish', { headers: { 'x-console-password': pw } })
+      const res = await fetch('/api/publish', { headers: {} })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       setPosts(body.posts); onCount(body.posts.filter((p: QueuedPost) => p.status === 'scheduled').length); setError(null)
@@ -39,7 +39,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
 
   const act = async (id: string, method: 'DELETE' | 'PATCH') => {
     setBusy(id)
-    const res = await fetch(`/api/publish?id=${id}`, { method, headers: { 'x-console-password': pw } })
+    const res = await fetch(`/api/publish?id=${id}`, { method, headers: {} })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) setError(body.error ?? 'Something went wrong.')
     setBusy(null); load()

@@ -51,7 +51,7 @@ async function pull(app: ConsoleApp) {
 }
 
 export async function GET(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
   const apps = registry()
   const missing = allApps().filter((a) => !apps.some((x) => x.id === a.id))
   if (!apps.length) {
@@ -68,7 +68,7 @@ export async function GET(req: Request) {
  *  understand card packs or tiers — it authenticates and relays, so each app
  *  stays the only place its own rules live. */
 export async function POST(req: Request) {
-  if (!consoleAuthed(req)) return deny()
+  if (!(await consoleAuthed())) return deny()
 
   let body: { appId?: string; [k: string]: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'bad json' }, { status: 400 }) }

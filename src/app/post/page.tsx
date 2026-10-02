@@ -21,7 +21,7 @@ export default function PostPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => { setPw(sessionStorage.getItem('clarendon:console') ?? '') }, [])
+  useEffect(() => { setPw('session') }, [])
   // Back from the Threads sign-in: say how it went, then tidy the URL.
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('threads')
@@ -34,9 +34,9 @@ export default function PostPage() {
 
   const load = useCallback(async (password: string) => {
     setError(null)
-    const res = await fetch('/api/publish/accounts', { headers: { 'x-console-password': password } }).catch(() => null)
+    const res = await fetch('/api/publish/accounts', { headers: {} }).catch(() => null)
     if (!res) { setError('Could not reach clarendon.dev.'); return }
-    if (res.status === 401) { sessionStorage.removeItem('clarendon:console'); setPw(''); setError('Wrong password.'); return }
+    if (res.status === 401) { (window.location.href = '/login'); setPw(''); setError('Wrong password.'); return }
     setApps((await res.json()).apps ?? [])
   }, [])
   useEffect(() => { if (pw) load(pw) }, [pw, load])

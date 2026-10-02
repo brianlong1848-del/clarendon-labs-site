@@ -9,7 +9,7 @@ import { THREADS_SCOPES, signState, threadsRedirect } from '@/lib/publish/tokens
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
-  if (!consoleAuthed(req)) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
+  if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   const appId = new URL(req.url).searchParams.get('app') ?? ''
   if (!PUBLISH_APPS.some((a) => a.id === appId)) return NextResponse.json({ error: 'Unknown app.' }, { status: 400 })
   const clientId = process.env.THREADS_APP_ID

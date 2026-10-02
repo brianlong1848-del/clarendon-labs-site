@@ -97,7 +97,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
 
   const connectThreads = async () => {
     setConnecting(true); setError(null)
-    const res = await fetch(`/api/publish/threads/connect?app=${appId}`, { method: 'POST', headers: { 'x-console-password': pw } }).catch(() => null)
+    const res = await fetch(`/api/publish/threads/connect?app=${appId}`, { method: 'POST', headers: {} }).catch(() => null)
     const out = await res?.json().catch(() => ({})) ?? {}
     if (res?.ok && out.url) window.location.href = out.url
     else { setConnecting(false); setError(out.error ?? 'Couldn’t start the Threads sign-in.') }
@@ -165,7 +165,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       try {
         const prepped = await prepare(file)
         setItems((xs) => xs.map((x) => x.key === key ? { ...x, ...prepped, status: 'uploading' } : x))
-        const res = await fetch('/api/publish/upload', { method: 'POST', headers: { 'x-console-password': pw, 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, filename: prepped.name }) })
+        const res = await fetch('/api/publish/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, filename: prepped.name }) })
         const up = await res.json()
         if (!res.ok) throw new Error(up.error ?? 'Could not start upload.')
         await put(up.uploadUrl, prepped.blob, prepped.mime, (p) => setItems((xs) => xs.map((x) => x.key === key ? { ...x, progress: p } : x)))
@@ -181,7 +181,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     setSending(true); setError(null)
     try {
       const res = await fetch('/api/publish', {
-        method: 'POST', headers: { 'x-console-password': pw, 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           appId, caption, overrides: tailor ? overrides : {}, targets,
           media: items.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })),
@@ -202,7 +202,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     if (result?.status !== 'publishing') return
     const t = setInterval(async () => {
       fetch('/api/publish/run', { method: 'POST' }).catch(() => {})
-      const res = await fetch('/api/publish', { headers: { 'x-console-password': pw } }).catch(() => null)
+      const res = await fetch('/api/publish', { headers: {} }).catch(() => null)
       const body = await res?.json().catch(() => null)
       const fresh = body?.posts?.find((p: QueuedPost) => p.id === result.id)
       if (fresh) setResult(fresh)
