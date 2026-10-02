@@ -19,7 +19,7 @@ const HOSTS: Record<string, string> = {
 export const plaidEnv = () => (process.env.PLAID_ENV ?? 'sandbox').toLowerCase()
 export const plaidConfigured = () => !!(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET && HOSTS[plaidEnv()])
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export async function plaid(path: string, body: Record<string, unknown> = {}): Promise<any> {
   const res = await fetch(`${HOSTS[plaidEnv()]}${path}`, {
     method: 'POST', cache: 'no-store',
@@ -50,7 +50,6 @@ export function ruleMatcher(rules: Rule[]) {
 
 // ─── Sync ────────────────────────────────────────────────────────────────────
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 const toRow = (t: any, owner: string, accountId: string | null) => ({
   owner_id: owner, account_id: accountId, external_id: t.transaction_id,
   posted_on: t.date, amount_cents: Math.round(t.amount * 100),

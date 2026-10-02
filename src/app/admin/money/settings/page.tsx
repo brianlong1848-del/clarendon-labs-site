@@ -64,7 +64,7 @@ export default function MoneySettings() {
     } catch (e) { setMsg({ text: (e as Error).message, bad: true }); setBusy(false) }
   }
 
-  async function run(path: string, body?: object, ok?: (d: any) => string) { // eslint-disable-line @typescript-eslint/no-explicit-any
+  async function run(path: string, body?: object, ok?: (d: any) => string) {
     setBusy(true); setMsg(null)
     try { const d = await post(path, body); setMsg({ text: ok ? ok(d) : 'Done.' }); await load() }
     catch (e) { setMsg({ text: (e as Error).message, bad: true }) }
