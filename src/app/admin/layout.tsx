@@ -4,6 +4,8 @@ import type { Metadata } from 'next'
 // but there's no reason for it to sit in a search index.
 export const metadata: Metadata = {
   title: 'Console — Clarendon Labs',
+  // Lets "Add to Home Screen" on iPhone open the admin full-screen like an app.
+  appleWebApp: { capable: true, title: 'Clarendon Admin', statusBarStyle: 'default' },
   robots: { index: false, follow: false, nocache: true },
   icons: {
     icon: [
