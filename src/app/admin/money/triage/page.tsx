@@ -15,9 +15,23 @@ type App = { slug: string; name: string }
 type Last = { id: string; label: string }
 
 const iconFor = (slug: string) => (slug === 'studio' ? '/brand/clarendon-apple-touch-icon.png' : `/icons/${slug}.png`)
-function AppIcon({ slug, size = 22 }: { slug: string; size?: number }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={iconFor(slug)} alt="" width={size} height={size} style={{ borderRadius: size * 0.24, marginRight: 8, verticalAlign: 'middle' }} />
+// One picker tile: icon · name (+ small note) · key badge, always on a single row.
+function Tile({ icon, name, sub, k, on, check, onClick }: { icon: React.ReactNode; name: string; sub?: string; k: string; on?: boolean; check?: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', textAlign: 'left', cursor: 'pointer',
+      background: on ? C.mintTint : C.card, border: `1.5px solid ${on ? C.mint : C.rule2}`, borderRadius: 12, font: 'inherit', color: C.ink,
+    }}>
+      <span style={{ flex: 'none', display: 'flex' }}>{icon}</span>
+      <span style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
+        <span style={{ display: 'block', fontWeight: 650, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+        {sub && <span style={{ display: 'block', fontSize: 11.5, color: C.soft, marginTop: 2 }}>{sub}</span>}
+      </span>
+      <span style={{ flex: 'none', fontFamily: C.mono, fontSize: 11, color: on ? C.mint : C.soft, border: `1px solid ${on ? C.mint : C.rule2}`, borderRadius: 5, minWidth: 20, textAlign: 'center', padding: '1px 5px' }}>
+        {check && on ? '✓' : k}
+      </span>
+    </button>
+  )
 }
 
 const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -136,10 +150,16 @@ export default function Triage() {
             ) : (
               <div style={{ marginTop: 22 }}>
                 <div style={{ fontFamily: C.mono, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft, marginBottom: 8 }}>{splitMode ? 'Tick the apps sharing this cost, evenly split' : 'Which app? press a number'}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {!splitMode && <button style={btn('ghost')} onClick={() => decide('business', null)}><span style={keycap}>0</span>Shared (all apps)</button>}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  {!splitMode && (
+                    <Tile k="0" name="Shared" sub="Split across all apps" onClick={() => decide('business', null)}
+                      icon={<span style={{ width: 30, height: 30, borderRadius: 8, background: C.mintTint, color: C.mint, display: 'grid', placeItems: 'center', fontSize: 15, fontWeight: 700 }}>∗</span>} />
+                  )}
                   {apps.map((a, i) => (
-                    <button key={a.slug} style={splitMode && selected.includes(a.slug) ? { ...btn('mint'), color: '#fff' } : btn('ghost')} onClick={() => (splitMode ? toggle(a.slug) : decide('business', a.slug))}><span style={keycap}>{i + 1}</span><AppIcon slug={a.slug} />{a.name}{splitMode && selected.includes(a.slug) ? ' ✓' : ''}</button>
+                    <Tile key={a.slug} k={String(i + 1)} name={a.name.replace(/\s*\(.*\)/, '')} sub={a.slug === 'studio' ? 'Company-level' : undefined}
+                      on={splitMode && selected.includes(a.slug)} check={splitMode}
+                      onClick={() => (splitMode ? toggle(a.slug) : decide('business', a.slug))}
+                      icon={<img src={iconFor(a.slug)} alt="" width={30} height={30} style={{ borderRadius: 7, display: 'block' }} />} />
                   ))}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
