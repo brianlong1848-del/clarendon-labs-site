@@ -14,6 +14,12 @@ type Tx = {
 type App = { slug: string; name: string }
 type Last = { id: string; label: string }
 
+const iconFor = (slug: string) => (slug === 'studio' ? '/brand/clarendon-apple-touch-icon.png' : `/icons/${slug}.png`)
+function AppIcon({ slug, size = 22 }: { slug: string; size?: number }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={iconFor(slug)} alt="" width={size} height={size} style={{ borderRadius: size * 0.24, marginRight: 8, verticalAlign: 'middle' }} />
+}
+
 const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 export default function Triage() {
@@ -124,7 +130,7 @@ export default function Triage() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <button style={btn('ghost')} onClick={() => decide('business', null)}><span style={keycap}>0</span>Shared</button>
                   {apps.map((a, i) => (
-                    <button key={a.slug} style={btn('ghost')} onClick={() => decide('business', a.slug)}><span style={keycap}>{i + 1}</span>{a.name}</button>
+                    <button key={a.slug} style={btn('ghost')} onClick={() => decide('business', a.slug)}><span style={keycap}>{i + 1}</span><AppIcon slug={a.slug} />{a.name}</button>
                   ))}
                 </div>
                 <select value={category} onChange={(e) => setCategory(e.target.value)}
