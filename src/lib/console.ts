@@ -55,6 +55,9 @@ export function registry(): ConsoleApp[] {
  *  src/lib/supabase/guard.ts. Replaces the old shared console password. */
 export async function consoleAuthed(): Promise<boolean> {
   const { supabaseServer } = await import('@/lib/supabase/server')
-  const { isAdmin } = await import('@/lib/supabase/guard')
+  const { isAdmin, isAdminToken, bearerToken } = await import('@/lib/supabase/guard')
+  const { headers } = await import('next/headers')
+  const token = bearerToken(headers().get('authorization'))
+  if (token) return isAdminToken(token).catch(() => false)
   return isAdmin(supabaseServer()).catch(() => false)
 }

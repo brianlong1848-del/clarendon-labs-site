@@ -31,7 +31,12 @@ function LoginForm() {
     setBusy(true); setError(null)
     const sb = supabaseBrowser()
     const { error: e } = await sb.auth.signInWithPassword({ email: email.trim(), password })
-    if (e) { setBusy(false); setError('Sign-in failed.'); return }
+    if (e) {
+      setBusy(false)
+      // Tell "wrong email/password" apart from "couldn't reach the server" so a phone problem is diagnosable.
+      setError(e.code === 'invalid_credentials' ? 'Wrong email or password.' : /fetch|network/i.test(e.message) ? 'Can’t reach the sign-in server. Check the connection and try again.' : `Sign-in failed (${e.code ?? e.message}).`)
+      return
+    }
     const { data: f } = await sb.auth.mfa.listFactors()
     const verified = f?.totp?.find((t) => t.status === 'verified')
     if (verified) { setFactorId(verified.id); setStep('code'); setBusy(false); return }
@@ -74,7 +79,7 @@ function LoginForm() {
         <h1 style={{ fontFamily: C.serif, fontSize: 40, fontWeight: 900, margin: '10px 0 22px' }}>Console</h1>
 
         {step === 'creds' && (<>
-          <input style={input} type="email" autoComplete="username" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input style={input} type="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input style={input} type="password" autoComplete="current-password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button type="submit" style={{ ...btn('mint'), width: '100%' }} disabled={busy || !email || !password}>Continue</button>
           <button type="button" style={{ ...btn('ghost'), width: '100%', marginTop: 10 }} disabled={busy} onClick={passkeySignIn}>Sign in with a passkey</button>

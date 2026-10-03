@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { isAdmin } from '@/lib/supabase/guard'
+import { bearerToken, isAdmin, isAdminToken } from '@/lib/supabase/guard'
 
 // Every studio page and every studio API route goes through here first, and
 // each API route re-checks on its own (src/lib/console.ts → consoleAuthed).
@@ -35,6 +35,10 @@ export async function middleware(req: NextRequest) {
   )
 
   if (await isAdmin(supabase).catch(() => false)) return res
+
+  // Native Studio app: a Supabase access token with the second factor completed.
+  const token = bearerToken(req.headers.get('authorization'))
+  if (token && req.nextUrl.pathname.startsWith('/api/') && (await isAdminToken(token).catch(() => false))) return res
 
   if (req.nextUrl.pathname.startsWith('/api/')) {
     return NextResponse.json({ error: 'not authorised' }, { status: 401 })
