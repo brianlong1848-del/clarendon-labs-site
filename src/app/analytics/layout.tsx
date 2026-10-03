@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { requireAdmin } from '@/lib/supabase/requireAdmin'
 
 // Not a public page. This won't stop anyone determined (the password does
 // that), but there's no reason for it to sit in a search index.
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
   },
 }
 
-export default function AnalyticsLayout({ children }: { children: React.ReactNode }) {
+export default async function AnalyticsLayout({ children }: { children: React.ReactNode }) {
+  await requireAdmin()
   return <>{children}</>
 }
