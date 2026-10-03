@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, C, btn } from '@/components/AdminNav'
 import { SCHEDULE_C, guessCategory } from '@/lib/money/categories'
 
@@ -115,6 +116,7 @@ export default function Triage() {
   return (
     <AdminShell title="Money · Triage" subtitle={loaded ? `${remaining} to review` : undefined}
       actions={last ? <button style={btn('ghost')} onClick={undo}>Undo: {last.label} <span style={keycap}>Z</span></button> : undefined}>
+      <MoneyTabs />
       <div style={{ maxWidth: 560, margin: '0 auto', padding: 24 }}>
         {!loaded && <p style={{ color: C.soft }}>Loading…</p>}
         {loaded && !cur && (

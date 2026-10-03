@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
+import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, C, btn } from '@/components/AdminNav'
 
 // Money → Settings: connect bank accounts through Plaid Link and see what's
@@ -73,7 +74,8 @@ export default function MoneySettings() {
 
   const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: 20, marginBottom: 16 }
   return (
-    <AdminShell title="Money · Settings" subtitle="Connected accounts and sync">
+    <AdminShell title="Money · Accounts" subtitle="Connected accounts and sync">
+      <MoneyTabs />
       <div style={{ maxWidth: 760, padding: 24 }}>
         <div style={card}>
           <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 6px' }}>Connect an account</h2>
