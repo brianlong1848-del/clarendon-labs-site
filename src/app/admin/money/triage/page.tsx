@@ -11,6 +11,7 @@ import { SCHEDULE_C, guessCategory } from '@/lib/money/categories'
 type Tx = {
   id: string; posted_on: string; amount_cents: number; merchant: string | null; raw_description: string | null
   plaid_category: string | null; account: { name: string | null; mask: string | null; ownership: string; institution: string | null } | null
+  possible_duplicate_of: string | null; dup: { posted_on: string; merchant: string | null; amount_cents: number; source: string } | null
 }
 type App = { slug: string; name: string }
 type Last = { id: string; label: string }
@@ -75,6 +76,19 @@ export default function Triage() {
     setMsg(d.alsoApplied ? `Rule saved — ${d.alsoApplied} more from this merchant handled too.` : null)
     setPicking(false); await load()
   }, [cur, apps, category, makeRule, load])
+
+  // Plaid row that matches a manual/recurring entry: merge (keep the bank's row,
+  // take the entry's app, category, splits and receipts) or say it's different.
+  const resolveDup = useCallback(async (action: 'merge' | 'not_duplicate') => {
+    if (!cur || busy.current) return
+    busy.current = true
+    const res = await fetch('/api/money/ledger', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cur.id, action }) }).catch(() => null)
+    busy.current = false
+    if (!res || !res.ok) { setMsg('Could not save that — try again.'); return }
+    setMsg(action === 'merge' ? `Merged — ${cur.merchant ?? 'it'} counted once.` : 'Kept as a separate charge. Triage it as usual.')
+    await load()
+  }, [cur, load])
 
   const undo = useCallback(async () => {
     if (!last || busy.current) return
@@ -142,6 +156,18 @@ export default function Triage() {
               <div style={{ color: C.soft, fontFamily: C.mono, fontSize: 12, marginTop: 6 }}>{cur.raw_description}</div>
             )}
             {personalAcct && <p style={{ color: C.amber, fontSize: 13, marginTop: 12 }}>Paid from a personal account — marking it business adds it to “LLC owes Brian”.</p>}
+            {cur.possible_duplicate_of && cur.dup && (
+              <div style={{ marginTop: 16, padding: 14, borderRadius: 12, background: '#FFF7E6', border: `1px solid ${C.amber}` }}>
+                <div style={{ fontWeight: 650, marginBottom: 4 }}>Looks like this posted — merge?</div>
+                <div style={{ fontSize: 13.5, color: C.ink2 }}>
+                  Matches your {cur.dup.source === 'recurring' ? 'auto-posted subscription' : 'Quick Add entry'}: {cur.dup.merchant ?? '—'} · {usd(cur.dup.amount_cents)} · {cur.dup.posted_on}. Merging keeps this bank record with that entry&rsquo;s app, category and receipt, so it&rsquo;s counted once.
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button style={btn('mint')} onClick={() => resolveDup('merge')}>Merge</button>
+                  <button style={btn('ghost')} onClick={() => resolveDup('not_duplicate')}>Not the same charge</button>
+                </div>
+              </div>
+            )}
 
             {!picking ? (
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>

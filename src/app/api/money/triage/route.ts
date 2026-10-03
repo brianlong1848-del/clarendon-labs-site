@@ -12,7 +12,7 @@ export async function GET() {
   const sb = await supabaseServer()
   const [queue, count, apps] = await Promise.all([
     sb.from('transactions')
-      .select('id,posted_on,amount_cents,merchant,raw_description,plaid_category,account:money_accounts(name,mask,ownership,institution)')
+      .select('id,posted_on,amount_cents,merchant,raw_description,plaid_category,possible_duplicate_of,account:money_accounts(name,mask,ownership,institution),dup:transactions!transactions_possible_duplicate_of_fkey(posted_on,merchant,amount_cents,source)')
       .eq('status', 'unreviewed').order('posted_on', { ascending: false }).limit(50),
     sb.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unreviewed'),
     sb.from('apps').select('slug,name').order('name'),

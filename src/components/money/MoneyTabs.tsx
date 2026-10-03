@@ -7,6 +7,8 @@ import { C } from '@/components/AdminNav'
 const TABS = [
   { href: '/admin/money', label: 'Overview' },
   { href: '/admin/money/triage', label: 'Triage' },
+  { href: '/admin/money/ledger', label: 'Quick Add & receipts' },
+  { href: '/admin/money/subscriptions', label: 'Subscriptions' },
   { href: '/admin/money/settings', label: 'Accounts' },
 ]
 

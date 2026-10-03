@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/asc-revenue",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/money-recurring",
+      "schedule": "5 11 * * *"
     }
   ]
 }
