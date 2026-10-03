@@ -5,8 +5,8 @@ import { bearerToken, isAdmin, isAdminToken } from '@/lib/supabase/guard'
 // Every studio page and every studio API route goes through here first, and
 // each API route re-checks on its own (src/lib/console.ts → consoleAuthed).
 // Not covered on purpose: /api/feedback (public, in-app feedback),
-// /api/cron/* (CRON_SECRET), /api/publish/run (poked by pg_cron, only ever
-// publishes already-due posts), /login.
+// /api/cron/* (CRON_SECRET), /api/publish/run (pg_cron bearer secret or an
+// admin session, checked inside the route), /login.
 
 export const config = {
   matcher: [

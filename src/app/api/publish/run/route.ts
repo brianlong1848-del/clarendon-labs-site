@@ -1,15 +1,30 @@
 import { NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { claim, duePosts } from '@/lib/publish/store'
 import { run } from '@/lib/publish/runner'
 import { refreshThreadsTokens } from '@/lib/publish/tokens'
+import { consoleAuthed } from '@/lib/console'
 
-// Poked every 5 minutes by pg_cron in Supabase. Only ever publishes posts
-// whose scheduled time has passed (or that are mid-publish), so it needs no
-// secret: calling it early just does nothing.
+// Poked every 5 minutes by pg_cron in Supabase (job "studio-publish-runner"),
+// which sends "Authorization: Bearer <PUBLISH_RUN_SECRET>" from Supabase Vault.
+// The /post page also pokes it while you're signed in, so a signed-in admin
+// session is accepted too. Anyone else gets 401. An unset PUBLISH_RUN_SECRET
+// means only the admin session works, never "open".
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-async function handle() {
+function secretOk(header: string | null): boolean {
+  const want = process.env.PUBLISH_RUN_SECRET ?? ''
+  const got = /^Bearer\s+(\S+)$/i.exec(header ?? '')?.[1] ?? ''
+  if (!want || !got) return false
+  const a = Buffer.from(got), b = Buffer.from(want)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+async function handle(req: Request) {
+  if (!secretOk(req.headers.get('authorization')) && !(await consoleAuthed())) {
+    return NextResponse.json({ error: 'not authorised' }, { status: 401 })
+  }
   await refreshThreadsTokens().catch(() => {})
   const due = await duePosts().catch(() => [])
   const results: { id: string; status: string }[] = []
