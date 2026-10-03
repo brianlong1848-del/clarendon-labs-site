@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 // signed-in session, so RLS scopes them to the owner.
 export async function GET() {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
-  const sb = supabaseServer()
+  const sb = await supabaseServer()
   const since = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10)
   const [pnl, apps, roas, owed, unreviewed] = await Promise.all([
     sb.from('v_app_pnl_monthly').select('*').order('month', { ascending: false }).limit(400),

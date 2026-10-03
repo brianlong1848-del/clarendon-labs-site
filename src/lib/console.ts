@@ -57,7 +57,7 @@ export async function consoleAuthed(): Promise<boolean> {
   const { supabaseServer } = await import('@/lib/supabase/server')
   const { isAdmin, isAdminToken, bearerToken } = await import('@/lib/supabase/guard')
   const { headers } = await import('next/headers')
-  const token = bearerToken(headers().get('authorization'))
+  const token = bearerToken((await headers()).get('authorization'))
   if (token) return isAdminToken(token).catch(() => false)
-  return isAdmin(supabaseServer()).catch(() => false)
+  return isAdmin(await supabaseServer()).catch(() => false)
 }

@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
-  const sb = supabaseServer()
+  const sb = await supabaseServer()
   const [queue, count, apps] = await Promise.all([
     sb.from('transactions')
       .select('id,posted_on,amount_cents,merchant,raw_description,plaid_category,account:money_accounts(name,mask,ownership,institution)')
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (!b?.id || !['business', 'personal', 'ignored', 'unreviewed'].includes(b.status)) {
     return NextResponse.json({ error: 'bad request' }, { status: 400 })
   }
-  const sb = supabaseServer()
+  const sb = await supabaseServer()
   const isBiz = b.status === 'business'
   const split = isBiz && Array.isArray(b.split_apps) && b.split_apps.length >= 2 ? Array.from(new Set(b.split_apps)) : null
   const fields = { status: b.status, app_slug: isBiz && !split ? b.app_slug ?? null : null, split_apps: split, schedule_c: isBiz ? b.schedule_c ?? null : null }

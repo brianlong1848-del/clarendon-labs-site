@@ -119,7 +119,7 @@ export default function InboxPage() {
   useEffect(() => { if (current && !current.state.read) act(current.id, 'read').catch(() => {}) }, [current, act])
 
   // Keyboard triage.
-  const replyRef = useRef<HTMLTextAreaElement>(null)
+  const replyRef = useRef<HTMLTextAreaElement | null>(null)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement)?.tagName === 'TEXTAREA' || (e.target as HTMLElement)?.tagName === 'INPUT'
@@ -232,7 +232,7 @@ export default function InboxPage() {
   )
 }
 
-function Detail({ item, act, replyRef }: { item: InboxItem; act: (id: string, action: string, payload?: Record<string, unknown>) => Promise<void>; replyRef: React.RefObject<HTMLTextAreaElement> }) {
+function Detail({ item, act, replyRef }: { item: InboxItem; act: (id: string, action: string, payload?: Record<string, unknown>) => Promise<void>; replyRef: React.RefObject<HTMLTextAreaElement | null> }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

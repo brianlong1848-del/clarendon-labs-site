@@ -10,11 +10,11 @@ import { cookies, headers } from 'next/headers'
  *  app has no cookies; it sends "Authorization: Bearer <access token>", so the
  *  client acts as that user and row-level security still decides what's visible.
  *  (Routes have already checked consoleAuthed() before they read any data.) */
-export function supabaseServer(): SupabaseClient {
+export async function supabaseServer(): Promise<SupabaseClient> {
   const url = process.env.NEXT_PUBLIC_STUDIO_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_STUDIO_SUPABASE_KEY!
 
-  const authHeader = headers().get('authorization')
+  const authHeader = (await headers()).get('authorization')
   if (authHeader && /^Bearer\s+\S+$/i.test(authHeader)) {
     return createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -22,7 +22,7 @@ export function supabaseServer(): SupabaseClient {
     })
   }
 
-  const store = cookies()
+  const store = await cookies()
   return createServerClient(url, key, {
     cookies: {
       getAll: () => store.getAll(),
