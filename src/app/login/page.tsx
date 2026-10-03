@@ -43,6 +43,21 @@ function LoginForm() {
     setFactorId(data.id); setQr(data.totp.qr_code); setSecret(data.totp.secret); setStep('enroll')
   }
 
+  async function passkeySignIn() {
+    setBusy(true); setError(null)
+    const sb = supabaseBrowser()
+    const { error: e } = await sb.auth.signInWithPasskey()
+    if (e) { setBusy(false); setError('Passkey sign-in didn’t work.'); return }
+    const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aal?.currentLevel === 'aal2') { window.location.href = next; return }
+    // A passkey alone doesn't reach the console's required level yet: ask for the authenticator code too.
+    const { data: f } = await sb.auth.mfa.listFactors()
+    const verified = f?.totp?.find((t) => t.status === 'verified')
+    setBusy(false)
+    if (verified) { setFactorId(verified.id); setStep('code'); return }
+    setError('Signed in, but no authenticator is set up. Use email and password once.')
+  }
+
   async function verify() {
     setBusy(true); setError(null)
     const sb = supabaseBrowser()
@@ -62,6 +77,7 @@ function LoginForm() {
           <input style={input} type="email" autoComplete="username" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input style={input} type="password" autoComplete="current-password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button type="submit" style={{ ...btn('mint'), width: '100%' }} disabled={busy || !email || !password}>Continue</button>
+          <button type="button" style={{ ...btn('ghost'), width: '100%', marginTop: 10 }} disabled={busy} onClick={passkeySignIn}>Sign in with a passkey</button>
         </>)}
 
         {step === 'enroll' && (<>
