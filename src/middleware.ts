@@ -18,6 +18,9 @@ export const config = {
 }
 
 export async function middleware(req: NextRequest) {
+  // The admin privacy policy is public (Plaid reads it); it shows no data.
+  if (req.nextUrl.pathname === '/admin/privacy') return NextResponse.next()
+
   let res = NextResponse.next({ request: req })
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_STUDIO_SUPABASE_URL ?? '',

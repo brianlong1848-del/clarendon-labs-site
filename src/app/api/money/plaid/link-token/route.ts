@@ -22,6 +22,8 @@ export async function POST(req: Request) {
       client_name: 'Clarendon Labs', language: 'en', country_codes: ['US'],
       user: { client_user_id: db.owner },
       webhook: `${siteOrigin(req)}/api/plaid/webhook`,
+      // OAuth banks send the user back here; must match Plaid Dashboard → Allowed redirect URIs exactly.
+      ...(process.env.PLAID_REDIRECT_URI ? { redirect_uri: process.env.PLAID_REDIRECT_URI } : {}),
       ...(access_token ? { access_token } : { products: ['transactions'] }),
     })
     return NextResponse.json({ link_token: out.link_token })

@@ -43,27 +43,50 @@ export default function MoneySettings() {
     return data
   }
 
+  // Plaid Link. OAuth banks (Bank of America, Chase…) leave this page for the
+  // bank's own login and come back with ?oauth_state_id=…; Link then has to be
+  // reopened with the same link token, so it's parked in sessionStorage.
+  const PENDING = 'clarendon:plaid-link'
+  function openLink(token: string, opts: { itemId?: string; ownership: 'business' | 'personal'; resume?: boolean }) {
+    window.Plaid!.create({
+      token,
+      ...(opts.resume ? { receivedRedirectUri: window.location.href } : {}),
+      onSuccess: async (public_token: string) => {
+        try { sessionStorage.removeItem(PENDING) } catch { /* private mode */ }
+        try {
+          if (!opts.itemId) {
+            const r = await post('/api/money/plaid/exchange', { public_token, ownership: opts.ownership })
+            setMsg({ text: `Connected ${r.institution ?? 'bank'} — ${r.accounts} account(s), ${r.sync?.added ?? 0} transactions pulled.` })
+          } else setMsg({ text: 'Reconnected.' })
+          await load()
+        } catch (e) { setMsg({ text: (e as Error).message, bad: true }) }
+        setBusy(false)
+        if (opts.resume) window.history.replaceState(null, '', window.location.pathname)
+      },
+      onExit: () => { setBusy(false); try { sessionStorage.removeItem(PENDING) } catch { /* ignore */ } },
+    }).open()
+  }
+
   async function connect(itemId?: string) {
     setBusy(true); setMsg(null)
     try {
       const { link_token } = await post('/api/money/plaid/link-token', itemId ? { itemId } : {})
+      try { sessionStorage.setItem(PENDING, JSON.stringify({ token: link_token, itemId, ownership })) } catch { /* ignore */ }
       await loadPlaid()
-      window.Plaid!.create({
-        token: link_token,
-        onSuccess: async (public_token: string) => {
-          try {
-            if (!itemId) {
-              const r = await post('/api/money/plaid/exchange', { public_token, ownership })
-              setMsg({ text: `Connected ${r.institution ?? 'bank'} — ${r.accounts} account(s), ${r.sync?.added ?? 0} transactions pulled.` })
-            } else setMsg({ text: 'Reconnected.' })
-            await load()
-          } catch (e) { setMsg({ text: (e as Error).message, bad: true }) }
-          setBusy(false)
-        },
-        onExit: () => setBusy(false),
-      }).open()
+      openLink(link_token, { itemId, ownership })
     } catch (e) { setMsg({ text: (e as Error).message, bad: true }); setBusy(false) }
   }
+
+  // Back from an OAuth bank: pick the Link session up where it left off.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('oauth_state_id')) return
+    let saved: { token: string; itemId?: string; ownership: 'business' | 'personal' } | null = null
+    try { saved = JSON.parse(sessionStorage.getItem(PENDING) ?? 'null') } catch { saved = null }
+    if (!saved?.token) { setMsg({ text: 'The bank sign-in came back, but the Link session expired. Press Connect again.', bad: true }); return }
+    setBusy(true)
+    loadPlaid().then(() => openLink(saved!.token, { itemId: saved!.itemId, ownership: saved!.ownership, resume: true }))
+      .catch((e) => { setMsg({ text: (e as Error).message, bad: true }); setBusy(false) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(path: string, body?: object, ok?: (d: any) => string) {
     setBusy(true); setMsg(null)
@@ -81,6 +104,9 @@ export default function MoneySettings() {
           <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 6px' }}>Connect an account</h2>
           <p style={{ color: C.ink2, fontSize: 14, margin: '0 0 14px' }}>
             Tag it first: <b>business</b> accounts count as company money; <b>personal</b> cards are connected too so business charges on them can be found, but their transactions only appear in Triage.
+          </p>
+          <p style={{ color: C.ink2, fontSize: 13, margin: '0 0 14px', padding: '10px 12px', background: C.card2, borderRadius: 10 }}>
+            Before you connect: Plaid shares the account&rsquo;s name, type, last four digits and transactions with Clarendon Admin, never your bank login. It&rsquo;s used only for Clarendon Labs bookkeeping and ROI, stored encrypted, kept up to 7 years, and revoked the moment you disconnect. <a href="/admin/privacy" target="_blank" rel="noreferrer" style={{ color: C.mint }}>Clarendon Admin privacy policy</a>.
           </p>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <select value={ownership} onChange={(e) => setOwnership(e.target.value as 'business' | 'personal')}
@@ -103,9 +129,15 @@ export default function MoneySettings() {
             <div key={it.id} style={{ padding: '10px 0', borderTop: `1px solid ${C.rule}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <b>{it.institution ?? 'Bank'}</b>
-                {it.status === 'ok'
-                  ? <span style={{ color: C.mint, fontSize: 13 }}>Healthy</span>
-                  : <button style={btn('ghost')} disabled={busy} onClick={() => connect(it.id)}>Needs re-login — reconnect</button>}
+                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {it.status === 'ok'
+                    ? <span style={{ color: C.mint, fontSize: 13 }}>Healthy</span>
+                    : <button style={btn('ghost')} disabled={busy} onClick={() => connect(it.id)}>Needs re-login — reconnect</button>}
+                  <button style={{ ...btn('ghost'), padding: '6px 10px' }} disabled={busy} onClick={() => {
+                    if (window.confirm(`Disconnect ${it.institution ?? 'this bank'}? The connection is revoked at Plaid and its access token erased. Transactions already pulled stay in the books.`))
+                      run('/api/money/plaid/disconnect', { itemId: it.id }, () => `${it.institution ?? 'Bank'} disconnected.`)
+                  }}>Disconnect</button>
+                </span>
               </div>
               {accounts.filter((a) => a.plaid_item_id === it.id).map((a) => (
                 <div key={a.id} style={{ color: C.ink2, fontSize: 13.5, marginTop: 4 }}>
