@@ -9,6 +9,7 @@ const TABS = [
   { href: '/admin/money/triage', label: 'Triage' },
   { href: '/admin/money/ledger', label: 'Quick Add & receipts' },
   { href: '/admin/money/subscriptions', label: 'Subscriptions' },
+  { href: '/admin/money/ads', label: 'Ads' },
   { href: '/admin/money/settings', label: 'Accounts' },
 ]
 

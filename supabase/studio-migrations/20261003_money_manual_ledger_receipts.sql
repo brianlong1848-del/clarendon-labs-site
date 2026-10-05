@@ -254,3 +254,12 @@ end $$;
 create trigger transactions_flag_duplicate
   before insert on public.transactions
   for each row execute function public.flag_possible_duplicate();
+
+-- ── 11. Grants (migration money_grants_new_tables, 2026-10-05) ──────────────
+-- This project doesn't auto-grant table privileges to API roles; without these
+-- the Money pages failed with "permission denied for table transaction_splits".
+-- Row-level security (owner + 2FA) still decides which rows anyone can touch.
+grant select, insert, update, delete on public.manual_recurring to authenticated, service_role;
+grant select, insert, update, delete on public.transaction_splits to authenticated, service_role;
+grant select, insert, update, delete on public.receipts to authenticated, service_role;
+grant select on public.v_subscription_migration to authenticated, service_role;
