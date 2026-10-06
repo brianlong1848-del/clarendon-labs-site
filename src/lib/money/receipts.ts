@@ -25,11 +25,11 @@ const b64 = (buf: ArrayBuffer) => Buffer.from(buf).toString('base64')
  *  big for the API, or the reply can't be parsed — callers treat that as "not read". */
 export async function extractReceipt(sb: SupabaseClient, path: string, mime: string, apps: { slug: string; name: string }[]): Promise<Extracted | null> {
   const key = process.env.ANTHROPIC_API_KEY
-  if (!key) return null
+  if (!key) { console.error('[receipts] ANTHROPIC_API_KEY is not set'); return null }
   const file = await sb.storage.from('receipts').download(path)
-  if (file.error || !file.data) return null
+  if (file.error || !file.data) { console.error('[receipts] download failed:', file.error?.message); return null }
   const buf = await file.data.arrayBuffer()
-  if (mime !== 'application/pdf' && buf.byteLength > 4.5 * 1024 * 1024) return null // image limit for the API
+  if (mime !== 'application/pdf' && buf.byteLength > 4.5 * 1024 * 1024) { console.error('[receipts] image too large for the API'); return null } // image limit for the API
 
   const source = { type: 'base64', media_type: mime, data: b64(buf) }
   const block = mime === 'application/pdf' ? { type: 'document', source } : { type: 'image', source }
@@ -45,7 +45,7 @@ Apps: ${apps.map((a) => `${a.slug} = ${a.name}`).join(', ')}.`
       method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(45_000),
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.RECEIPT_MODEL || 'claude-sonnet-4-5',
+        model: process.env.RECEIPT_MODEL || 'claude-sonnet-5-5',
         max_tokens: 1200,
         messages: [{ role: 'user', content: [block, { type: 'text', text: prompt }] }],
       }),
