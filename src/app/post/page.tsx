@@ -131,11 +131,34 @@ function Accounts({ apps, onRefresh }: { apps: PublishApp[]; onRefresh: () => vo
                 <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 6, lineHeight: 1.45 }}>
                   {x.ready ? (x.handle ? (x.platform === 'facebook' ? x.handle : `@${x.handle}`) : 'Connected') : x.reason}
                 </div>
+                {!x.ready && x.connect === 'threads' && <ConnectThreads appId={a.id} />}
               </div>
             ))}
           </div>
         </section>
       ))}
+    </div>
+  )
+}
+
+// Starts the Threads sign-in for one app. Whichever Threads account is signed
+// in on threads.com in this browser is the one that gets connected.
+function ConnectThreads({ appId }: { appId: string }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const go = async () => {
+    setBusy(true); setErr(null)
+    const res = await fetch(`/api/publish/threads/connect?app=${appId}`, { method: 'POST' }).catch(() => null)
+    const out = (await res?.json().catch(() => ({}))) ?? {}
+    if (res?.ok && out.url) window.location.href = out.url
+    else { setBusy(false); setErr(out.error ?? 'Couldn’t start the Threads sign-in.') }
+  }
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button onClick={go} disabled={busy} style={{ ...btn('solid'), fontSize: 13, padding: '8px 14px' }}>
+        {busy ? 'Opening Threads…' : 'Connect Threads'}
+      </button>
+      {err && <div style={{ fontSize: 12, color: C.soft, marginTop: 6 }}>{err}</div>}
     </div>
   )
 }
