@@ -3,6 +3,8 @@ import { timingSafeEqual } from 'crypto'
 import { claim, duePosts } from '@/lib/publish/store'
 import { run } from '@/lib/publish/runner'
 import { refreshThreadsTokens } from '@/lib/publish/tokens'
+import { refreshTikTokTokens } from '@/lib/publish/tiktok'
+import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { consoleAuthed } from '@/lib/console'
 
 // Poked every 5 minutes by pg_cron in Supabase (job "studio-publish-runner"),
@@ -26,6 +28,7 @@ async function handle(req: Request) {
     return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   }
   await refreshThreadsTokens().catch(() => {})
+  await refreshTikTokTokens(PUBLISH_APPS.map((a) => a.id)).catch(() => {})
   const due = await duePosts().catch(() => [])
   const results: { id: string; status: string }[] = []
   const started = Date.now()

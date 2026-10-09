@@ -67,7 +67,7 @@ export async function PATCH(req: Request) {
   const id = new URL(req.url).searchParams.get('id') ?? ''
   const post = await getPost(id).catch(() => null)
   if (!post) return bad('Not found.', 404)
-  const targets = post.targets.map((t) => t.status === 'failed' ? { platform: t.platform, format: t.format, status: 'pending' as const } : t)
+  const targets = post.targets.map((t) => t.status === 'failed' ? { platform: t.platform, format: t.format, ...(t.tiktok ? { tiktok: t.tiktok } : {}), status: 'pending' as const } : t)
   const fresh = await updatePost(id, { targets, status: 'publishing' })
   return NextResponse.json({ post: await run(fresh, 45_000) })
 }

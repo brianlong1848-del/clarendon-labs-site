@@ -14,12 +14,15 @@
 //   threads   — connected once from /post ("Connect Threads", OAuth) and kept
 //               in studio_social_tokens, refreshed by the 5-minute runner.
 //               THREADS_TOKEN_<APP> still works as a manual override.
-//   tiktok    — not wired: public posting needs TikTok's app audit first.
+//   tiktok    — connected once from /post ("Connect TikTok", OAuth) like
+//               Threads; see tiktok.ts. Until TikTok audits the app, posts
+//               must be "Only me" (TIKTOK_AUDITED unset).
 
 import type { MediaItem, Platform } from './rules'
 import { captionFor } from './rules'
 import type { Post, TargetState } from './store'
 import { getToken } from './tokens'
+import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken } from './tiktok'
 
 const G = 'https://graph.facebook.com/v21.0'
 const T = 'https://graph.threads.net/v1.0'
@@ -94,7 +97,7 @@ async function grantedPermissions(): Promise<Set<string>> {
 
 // ── Account readiness (drives the composer's destination cards) ──────────────
 
-export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string; connect?: 'threads' }
+export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string; connect?: 'threads' | 'tiktok' }
 
 export async function accounts() {
   const perms = await grantedPermissions()
@@ -141,7 +144,23 @@ export async function accounts() {
     }
 
     // TikTok
-    out.push({ platform: 'tiktok', ready: false, reason: 'Direct posting unlocks after TikTok approves the app. Until then, use “Post it yourself” to send the video to your phone.' })
+    if (!tiktokConfigured()) out.push({ platform: 'tiktok', ready: false, reason: 'TikTok needs a one-time setup: save TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET from the developer app.' })
+    else {
+      let row
+      try { row = await tiktokToken(app.id) } catch (e) {
+        out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `TikTok sign-in expired (${(e as Error).message}). Reconnect it.` })
+      }
+      if (row) {
+        try {
+          const c = await creatorInfo(row.token)
+          out.push({ platform: 'tiktok', ready: true, handle: c.creator_username, avatar: c.creator_avatar_url })
+        } catch (e) {
+          out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `TikTok sign-in expired (${(e as Error).message}). Reconnect it.` })
+        }
+      } else if (!out.some((a) => a.platform === 'tiktok')) {
+        out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `Connect ${app.name}’s TikTok account — TikTok lets you pick the account when you sign in.` })
+      }
+    }
     return { id: app.id, name: app.name, accent: app.accent, icon: `/icons/${app.id}.png`, accounts: out }
   }))
 }
@@ -258,6 +277,38 @@ async function threads(p: Post, t: TargetState): Promise<Step> {
   return { status: 'published', remoteId: published.id, permalink }
 }
 
+async function tiktok(p: Post, t: TargetState): Promise<Step> {
+  const row = await tiktokToken(p.app_id)
+  if (!row) return { status: 'failed', error: 'TikTok isn’t connected for this app.' }
+  const settings = t.tiktok ?? { mode: 'draft' as const }
+  const video = p.media.find((m) => m.kind === 'video')
+  if (!video) return { status: 'failed', error: 'TikTok here posts one video.' }
+
+  if (!t.containerId) {
+    // TikTok asks for creator info right before each post; it also catches a
+    // privacy choice that's no longer allowed before any upload happens.
+    const c = await creatorInfo(row.token)
+    if (settings.mode === 'direct') {
+      if (!settings.privacy || !c.privacy_level_options.includes(settings.privacy)) return { status: 'failed', error: 'That privacy choice isn’t available for this TikTok account — pick again.' }
+      if (video.duration && c.max_video_post_duration_sec && video.duration > c.max_video_post_duration_sec) {
+        return { status: 'failed', error: `This account can post videos up to ${c.max_video_post_duration_sec}s on TikTok.` }
+      }
+    }
+    const publishId = await startUpload(row.token, video.url, video.mime, captionFor('tiktok', p.caption, p.overrides), settings)
+    return { containerId: publishId, status: 'processing' }
+  }
+
+  const st = await publishStatus(row.token, t.containerId)
+  if (st.status === 'FAILED') return { status: 'failed', error: `TikTok couldn’t post it (${st.fail_reason ?? 'unknown reason'}).` }
+  const profile = row.username ? `https://www.tiktok.com/@${row.username}` : undefined
+  if (st.status === 'SEND_TO_USER_INBOX') return { status: 'published', remoteId: t.containerId, permalink: profile }
+  if (st.status === 'PUBLISH_COMPLETE') {
+    const id = st.publicaly_available_post_id?.[0]
+    return { status: 'published', remoteId: id ? String(id) : t.containerId, permalink: id && profile ? `${profile}/video/${id}` : profile }
+  }
+  return { status: 'processing' }
+}
+
 /** Move one target forward a step. Never throws — failures land on the target. */
 export async function advance(p: Post, t: TargetState): Promise<Step> {
   try {
@@ -265,7 +316,8 @@ export async function advance(p: Post, t: TargetState): Promise<Step> {
       case 'instagram': return await instagram(p, t)
       case 'facebook': return await facebook(p, t)
       case 'threads': return await threads(p, t)
-      default: return { status: 'failed', error: 'TikTok posting isn’t available until TikTok approves the app.' }
+      case 'tiktok': return await tiktok(p, t)
+      default: return { status: 'failed', error: 'Unknown platform.' }
     }
   } catch (e) {
     console.error(`[publish] ${p.id} ${t.platform}:`, (e as Error).message)

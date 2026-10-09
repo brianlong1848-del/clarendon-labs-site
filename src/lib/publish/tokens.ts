@@ -1,13 +1,16 @@
 // ─── Connected-account tokens ────────────────────────────────────────────────
 //
 // SERVER ONLY. OAuth tokens for platforms that need one sign-in per account
-// (Threads today; TikTok once it's approved). Kept in studio_social_tokens in
+// (Threads and TikTok). Kept in studio_social_tokens in
 // the site's Supabase project — RLS on, no policies, service role only — so
 // connecting an account never means pasting a token into Vercel.
 
 import { createHmac, timingSafeEqual } from 'crypto'
 
-export type StoredToken = { platform: string; app_id: string; account_id: string | null; username: string | null; token: string; expires_at: string | null; refreshed_at: string }
+export type StoredToken = {
+  platform: string; app_id: string; account_id: string | null; username: string | null; token: string; expires_at: string | null; refreshed_at: string
+  refresh_token?: string | null; refresh_expires_at?: string | null
+}
 
 const env = () => {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -49,16 +52,17 @@ export function threadsRedirect(req: Request) {
   return `${process.env.SITE_ORIGIN ?? new URL(req.url).origin}/api/publish/threads/callback`
 }
 
-/** Signed, 15-minute OAuth state naming the app being connected. */
-export function signState(appId: string) {
+/** Signed, 15-minute OAuth state naming the app being connected. Signed with
+ *  the platform's own app secret (Threads by default). */
+export function signState(appId: string, secret = process.env.THREADS_APP_SECRET ?? '') {
   const body = `${appId}.${Date.now() + 15 * 60_000}`
-  const mac = createHmac('sha256', process.env.THREADS_APP_SECRET ?? '').update(body).digest('base64url')
+  const mac = createHmac('sha256', secret).update(body).digest('base64url')
   return `${body}.${mac}`
 }
-export function readState(state: string): string | null {
+export function readState(state: string, secret = process.env.THREADS_APP_SECRET ?? ''): string | null {
   const [appId, exp, mac] = state.split('.')
-  if (!appId || !exp || !mac || Number(exp) < Date.now()) return null
-  const want = createHmac('sha256', process.env.THREADS_APP_SECRET ?? '').update(`${appId}.${exp}`).digest()
+  if (!appId || !exp || !mac || !secret || Number(exp) < Date.now()) return null
+  const want = createHmac('sha256', secret).update(`${appId}.${exp}`).digest()
   const got = Buffer.from(mac, 'base64url')
   return got.length === want.length && timingSafeEqual(got, want) ? appId : null
 }

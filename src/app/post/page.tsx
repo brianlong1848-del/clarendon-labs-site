@@ -22,12 +22,14 @@ export default function PostPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => { setPw('session') }, [])
-  // Back from the Threads sign-in: say how it went, then tidy the URL.
+  // Back from a Threads / TikTok sign-in: say how it went, then tidy the URL.
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('threads')
+    const q = new URLSearchParams(window.location.search)
+    const which = q.has('tiktok') ? 'TikTok' : 'Threads'
+    const t = q.get('tiktok') ?? q.get('threads')
     if (!t) return
     const m = t.match(/^connected:([^:]+):(.*)$/)
-    setNotice(m ? { ok: true, text: `Threads connected${m[2] ? ` as @${m[2]}` : ''} for ${m[1]}.` } : { ok: false, text: t })
+    setNotice(m ? { ok: true, text: `${which} connected${m[2] ? ` as @${m[2]}` : ''} for ${m[1]}.` } : { ok: false, text: t })
     if (m) setTab('accounts')
     window.history.replaceState(null, '', '/post')
   }, [])
@@ -131,7 +133,7 @@ function Accounts({ apps, onRefresh }: { apps: PublishApp[]; onRefresh: () => vo
                 <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 6, lineHeight: 1.45 }}>
                   {x.ready ? (x.handle ? (x.platform === 'facebook' ? x.handle : `@${x.handle}`) : 'Connected') : x.reason}
                 </div>
-                {!x.ready && x.connect === 'threads' && <ConnectThreads appId={a.id} />}
+                {!x.ready && x.connect && <ConnectButton appId={a.id} platform={x.connect} />}
               </div>
             ))}
           </div>
@@ -141,22 +143,23 @@ function Accounts({ apps, onRefresh }: { apps: PublishApp[]; onRefresh: () => vo
   )
 }
 
-// Starts the Threads sign-in for one app. Whichever Threads account is signed
-// in on threads.com in this browser is the one that gets connected.
-function ConnectThreads({ appId }: { appId: string }) {
+// Starts the Threads / TikTok sign-in for one app. Threads connects whichever
+// account is signed in on threads.com; TikTok shows its account picker.
+function ConnectButton({ appId, platform }: { appId: string; platform: 'threads' | 'tiktok' }) {
+  const name = platform === 'tiktok' ? 'TikTok' : 'Threads'
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const go = async () => {
     setBusy(true); setErr(null)
-    const res = await fetch(`/api/publish/threads/connect?app=${appId}`, { method: 'POST' }).catch(() => null)
+    const res = await fetch(`/api/publish/${platform}/connect?app=${appId}`, { method: 'POST' }).catch(() => null)
     const out = (await res?.json().catch(() => ({}))) ?? {}
     if (res?.ok && out.url) window.location.href = out.url
-    else { setBusy(false); setErr(out.error ?? 'Couldn’t start the Threads sign-in.') }
+    else { setBusy(false); setErr(out.error ?? `Couldn’t start the ${name} sign-in.`) }
   }
   return (
     <div style={{ marginTop: 10 }}>
       <button onClick={go} disabled={busy} style={{ ...btn('solid'), fontSize: 13, padding: '8px 14px' }}>
-        {busy ? 'Opening Threads…' : 'Connect Threads'}
+        {busy ? `Opening ${name}…` : `Connect ${name}`}
       </button>
       {err && <div style={{ fontSize: 12, color: C.soft, marginTop: 6 }}>{err}</div>}
     </div>

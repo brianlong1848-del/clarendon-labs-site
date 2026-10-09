@@ -11,7 +11,21 @@ export type Platform = 'instagram' | 'facebook' | 'threads' | 'tiktok'
 export type Format = 'feed' | 'reel' | 'story' | 'post'
 export type MediaKind = 'image' | 'video'
 export type MediaItem = { url: string; path?: string; kind: MediaKind; width: number; height: number; duration?: number; mime?: string; size?: number }
-export type Target = { platform: Platform; format: Format }
+export type TikTokPrivacy = 'PUBLIC_TO_EVERYONE' | 'MUTUAL_FOLLOW_FRIENDS' | 'FOLLOWER_OF_CREATOR' | 'SELF_ONLY'
+/** What the TikTok card collects. TikTok's rules: privacy has no default, the
+ *  interaction switches start off, and commercial content must be disclosed. */
+export type TikTokSettings = {
+  mode: 'direct' | 'draft'
+  privacy?: TikTokPrivacy
+  allowComment?: boolean; allowDuet?: boolean; allowStitch?: boolean
+  /** Commercial content disclosure: promoting your own business / a paid partnership. */
+  commercial?: boolean; yourBrand?: boolean; brandedContent?: boolean
+}
+export type Target = { platform: Platform; format: Format; tiktok?: TikTokSettings }
+
+export const TIKTOK_PRIVACY_LABEL: Record<TikTokPrivacy, string> = {
+  PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me',
+}
 export type Issue = { platform: Platform; level: 'error' | 'warn'; text: string }
 
 export const PLATFORMS: { id: Platform; name: string; formats: Format[]; captionMax: number }[] = [
@@ -101,7 +115,15 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
     }
 
     if (t.platform === 'tiktok') {
+      const s = t.tiktok
       if (videos.length !== 1 || images.length) add(t.platform, 'error', 'TikTok here posts one video.')
+      for (const m of videos) if (m.duration && m.duration < 3) add(t.platform, 'error', 'TikTok videos must be at least 3 seconds.')
+      if (!s) add(t.platform, 'error', 'Choose how to send it to TikTok.')
+      else if (s.mode === 'direct') {
+        if (!s.privacy) add(t.platform, 'error', 'Choose who can see it on TikTok.')
+        if (s.commercial && !s.yourBrand && !s.brandedContent) add(t.platform, 'error', 'You turned on commercial content — say whether it promotes your own brand, a paid partnership, or both.')
+        if (s.brandedContent && s.privacy === 'SELF_ONLY') add(t.platform, 'error', 'Branded content can’t be private on TikTok — choose another audience.')
+      }
     }
   }
   return issues

@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { C, btn } from '@/components/AdminNav'
 import {
   PLATFORMS, FORMAT_LABEL, defaultFormat, fbReelOK, validate, captionFor, ratioName,
-  type Format, type MediaItem, type Platform, type Target,
+  type Format, type MediaItem, type Platform, type Target, type TikTokSettings,
 } from '@/lib/publish/rules'
 import { Preview } from './Preview'
+import { TikTokPanel, type Creator } from './TikTokPanel'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost } from './shared'
 
 // ─── Composer ────────────────────────────────────────────────────────────────
@@ -94,13 +95,16 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const fileInput = useRef<HTMLInputElement>(null)
   const mediaKey = useRef('')
   const [connecting, setConnecting] = useState(false)
+  // TikTok: settings start empty on purpose (no default audience, interactions off).
+  const [tt, setTt] = useState<TikTokSettings>({ mode: 'direct' })
+  const [creator, setCreator] = useState<{ info: Creator | null; audited: boolean; loading: boolean; error: string | null }>({ info: null, audited: false, loading: false, error: null })
 
-  const connectThreads = async () => {
+  const connect = async (platform: 'threads' | 'tiktok') => {
     setConnecting(true); setError(null)
-    const res = await fetch(`/api/publish/threads/connect?app=${appId}`, { method: 'POST', headers: {} }).catch(() => null)
+    const res = await fetch(`/api/publish/${platform}/connect?app=${appId}`, { method: 'POST', headers: {} }).catch(() => null)
     const out = await res?.json().catch(() => ({})) ?? {}
     if (res?.ok && out.url) window.location.href = out.url
-    else { setConnecting(false); setError(out.error ?? 'Couldn’t start the Threads sign-in.') }
+    else { setConnecting(false); setError(out.error ?? `Couldn’t start the ${platform === 'tiktok' ? 'TikTok' : 'Threads'} sign-in.`) }
   }
 
   const app = apps.find((a) => a.id === appId)
@@ -125,6 +129,20 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     })
   }, [account])
 
+  // TikTok wants creator info read fresh before each post: who it's going to,
+  // which audiences are allowed, what's switched off on the account.
+  const ttOn = dest.tiktok.on && !!account('tiktok')?.ready
+  useEffect(() => {
+    if (!ttOn) return
+    let live = true
+    setCreator((c) => ({ ...c, loading: true, error: null }))
+    setTt({ mode: 'direct' })
+    fetch(`/api/publish/tiktok/creator?app=${appId}`).then((r) => r.json().then((b) => ({ ok: r.ok, b })))
+      .then(({ ok, b }) => { if (live) setCreator({ info: ok ? b.creator : null, audited: !!b.audited, loading: false, error: ok ? null : b.error }) })
+      .catch(() => { if (live) setCreator({ info: null, audited: false, loading: false, error: 'Couldn’t reach TikTok.' }) })
+    return () => { live = false }
+  }, [ttOn, appId])
+
   const media: MediaItem[] = useMemo(() => items.map((i) => ({ url: i.url ?? 'https://pending', kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })), [items])
 
   // Keep Instagram's format sensible as media changes.
@@ -145,8 +163,12 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     })
   }, [media])
 
-  const targets: Target[] = PLATFORMS.filter((p) => dest[p.id].on).map((p) => ({ platform: p.id, format: dest[p.id].format }))
+  const targets: Target[] = PLATFORMS.filter((p) => dest[p.id].on).map((p) => ({ platform: p.id, format: dest[p.id].format, ...(p.id === 'tiktok' ? { tiktok: tt } : {}) }))
   const issues = validate(targets, media, caption, tailor ? overrides : {})
+  const ttVideo = media.length === 1 && media[0].kind === 'video' ? media[0] : undefined
+  if (ttOn && creator.loading) issues.push({ platform: 'tiktok', level: 'error', text: 'Checking the TikTok account…' })
+  if (ttOn && !creator.loading && !creator.info) issues.push({ platform: 'tiktok', level: 'error', text: creator.error ?? 'Couldn’t read the TikTok account.' })
+  if (ttOn && creator.info && ttVideo?.duration && ttVideo.duration > creator.info.max_video_post_duration_sec) issues.push({ platform: 'tiktok', level: 'error', text: `This TikTok account can post videos up to ${creator.info.max_video_post_duration_sec}s.` })
   const errors = issues.filter((i) => i.level === 'error')
   const uploading = items.some((i) => i.status === 'preparing' || i.status === 'uploading')
   const failedUploads = items.some((i) => i.status === 'error')
@@ -390,10 +412,14 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                       ]} />
                   )}
                   {!acc?.ready && acc?.reason && <p style={{ margin: 0, fontSize: 12, color: C.ink2, lineHeight: 1.45 }}>{acc.reason}</p>}
-                  {!acc?.ready && acc?.connect === 'threads' && (
-                    <button onClick={connectThreads} disabled={connecting} style={{ ...btn('solid'), justifySelf: 'start', fontSize: 13, padding: '8px 14px' }}>
-                      {connecting ? 'Opening Threads…' : 'Connect Threads'}
+                  {!acc?.ready && acc?.connect && (
+                    <button onClick={() => connect(acc.connect!)} disabled={connecting} style={{ ...btn('solid'), justifySelf: 'start', fontSize: 13, padding: '8px 14px' }}>
+                      {connecting ? `Opening ${p.name}…` : `Connect ${p.name}`}
                     </button>
+                  )}
+                  {p.id === 'tiktok' && acc?.ready && on && (
+                    <TikTokPanel creator={creator.info} audited={creator.audited} loading={creator.loading} error={creator.error}
+                      value={tt} onChange={setTt} duration={ttVideo?.duration} />
                   )}
                   {p.id === 'tiktok' && !acc?.ready && oneVideo && items[0]?.url && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -470,7 +496,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
               : schedule ? `Schedule · ${isNaN(scheduleDate.getTime()) ? '' : when(scheduleDate.toISOString())}`
               : targets.length ? `Post now to ${targets.length} ${targets.length === 1 ? 'place' : 'places'}` : 'Post now'}
           </button>
-          {sending && !schedule && <span style={{ fontSize: 12, color: C.soft, textAlign: 'center' }}>Videos can take a minute while Meta processes them.</span>}
+          {sending && !schedule && <span style={{ fontSize: 12, color: C.soft, textAlign: 'center' }}>Videos can take a minute while {dest.tiktok.on ? 'Meta and TikTok process' : 'Meta processes'} them.</span>}
           {error && <span style={{ fontSize: 13, color: C.red }}>{error}</span>}
         </section>
       </aside>
@@ -505,7 +531,7 @@ function Result({ post, app, onNew }: { post: QueuedPost; app?: PublishApp; onNe
       </h2>
       <p style={{ margin: 0, color: C.ink2 }}>
         {scheduled && post.scheduled_at ? `${app?.name ?? 'It'} goes out ${when(post.scheduled_at)}. It’s in the queue if you change your mind.`
-          : busy ? 'Meta is still processing the media — this updates on its own.'
+          : busy ? 'Still processing the media — this updates on its own.'
           : `${app?.name ?? ''} · ${post.targets.length} platform${post.targets.length === 1 ? '' : 's'}`}
       </p>
       {!scheduled && (
@@ -515,7 +541,8 @@ function Result({ post, app, onNew }: { post: QueuedPost; app?: PublishApp; onNe
               <PlatformGlyph platform={t.platform} />
               <b style={{ fontSize: 14 }}>{PLATFORMS.find((p) => p.id === t.platform)?.name}</b>
               <span title={t.error} style={{ flex: 1, fontSize: 12.5, color: t.status === 'failed' ? C.red : C.soft, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {t.status === 'published' ? 'Live' : t.status === 'failed' ? t.error : 'Processing…'}
+                {t.status === 'published' ? (t.platform === 'tiktok' && t.tiktok?.mode === 'draft' ? 'In the TikTok app’s inbox — finish it there' : t.platform === 'tiktok' ? 'Posted — can take a few minutes to show on the profile' : 'Live')
+                  : t.status === 'failed' ? t.error : 'Processing…'}
               </span>
               {t.permalink && <a href={t.permalink} target="_blank" rel="noreferrer" style={{ color: C.mint, fontWeight: 700, fontSize: 13 }}>View ↗</a>}
             </div>
