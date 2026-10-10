@@ -101,6 +101,7 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
   if (!item.ok || !accts.ok || !rules.ok) return fail(`db read failed: ${[item, accts, rules].map((r) => (r.ok ? '' : r.error)).join(' ').trim()}`)
   const accountId = new Map(accts.data.map((a: any) => [a.plaid_account_id, a.id as string]))
   const match = ruleMatcher(rules.data)
+  const adopt = await orphanAdopter(db, accts.data.map((a: any) => a.id as string))
 
   const startCursor: string | undefined = item.data[0]?.cursor || undefined
   let cursor = startCursor
@@ -134,9 +135,11 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
           rule_id: rule?.id ?? null,
         }
       })
-      const ins = await db.insertIgnore('transactions', fresh, 'external_id')
+      const toInsert = []
+      for (const row of fresh) if (!(await adopt(row))) toInsert.push(row)
+      const ins = await db.insertIgnore('transactions', toInsert, 'external_id')
       if (!ins.ok) return fail(ins.error)
-      added += fresh.length
+      added += toInsert.length
 
       for (const t of page.modified as any[]) {
         if (t.pending) continue
@@ -164,7 +167,62 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
     return fail(msg)
   }
   await markItem(db, itemId, { last_synced_at: new Date().toISOString(), last_error: null })
+  await pruneEmptyOrphanAccounts(db)
   return { itemId, added, modified, removed }
+}
+
+/**
+ * After Reconnect bank, Plaid re-sends the same history under new transaction
+ * ids. The old rows (with their Triage sorting, splits and receipts) sit on the
+ * old, now-unlinked account row with the same last four. Instead of inserting a
+ * duplicate, re-point the matching old row (same date, amount, description) at
+ * the new id and account. Returns true when a row was adopted. Old account rows
+ * left empty are dropped once the sync finishes adopting.
+ */
+async function orphanAdopter(db: StudioDb, newAccountIds: string[]) {
+  const none = async () => false
+  if (!newAccountIds.length) return none
+  const mine = await db.select<any[]>('money_accounts', `select=id,mask,institution&id=in.(${newAccountIds.join(',')})`)
+  const orphans = await db.select<any[]>('money_accounts', 'select=id,mask,institution&source=eq.plaid&plaid_item_id=is.null')
+  if (!mine.ok || !orphans.ok || !orphans.data.length) return none
+  // new account id → old account ids with the same institution + last four
+  const oldFor = new Map<string, string[]>()
+  for (const a of mine.data) {
+    const olds = orphans.data.filter((o) => o.mask && o.mask === a.mask && o.institution === a.institution).map((o) => o.id as string)
+    if (olds.length) oldFor.set(a.id, olds)
+  }
+  const oldIds = Array.from(new Set(Array.from(oldFor.values()).flat()))
+  if (!oldIds.length) return none
+  const prior = await db.select<any[]>('transactions', `select=id,account_id,posted_on,amount_cents,raw_description&source=eq.plaid&account_id=in.(${oldIds.join(',')})`)
+  if (!prior.ok) return none
+  const pool = new Map<string, string[]>() // key → old transaction ids
+  const key = (acct: string, d: string, c: number, desc: string | null) => `${acct}|${d}|${c}|${desc ?? ''}`
+  for (const t of prior.data) {
+    const k = key(t.account_id, t.posted_on, Number(t.amount_cents), t.raw_description)
+    pool.set(k, [...(pool.get(k) ?? []), t.id])
+  }
+  return async (row: { account_id: string | null; posted_on: string; amount_cents: number; raw_description: string | null; external_id: string }) => {
+    if (!row.account_id) return false
+    for (const oldAcct of oldFor.get(row.account_id) ?? []) {
+      const ids = pool.get(key(oldAcct, row.posted_on, row.amount_cents, row.raw_description))
+      const id = ids?.shift()
+      if (!id) continue
+      const r = await db.patch('transactions', `id=eq.${id}`, { external_id: row.external_id, account_id: row.account_id })
+      if (!r.ok) { console.error(`[plaid] adopt ${id}: ${r.error}`); return false }
+      return true
+    }
+    return false
+  }
+}
+
+/** Drop old, unlinked Plaid account rows that no longer hold any transactions. */
+export async function pruneEmptyOrphanAccounts(db: StudioDb) {
+  const orphans = await db.select<any[]>('money_accounts', 'select=id&source=eq.plaid&plaid_item_id=is.null')
+  if (!orphans.ok) return
+  for (const o of orphans.data) {
+    const n = await db.count('transactions', `account_id=eq.${o.id}`)
+    if (n.ok && n.data === 0) await db.remove('money_accounts', `id=eq.${o.id}`)
+  }
 }
 
 /** Safe-to-show status for every connected item (no tokens, no cursors). */

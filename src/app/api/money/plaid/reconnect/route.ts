@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic'
 // Reconnect bank: Plaid fixes how much history an item gets when it's linked,
 // so widening it means starting over. Revoke the old item at Plaid
 // (/item/remove), erase its token (forget_plaid_item), drop its account rows if
-// nothing was imported into them, and hand back a fresh link token asking for
+// nothing was imported into them (otherwise the next sync re-points those rows
+// at the new item; see orphanAdopter in lib/money/plaid), and hand back a fresh link token asking for
 // PLAID_DAYS_REQUESTED days. The page then opens Plaid Link with it and the
 // normal exchange creates the new item, tagged with the old ownership.
 export async function POST(req: Request) {

@@ -87,7 +87,7 @@ export default function MoneySettings() {
   // window at link time). The old connection is gone even if Link is cancelled.
   async function reconnect(it: Item) {
     const name = it.institution ?? 'this bank'
-    if (!window.confirm(`Reconnect ${name} with 2 years of history?\n\nThis removes the current ${name} connection at Plaid and erases its access token, then opens Plaid Link to connect again. Transactions already imported stay. If you cancel Link, ${name} stays disconnected until you connect it again.`)) return
+    if (!window.confirm(`Reconnect ${name} with 2 years of history?\n\nThis removes the current ${name} connection at Plaid and erases its access token, then opens Plaid Link to connect again. Transactions already imported stay, along with how you sorted them; the re-sent history is matched to them instead of duplicated. If you cancel Link, ${name} stays disconnected until you connect it again.`)) return
     setBusy(true); setMsg(null)
     try {
       const { link_token, ownership: own } = await post('/api/money/plaid/reconnect', { itemId: it.id })
