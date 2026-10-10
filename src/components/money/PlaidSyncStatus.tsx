@@ -9,9 +9,16 @@ import { C, btn } from '@/components/AdminNav'
 export type PlaidItemStatus = {
   id: string; institution: string | null; status: string; updated_at: string
   last_synced_at: string | null; last_error: string | null; transactions: number
+  accounts?: {
+    id: string; name: string | null; mask: string | null; ownership: string
+    balance_current_cents: number | null; balance_available_cents: number | null
+    balance_currency: string | null; balance_updated_at: string | null
+  }[]
 }
 type SyncResult = { itemId: string; added?: number; error?: string; pending?: boolean; more?: boolean }
 
+const money = (c: number, cur: string | null) =>
+  (c / 100).toLocaleString('en-US', { style: 'currency', currency: cur ?? 'USD' })
 const when = (iso: string | null) => (iso
   ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   : 'never')
@@ -67,6 +74,16 @@ export default function PlaidSyncStatus({ onSynced, refreshKey }: { onSynced?: (
                   {it.status === 'needs_reauth' ? 'needs re-login' : it.status}
                 </span>
                 {' · '}{it.transactions.toLocaleString()} imported
+                {it.accounts?.map((a) => a.balance_current_cents == null && a.balance_available_cents == null ? null : (
+                  <div key={a.id} style={{ fontSize: 13, color: C.ink2, marginTop: 2 }}>
+                    {a.name ?? 'Account'}{a.mask ? ` ···${a.mask}` : ''}{': '}
+                    <b style={{ color: C.ink }}>{money(a.balance_available_cents ?? a.balance_current_cents!, a.balance_currency)}</b>
+                    {a.balance_available_cents != null ? ' available' : ' balance'}
+                    {a.balance_available_cents != null && a.balance_current_cents != null && a.balance_current_cents !== a.balance_available_cents
+                      ? ` · ${money(a.balance_current_cents, a.balance_currency)} current` : ''}
+                    {a.balance_updated_at ? <span style={{ color: C.soft }}> · as of {when(a.balance_updated_at)}</span> : null}
+                  </div>
+                ))}
                 {it.last_error && <div style={{ color: C.amber, fontSize: 12.5, marginTop: 2, overflowWrap: 'anywhere' }}>{it.last_error}</div>}
               </div>
             )

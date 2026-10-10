@@ -165,12 +165,14 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
     const msg = e instanceof Error ? e.message : String(e)
     if (/PRODUCT_NOT_READY/.test(msg)) {
       await markItem(db, itemId, { last_error: 'Plaid is still pulling history from the bank — will retry when it says it is ready.' })
+      await refreshBalances(db, accessToken)
       return { itemId, added, modified, removed, pending: true }
     }
     if (/ITEM_LOGIN_REQUIRED|PENDING_EXPIRATION|ACCESS_NOT_GRANTED/.test(msg)) return fail(msg, { status: 'needs_reauth' })
     return fail(msg)
   }
   await markItem(db, itemId, { last_synced_at: new Date().toISOString(), last_error: null })
+  await refreshBalances(db, accessToken)
   await pruneEmptyOrphanAccounts(db)
   return { itemId, added, modified, removed }
 }
@@ -229,12 +231,32 @@ export async function pruneEmptyOrphanAccounts(db: StudioDb) {
   }
 }
 
+const cents = (n: unknown) => (typeof n === 'number' ? Math.round(n * 100) : null)
+const balanceFields = (a: any) => ({
+  balance_current_cents: cents(a.balances?.current), balance_available_cents: cents(a.balances?.available),
+  balance_currency: a.balances?.iso_currency_code ?? null, balance_updated_at: new Date().toISOString(),
+})
+
+/** Balances from /accounts/get (Plaid's cached balance; no extra product). Best effort. */
+async function refreshBalances(db: StudioDb, accessToken: string) {
+  try {
+    const acc = await plaid('/accounts/get', { access_token: accessToken })
+    for (const a of acc.accounts as any[]) {
+      const r = await db.patch('money_accounts', `plaid_account_id=eq.${encodeURIComponent(a.account_id)}`, balanceFields(a))
+      if (!r.ok) console.error(`[plaid] balance write: ${r.error}`)
+    }
+  } catch (e) {
+    console.error(`[plaid] balances: ${e instanceof Error ? e.message : e}`)
+  }
+}
+
 /** Safe-to-show status for every connected item (no tokens, no cursors). */
 export async function itemStatuses(db: StudioDb) {
   let r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at,last_synced_at,last_error&order=institution')
   if (!r.ok) r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at&order=institution') // before the migration
   if (!r.ok) throw new Error(r.error)
-  const accts = await db.select<any[]>('money_accounts', 'select=id,plaid_item_id&plaid_item_id=not.is.null')
+  let accts = await db.select<any[]>('money_accounts', 'select=id,plaid_item_id,name,mask,ownership,balance_current_cents,balance_available_cents,balance_currency,balance_updated_at&plaid_item_id=not.is.null&order=created_at')
+  if (!accts.ok) accts = await db.select<any[]>('money_accounts', 'select=id,plaid_item_id,name,mask,ownership&plaid_item_id=not.is.null&order=created_at')
   const perItem = new Map<string, number>()
   await Promise.all(r.data.map(async (i) => {
     const ids = (accts.ok ? accts.data : []).filter((a) => a.plaid_item_id === i.id).map((a) => a.id)
@@ -246,6 +268,11 @@ export async function itemStatuses(db: StudioDb) {
     id: i.id as string, institution: i.institution as string | null, status: i.status as string,
     last_synced_at: (i.last_synced_at ?? null) as string | null, last_error: (i.last_error ?? null) as string | null,
     updated_at: i.updated_at as string, transactions: perItem.get(i.id) ?? 0,
+    accounts: (accts.ok ? accts.data : []).filter((a) => a.plaid_item_id === i.id).map((a) => ({
+      id: a.id as string, name: (a.name ?? null) as string | null, mask: (a.mask ?? null) as string | null, ownership: a.ownership as string,
+      balance_current_cents: (a.balance_current_cents ?? null) as number | null, balance_available_cents: (a.balance_available_cents ?? null) as number | null,
+      balance_currency: (a.balance_currency ?? null) as string | null, balance_updated_at: (a.balance_updated_at ?? null) as string | null,
+    })),
   }))
 }
 
@@ -265,7 +292,7 @@ export async function connectItem(db: StudioDb, publicToken: string, ownership: 
   const acc = await plaid('/accounts/get', { access_token: ex.access_token })
   const rows = (acc.accounts as any[]).map((a) => ({
     owner_id: db.owner, source: 'plaid', institution, name: a.name ?? a.official_name, mask: a.mask ?? null,
-    ownership, plaid_item_id: itemId, plaid_account_id: a.account_id,
+    ownership, plaid_item_id: itemId, plaid_account_id: a.account_id, ...balanceFields(a),
   }))
   const up = await db.upsert('money_accounts', rows, 'plaid_account_id')
   if (!up.ok) throw new Error(up.error)
