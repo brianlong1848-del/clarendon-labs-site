@@ -241,6 +241,7 @@ const balanceFields = (a: any) => ({
 async function refreshBalances(db: StudioDb, accessToken: string) {
   try {
     const acc = await plaid('/accounts/get', { access_token: accessToken })
+    console.log(`[plaid] balances refreshed for ${(acc.accounts as any[]).length} account(s)`)
     for (const a of acc.accounts as any[]) {
       const r = await db.patch('money_accounts', `plaid_account_id=eq.${encodeURIComponent(a.account_id)}`, balanceFields(a))
       if (!r.ok) console.error(`[plaid] balance write: ${r.error}`)
@@ -254,14 +255,17 @@ async function refreshBalances(db: StudioDb, accessToken: string) {
 export async function itemStatuses(db: StudioDb) {
   // Balances missing or older than 4 h: refresh them before answering (Plaid's
   // cached balance from /accounts/get, free with Transactions).
-  const stale = await db.select<any[]>('money_accounts',
-    `select=plaid_item_id&plaid_item_id=not.is.null&or=(balance_updated_at.is.null,balance_updated_at.lt.${new Date(Date.now() - 4 * 3600_000).toISOString()})`)
-  if (stale.ok && stale.data.length) {
-    await Promise.all(Array.from(new Set(stale.data.map((a) => a.plaid_item_id as string))).map(async (itemId) => {
-      const tok = await db.rpc<string>('get_plaid_token', { p_item_id: itemId })
-      if (tok.ok && tok.data) await refreshBalances(db, tok.data)
-    }))
-  }
+  const linked = await db.select<any[]>('money_accounts', 'select=plaid_item_id,balance_updated_at&plaid_item_id=not.is.null')
+  if (!linked.ok) console.error(`[plaid] balance check: ${linked.error}`)
+  const cutoff = Date.now() - 4 * 3600_000
+  const staleItems = Array.from(new Set((linked.ok ? linked.data : [])
+    .filter((a) => !a.balance_updated_at || Date.parse(a.balance_updated_at) < cutoff)
+    .map((a) => a.plaid_item_id as string)))
+  await Promise.all(staleItems.map(async (itemId) => {
+    const tok = await db.rpc<string>('get_plaid_token', { p_item_id: itemId })
+    if (tok.ok && tok.data) await refreshBalances(db, tok.data)
+    else console.error(`[plaid] balance refresh ${itemId}: no token`)
+  }))
   let r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at,last_synced_at,last_error&order=institution')
   if (!r.ok) r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at&order=institution') // before the migration
   if (!r.ok) throw new Error(r.error)
