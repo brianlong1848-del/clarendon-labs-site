@@ -99,6 +99,10 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
     db.select<Rule[]>('rules', 'select=*&order=priority'),
   ])
   if (!item.ok || !accts.ok || !rules.ok) return fail(`db read failed: ${[item, accts, rules].map((r) => (r.ok ? '' : r.error)).join(' ').trim()}`)
+  // A webhook can beat the exchange that creates the account rows; syncing then
+  // would import every transaction with no account. Leave the cursor alone and
+  // let the exchange's own sync (or the next webhook) do it.
+  if (!accts.data.length) return { itemId, pending: true }
   const accountId = new Map(accts.data.map((a: any) => [a.plaid_account_id, a.id as string]))
   const match = ruleMatcher(rules.data)
   const adopt = await orphanAdopter(db, accts.data.map((a: any) => a.id as string))
