@@ -52,7 +52,8 @@ export function ruleMatcher(rules: Rule[]) {
 
 // Plaid only learns where to send webhooks from the link token, so this is the
 // production URL no matter which host (preview, localhost, Studio) asked for it.
-export const PLAID_WEBHOOK_URL = process.env.PLAID_WEBHOOK_URL ?? 'https://clarendon.dev/api/plaid/webhook'
+// www on purpose: the apex 307-redirects to www, and Plaid doesn't follow redirects.
+export const PLAID_WEBHOOK_URL = process.env.PLAID_WEBHOOK_URL ?? 'https://www.clarendon.dev/api/plaid/webhook'
 // History to request on a new item. Plaid fixes this at link time; an existing
 // item can't be widened, only removed and linked again (Reconnect bank).
 export const PLAID_DAYS_REQUESTED = 730
