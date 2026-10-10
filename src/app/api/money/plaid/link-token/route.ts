@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { studioDb } from '@/lib/money/studioDb'
-import { plaid, plaidConfigured, siteOrigin } from '@/lib/money/plaid'
+import { PLAID_DAYS_REQUESTED, PLAID_WEBHOOK_URL, plaid, plaidConfigured } from '@/lib/money/plaid'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,10 +21,10 @@ export async function POST(req: Request) {
     const out = await plaid('/link/token/create', {
       client_name: 'Clarendon Labs', language: 'en', country_codes: ['US'],
       user: { client_user_id: db.owner },
-      webhook: `${siteOrigin(req)}/api/plaid/webhook`,
+      webhook: PLAID_WEBHOOK_URL,
       // OAuth banks send the user back here; must match Plaid Dashboard → Allowed redirect URIs exactly.
       ...(process.env.PLAID_REDIRECT_URI ? { redirect_uri: process.env.PLAID_REDIRECT_URI } : {}),
-      ...(access_token ? { access_token } : { products: ['transactions'] }),
+      ...(access_token ? { access_token } : { products: ['transactions'], transactions: { days_requested: PLAID_DAYS_REQUESTED } }),
     })
     return NextResponse.json({ link_token: out.link_token })
   } catch (e) {

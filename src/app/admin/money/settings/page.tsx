@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, C, btn } from '@/components/AdminNav'
+import PlaidSyncStatus from '@/components/money/PlaidSyncStatus'
 
 // Money → Settings: connect bank accounts through Plaid Link and see what's
 // connected. Each connection is tagged business or personal up front; personal
@@ -28,11 +29,13 @@ export default function MoneySettings() {
   const [ownership, setOwnership] = useState<'business' | 'personal'>('business')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
+  const [statusKey, setStatusKey] = useState(0)
 
   const load = useCallback(async () => {
     const res = await fetch('/api/money/accounts').catch(() => null)
     if (!res || !res.ok) return
     const d = await res.json(); setAccounts(d.accounts ?? []); setItems(d.items ?? [])
+    setStatusKey((k) => k + 1)
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -56,7 +59,9 @@ export default function MoneySettings() {
         try {
           if (!opts.itemId) {
             const r = await post('/api/money/plaid/exchange', { public_token, ownership: opts.ownership })
-            setMsg({ text: `Connected ${r.institution ?? 'bank'} — ${r.accounts} account(s), ${r.sync?.added ?? 0} transactions pulled.` })
+            setMsg({ text: r.sync?.error
+              ? `Connected ${r.institution ?? 'bank'} — ${r.accounts} account(s), but the first sync failed: ${r.sync.error}`
+              : `Connected ${r.institution ?? 'bank'} — ${r.accounts} account(s), ${r.sync?.added ?? 0} transactions so far. Plaid sends the full history over the next few minutes; it imports on its own.` })
           } else setMsg({ text: 'Reconnected.' })
           await load()
         } catch (e) { setMsg({ text: (e as Error).message, bad: true }) }
@@ -75,6 +80,22 @@ export default function MoneySettings() {
       await loadPlaid()
       openLink(link_token, { itemId, ownership })
     } catch (e) { setMsg({ text: (e as Error).message, bad: true }); setBusy(false) }
+  }
+
+  // Reconnect bank: removes the old item at Plaid, erases its token, and opens
+  // Link fresh so the new item gets the full history (Plaid fixes the history
+  // window at link time). The old connection is gone even if Link is cancelled.
+  async function reconnect(it: Item) {
+    const name = it.institution ?? 'this bank'
+    if (!window.confirm(`Reconnect ${name} with 2 years of history?\n\nThis removes the current ${name} connection at Plaid and erases its access token, then opens Plaid Link to connect again. Transactions already imported stay. If you cancel Link, ${name} stays disconnected until you connect it again.`)) return
+    setBusy(true); setMsg(null)
+    try {
+      const { link_token, ownership: own } = await post('/api/money/plaid/reconnect', { itemId: it.id })
+      await load()
+      try { sessionStorage.setItem(PENDING, JSON.stringify({ token: link_token, ownership: own })) } catch { /* ignore */ }
+      await loadPlaid()
+      openLink(link_token, { ownership: own })
+    } catch (e) { setMsg({ text: (e as Error).message, bad: true }); setBusy(false); await load() }
   }
 
   // Back from an OAuth bank: pick the Link session up where it left off.
@@ -115,13 +136,13 @@ export default function MoneySettings() {
               <option value="personal">Personal account</option>
             </select>
             <button style={btn('mint')} disabled={busy} onClick={() => connect()}>Connect with Plaid</button>
-            <button style={btn('ghost')} disabled={busy} onClick={() => run('/api/money/plaid/sync', {}, (d) => `Synced ${d.results?.length ?? 0} connection(s).`)}>Sync now</button>
             <button style={btn('ghost')} disabled={busy} title="Sandbox only: adds a fake test bank"
               onClick={() => run('/api/money/plaid/sandbox-link', { ownership }, (d) => `Test bank added — ${d.sync?.added ?? 0} fake transactions.`)}>Add test bank (sandbox)</button>
           </div>
           {msg && <p style={{ color: msg.bad ? C.red : C.mint, fontSize: 13.5, marginTop: 12 }}>{msg.text}</p>}
         </div>
 
+        <div style={{ marginBottom: 16 }}><PlaidSyncStatus refreshKey={statusKey} /></div>
         <div style={card}>
           <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Connected</h2>
           {items.length === 0 && <p style={{ color: C.soft, fontSize: 14 }}>Nothing connected yet.</p>}
@@ -133,6 +154,8 @@ export default function MoneySettings() {
                   {it.status === 'ok'
                     ? <span style={{ color: C.mint, fontSize: 13 }}>Healthy</span>
                     : <button style={btn('ghost')} disabled={busy} onClick={() => connect(it.id)}>Needs re-login — reconnect</button>}
+                  <button style={{ ...btn('ghost'), padding: '6px 10px' }} disabled={busy} onClick={() => reconnect(it)}
+                    title="Remove this connection and link it again with 2 years of history">Reconnect bank</button>
                   <button style={{ ...btn('ghost'), padding: '6px 10px' }} disabled={busy} onClick={() => {
                     if (window.confirm(`Disconnect ${it.institution ?? 'this bank'}? The connection is revoked at Plaid and its access token erased. Transactions already pulled stay in the books.`))
                       run('/api/money/plaid/disconnect', { itemId: it.id }, () => `${it.institution ?? 'Bank'} disconnected.`)

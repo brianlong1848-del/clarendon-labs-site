@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AdminShell, C } from '@/components/AdminNav'
 import MoneyTabs from '@/components/money/MoneyTabs'
+import PlaidSyncStatus from '@/components/money/PlaidSyncStatus'
 
 type Row = { month: string; app_slug: string; revenue_cents: number; direct_cost_cents: number; allocated_cost_cents: number; ad_spend_cents: number; profit_cents: number; cumulative_profit_cents: number }
 type App = { slug: string; name: string }
@@ -49,6 +50,7 @@ export default function MoneyOverview() {
         </select>
       ) : undefined}>
       <MoneyTabs />
+      <PlaidSyncStatus />
       {error && <p style={{ color: C.amber }}>{error}</p>}
       {!d && !error && <p style={{ color: C.soft }}>Loading…</p>}
 

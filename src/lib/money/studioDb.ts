@@ -44,6 +44,14 @@ export function studioDb() {
       call<null>(`${table}?${filter}`, { method: 'PATCH', body: JSON.stringify(body) }, 'return=minimal'),
     remove: (table: string, filter: string) =>
       call<null>(`${table}?${filter}`, { method: 'DELETE' }, 'return=minimal'),
+    /** Exact row count for a PostgREST filter, without fetching the rows. */
+    count: async (table: string, filter: string): Promise<Result<number>> => {
+      const res = await fetch(`${url}/rest/v1/${table}?select=id&${filter}`, {
+        method: 'HEAD', cache: 'no-store', headers: { ...h, Prefer: 'count=exact' },
+      })
+      if (!res.ok) return { ok: false, error: `${table}: HTTP ${res.status}` }
+      return { ok: true, data: Number(res.headers.get('content-range')?.split('/')[1] ?? 0) }
+    },
     rpc: <T = unknown>(fn: string, args: object) => call<T>(`rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) }),
   }
 }
