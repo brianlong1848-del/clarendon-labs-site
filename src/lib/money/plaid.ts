@@ -252,6 +252,16 @@ async function refreshBalances(db: StudioDb, accessToken: string) {
 
 /** Safe-to-show status for every connected item (no tokens, no cursors). */
 export async function itemStatuses(db: StudioDb) {
+  // Balances missing or older than 4 h: refresh them before answering (Plaid's
+  // cached balance from /accounts/get, free with Transactions).
+  const stale = await db.select<any[]>('money_accounts',
+    `select=plaid_item_id&plaid_item_id=not.is.null&or=(balance_updated_at.is.null,balance_updated_at.lt.${new Date(Date.now() - 4 * 3600_000).toISOString()})`)
+  if (stale.ok && stale.data.length) {
+    await Promise.all(Array.from(new Set(stale.data.map((a) => a.plaid_item_id as string))).map(async (itemId) => {
+      const tok = await db.rpc<string>('get_plaid_token', { p_item_id: itemId })
+      if (tok.ok && tok.data) await refreshBalances(db, tok.data)
+    }))
+  }
   let r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at,last_synced_at,last_error&order=institution')
   if (!r.ok) r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at&order=institution') // before the migration
   if (!r.ok) throw new Error(r.error)

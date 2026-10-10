@@ -12,13 +12,21 @@ export async function GET() {
   const sb = await supabaseServer()
   const [queue, count, apps] = await Promise.all([
     sb.from('transactions')
-      .select('id,posted_on,amount_cents,merchant,raw_description,plaid_category,possible_duplicate_of,account:money_accounts(name,mask,ownership,institution),dup:transactions!transactions_possible_duplicate_of_fkey(posted_on,merchant,amount_cents,source)')
+      .select('id,posted_on,amount_cents,merchant,raw_description,plaid_category,possible_duplicate_of,account:money_accounts(name,mask,ownership,institution)')
       .eq('status', 'unreviewed').order('posted_on', { ascending: false }).limit(50),
     sb.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unreviewed'),
     sb.from('apps').select('slug,name').order('name'),
   ])
   if (queue.error) return NextResponse.json({ error: queue.error.message }, { status: 500 })
-  return NextResponse.json({ items: queue.data, remaining: count.count ?? 0, apps: apps.data ?? [] })
+  // The possible-duplicate row, looked up separately: PostgREST's self-join
+  // embed (transactions → transactions) failed with PGRST200.
+  const dupIds = Array.from(new Set(queue.data.map((t) => t.possible_duplicate_of).filter(Boolean))) as string[]
+  const dups = dupIds.length
+    ? await sb.from('transactions').select('id,posted_on,merchant,amount_cents,source').in('id', dupIds)
+    : { data: [] as { id: string; posted_on: string; merchant: string | null; amount_cents: number; source: string }[] }
+  const dupById = new Map((dups.data ?? []).map(({ id, ...d }) => [id, d]))
+  const items = queue.data.map((t) => ({ ...t, dup: t.possible_duplicate_of ? dupById.get(t.possible_duplicate_of) ?? null : null }))
+  return NextResponse.json({ items, remaining: count.count ?? 0, apps: apps.data ?? [] })
 }
 
 type Body = { id: string; status: 'business' | 'personal' | 'ignored' | 'unreviewed'; app_slug?: string | null; split_apps?: string[] | null; schedule_c?: string | null; makeRule?: boolean }
