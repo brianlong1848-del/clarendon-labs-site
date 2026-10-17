@@ -535,12 +535,13 @@ function Result({ post, app, onNew }: { post: QueuedPost; app?: PublishApp; onNe
           : `${app?.name ?? ''} · ${post.targets.length} platform${post.targets.length === 1 ? '' : 's'}`}
       </p>
       {!scheduled && (
-        <div style={{ display: 'grid', gap: 8, width: '100%', textAlign: 'left' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, width: '100%', textAlign: 'left' }}>
           {post.targets.map((t) => (
-            <div key={t.platform} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: C.card2 }}>
-              <PlatformGlyph platform={t.platform} />
-              <b style={{ fontSize: 14 }}>{PLATFORMS.find((p) => p.id === t.platform)?.name}</b>
-              <span title={t.error} style={{ flex: 1, fontSize: 12.5, color: t.status === 'failed' ? C.red : C.soft, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div key={t.platform} style={{ display: 'flex', alignItems: t.status === 'failed' ? 'flex-start' : 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: C.card2, minWidth: 0 }}>
+              <span style={{ flexShrink: 0, paddingTop: t.status === 'failed' ? 1 : 0 }}><PlatformGlyph platform={t.platform} /></span>
+              <b style={{ fontSize: 14, flexShrink: 0 }}>{PLATFORMS.find((p) => p.id === t.platform)?.name}</b>
+              <span title={t.error} style={{ flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 1.45, paddingTop: t.status === 'failed' ? 1 : 0, color: t.status === 'failed' ? C.red : C.soft,
+                                             ...(t.status === 'failed' ? { whiteSpace: 'normal', overflowWrap: 'anywhere' } : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) }}>
                 {t.status === 'published' ? (t.platform === 'tiktok' && t.tiktok?.mode === 'draft' ? 'In the TikTok app’s inbox — finish it there' : t.platform === 'tiktok' ? 'Posted — can take a few minutes to show on the profile' : 'Live')
                   : t.status === 'failed' ? t.error : 'Processing…'}
               </span>

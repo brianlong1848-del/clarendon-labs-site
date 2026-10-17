@@ -126,7 +126,7 @@ function friendly(code?: string, message?: string) {
     case 'spam_risk_too_many_posts': return 'TikTok’s daily posting limit for this account has been reached. Try again tomorrow.'
     case 'spam_risk_user_banned_from_posting': return 'TikTok has blocked this account from posting through apps right now.'
     case 'privacy_level_option_mismatch': return 'That privacy choice isn’t available for this account any more — pick again.'
-    case 'unaudited_client_can_only_post_to_private_accounts': return 'Until TikTok approves the app, posts must go up as “Only me”, and the account itself has to be set to private.'
+    case 'unaudited_client_can_only_post_to_private_accounts': return 'This TikTok account is public. Until TikTok approves the app, it can only post to private accounts: in the TikTok app go to Settings › Privacy › Private account, then post again as “Only me”.'
     case 'url_ownership_unverified': return 'TikTok can’t verify the video’s URL.'
     default: return message || code
   }

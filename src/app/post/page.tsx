@@ -29,7 +29,8 @@ export default function PostPage() {
     const t = q.get('tiktok') ?? q.get('threads')
     if (!t) return
     const m = t.match(/^connected:([^:]+):(.*)$/)
-    setNotice(m ? { ok: true, text: `${which} connected${m[2] ? ` as @${m[2]}` : ''} for ${m[1]}.` } : { ok: false, text: t })
+    const APP_NAMES: Record<string, string> = { rolligan: 'Rolligan', gagorder: 'Gag Order', yulepick: 'YulePick', borea: 'Borea', jinglewire: 'Jinglewire' }
+    setNotice(m ? { ok: true, text: `${which} connected${m[2] ? ` as @${m[2]}` : ''} for ${APP_NAMES[m[1]] ?? m[1]}.` } : { ok: false, text: t })
     if (m) setTab('accounts')
     window.history.replaceState(null, '', '/post')
   }, [])
