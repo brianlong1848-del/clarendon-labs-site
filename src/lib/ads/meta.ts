@@ -148,7 +148,7 @@ function targetingSpec(a: Audience, platform: 'facebook' | 'instagram') {
     ...(a.genders === 'men' ? { genders: [1] } : a.genders === 'women' ? { genders: [2] } : {}),
     ...(a.interests.length ? { flexible_spec: [{ interests: a.interests.map((i) => ({ id: i.id, name: i.name })) }] } : {}),
     publisher_platforms: [platform],
-    ...(platform === 'facebook' ? { facebook_positions: ['feed', 'video_feeds', 'facebook_reels'] } : { instagram_positions: ['stream', 'reels', 'explore', 'story'] }),
+    ...(platform === 'facebook' ? { facebook_positions: ['feed', 'video_feeds', 'facebook_reels'] } : { instagram_positions: ['stream', 'reels', 'story'] }),
     targeting_automation: { advantage_audience: a.expand ? 1 : 0 },
   }
 }
