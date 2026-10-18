@@ -342,14 +342,16 @@ export async function clearFailed() {
   return rows.length
 }
 
-export type PromoResults = { spend_cents: number; impressions: number; reach: number; clicks: number; engagements: number; delivery?: string }
+export type PromoResults = { spend_cents: number; impressions: number; reach: number; clicks: number; engagements: number; delivery?: string; review?: string }
 
 export async function promotionResults(p: Promotion): Promise<PromoResults | null> {
   if (!p.campaign_id) return null
   try {
+    // The ad's own status says whether Meta is still reviewing it (PENDING_REVIEW),
+    // rejected it (DISAPPROVED, with the reason) or is showing it (ACTIVE).
     const [ins, camp] = await Promise.all([
       get(`${p.campaign_id}/insights`, { fields: 'spend,impressions,reach,clicks,actions', date_preset: 'maximum' }),
-      get(p.campaign_id, { fields: 'effective_status' }).catch(() => ({})),
+      (p.ad_id ? get(p.ad_id, { fields: 'effective_status,ad_review_feedback' }) : get(p.campaign_id, { fields: 'effective_status' })).catch(() => ({})),
     ])
     const r = ins.data?.[0] ?? {}
     const act = (type: string) => Number((r.actions ?? []).find((a: { action_type: string }) => a.action_type === type)?.value ?? 0)
@@ -357,6 +359,7 @@ export async function promotionResults(p: Promotion): Promise<PromoResults | nul
       spend_cents: Math.round(Number(r.spend ?? 0) * 100), impressions: Number(r.impressions ?? 0), reach: Number(r.reach ?? 0),
       clicks: Number(r.clicks ?? 0), engagements: act('post_engagement') || act('page_engagement'),
       delivery: (camp as { effective_status?: string }).effective_status,
+      review: Object.values(((camp as { ad_review_feedback?: { global?: Record<string, string> } }).ad_review_feedback?.global) ?? {})[0],
     }
   } catch { return null }
 }

@@ -17,7 +17,7 @@ export type Place = { key: string; name: string; type: 'country' | 'region' | 'c
 export type Interest = { id: string; name: string; audience?: number }
 export type Audience = { ageMin: number; ageMax: number; genders: 'all' | 'men' | 'women'; places: Place[]; interests: Interest[]; expand: boolean }
 export type AdsStatus = { ready: boolean; reasons: string[]; account?: { name: string; status: string; currency: string }; limits: { maxDailyCents: number; maxTotalCents: number; minDailyCents: number; minAge: number } }
-export type PromoResults = { spend_cents: number; impressions: number; reach: number; clicks: number; engagements: number; delivery?: string }
+export type PromoResults = { spend_cents: number; impressions: number; reach: number; clicks: number; engagements: number; delivery?: string; review?: string }
 export type PromotionRow = {
   id: string; app_id: string; post_id: string | null; platform: 'facebook' | 'instagram'; permalink: string | null; goal: string
   daily_budget_cents: number; start_at: string; end_at: string; audience: Audience; status: string; error: string | null; results: PromoResults | null
@@ -298,7 +298,11 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
       {error && <p style={{ color: C.red, margin: 0, fontSize: 13 }}>{error}</p>}
       {ads.promotions.map((p) => {
         const app = apps.find((a) => a.id === p.app_id)
-        const s = PSTATUS[p.status] ?? PSTATUS.creating
+        const d = p.results?.delivery
+        const s = p.status === 'active' && d === 'PENDING_REVIEW' ? { text: 'In Meta review', color: C.amber }
+          : p.status === 'active' && d === 'DISAPPROVED' ? { text: 'Rejected by Meta', color: C.red }
+          : p.status === 'active' && d === 'WITH_ISSUES' ? { text: 'Running with issues', color: C.amber }
+          : PSTATUS[p.status] ?? PSTATUS.creating
         const r = p.results
         return (
           <article key={p.id} style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 14, alignItems: 'center' }}>
@@ -318,6 +322,8 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
               </span>
               {r && <span style={{ fontSize: 13 }}><b>{usd(r.spend_cents)}</b> spent · {big(r.reach)} reached · {big(r.impressions)} views · {r.engagements || r.clicks} {r.engagements ? 'engagements' : 'clicks'}{r.delivery && r.delivery !== 'ACTIVE' && p.status === 'active' ? ` · Meta: ${r.delivery.toLowerCase().replace(/_/g, ' ')}` : ''}</span>}
               {p.error && <span style={{ fontSize: 12, color: C.red }}>{p.error}</span>}
+              {r?.review && <span style={{ fontSize: 12, color: C.red }}>Meta: {r.review}</span>}
+              {p.status === 'active' && d === 'PENDING_REVIEW' && <span style={{ fontSize: 12, color: C.ink2 }}>Meta reviews new ads before showing them, usually within a few hours. The Download button only appears on the Sponsored copy, not the regular post.</span>}
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
               {(p.status === 'active' || p.status === 'paused') && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, p.status === 'active' ? 'pause' : 'resume')}>{p.status === 'active' ? 'Pause' : 'Resume'}</button>}
