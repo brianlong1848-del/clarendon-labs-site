@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { C, btn } from '@/components/AdminNav'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost } from './shared'
 
@@ -117,7 +118,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
     <div style={{ display: 'grid', gap: 8 }}><span style={label}>{title}</span>{children}</div>
   )
 
-  return (
+  return createPortal(
     <div role="dialog" aria-modal="true" aria-label="Promote post" onClick={onClose}
       style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,19,.35)', zIndex: 50, display: 'grid', placeItems: 'center', padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...card, width: 'min(560px, 100%)', maxHeight: '92vh', overflow: 'auto', display: 'grid', gap: 18 }}>
@@ -201,7 +202,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
         </button>
       </div>
     </div>
-  )
+  , document.body)
 }
 
 const PSTATUS: Record<string, { text: string; color: string }> = {

@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
@@ -223,7 +224,7 @@ function MediaViewer({ media, start, onClose }: { media: Media[]; start: number;
     <button onClick={(e) => { e.stopPropagation(); setI((x) => x + dir) }} aria-label={dir < 0 ? 'Previous' : 'Next'}
       style={{ border: 0, width: 40, height: 40, borderRadius: 99, background: 'rgba(255,255,255,.9)', cursor: 'pointer', fontSize: 18 }}>{dir < 0 ? '‹' : '›'}</button>
   )
-  return (
+  return createPortal(
     <div role="dialog" aria-modal="true" aria-label="Post media" onClick={onClose}
       style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(10,10,12,.82)', display: 'grid', placeItems: 'center', padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: '100%' }}>
@@ -236,5 +237,5 @@ function MediaViewer({ media, start, onClose }: { media: Media[]; start: number;
       <button onClick={onClose} style={{ position: 'fixed', top: 16, right: 16, ...btn('ghost') }}>Close</button>
       {media.length > 1 && <span style={{ position: 'fixed', bottom: 18, color: '#fff', fontSize: 13 }}>{i + 1} / {media.length}</span>}
     </div>
-  )
+  , document.body)
 }
