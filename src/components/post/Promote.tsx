@@ -219,7 +219,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
               <input style={{ ...input, width: 70 }} type="number" min={kid ? 25 : lim.minAge} max={65} value={aud.ageMin} onChange={(e) => setAud({ ...aud, ageMin: Number(e.target.value) })} />
               <span style={{ fontSize: 13.5 }}>to</span>
               <input style={{ ...input, width: 70 }} type="number" min={aud.ageMin} max={65} value={aud.ageMax} onChange={(e) => setAud({ ...aud, ageMax: Number(e.target.value) })} />
-              <span style={{ fontSize: 12, color: C.soft }}>{aud.ageMax >= 65 ? '65 means 65+' : ''}</span>
+              <span style={{ fontSize: 12, color: C.soft }}>{aud.expand ? 'Meta treats the top age as a suggestion while “expand” is on' : aud.ageMax >= 65 ? '65 means 65+' : ''}</span>
               <span style={{ flex: 1 }} />
               <Segmented value={aud.genders} onChange={(v) => setAud({ ...aud, genders: v })}
                 options={[{ value: 'all', label: 'Everyone' }, { value: 'women', label: 'Women' }, { value: 'men', label: 'Men' }]} />

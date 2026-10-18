@@ -143,8 +143,10 @@ function targetingSpec(a: Audience, platform: 'facebook' | 'instagram') {
   if (cities.length) geo.cities = cities
   return {
     geo_locations: geo,
-    age_min: a.ageMin,
-    age_max: a.ageMax,
+    // With Advantage+ audience ("expand") Meta only accepts the minimum age as a
+    // hard limit (up to 25); the maximum must stay 65 and works as a suggestion.
+    age_min: a.expand ? Math.min(a.ageMin, 25) : a.ageMin,
+    age_max: a.expand ? 65 : a.ageMax,
     ...(a.genders === 'men' ? { genders: [1] } : a.genders === 'women' ? { genders: [2] } : {}),
     ...(a.interests.length ? { flexible_spec: [{ interests: a.interests.map((i) => ({ id: i.id, name: i.name })) }] } : {}),
     publisher_platforms: [platform],
