@@ -26,6 +26,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   const [error, setError] = useState<string | null>(null)
   const [ads, setAds] = useState<AdsData | null>(null)
   const [promoting, setPromoting] = useState<QueuedPost | null>(null)
+  const [viewing, setViewing] = useState<{ media: QueuedPost['media']; index: number } | null>(null)
 
   const loadAds = useCallback(async () => {
     const r = await fetch('/api/ads/meta').then((x) => (x.ok ? x.json() : null)).catch(() => null)
@@ -84,9 +85,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
         return (
           <article key={p.id} style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: '84px minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
             <div style={{ width: 84, height: 84, borderRadius: 12, overflow: 'hidden', background: C.card2, position: 'relative' }}>
-              {first ? (first.kind === 'video'
-                ? <video src={first.url} muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <img src={first.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)
+              {first ? <Thumb item={first} onOpen={() => setViewing({ media: p.media, index: 0 })} />
                 : <div style={{ padding: 8, fontSize: 11, color: C.soft }}>Text only</div>}
               {p.media.length > 1 && <span style={{ position: 'absolute', right: 5, top: 5, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10.5, fontWeight: 700, borderRadius: 99, padding: '1px 6px' }}>{p.media.length}</span>}
             </div>
@@ -146,9 +145,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
             return (
               <article key={r.id} style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: '64px minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
                 <div style={{ width: 64, height: 64, borderRadius: 12, overflow: 'hidden', background: C.card2 }}>
-                  {first && (first.kind === 'video'
-                    ? <video src={first.url} muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : <img src={first.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
+                  {first && <Thumb item={first} onOpen={() => setViewing({ media: r.media, index: 0 })} />}
                 </div>
                 <div style={{ minWidth: 0, display: 'grid', gap: 5 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -176,9 +173,68 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
         </section>
       )}
       {ads && <Promotions ads={ads} apps={apps} onChange={loadAds} />}
+      {viewing && <MediaViewer media={viewing.media} start={viewing.index} onClose={() => setViewing(null)} />}
       {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
       {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
       {section('Recent', rest, 'Nothing posted from Studio yet.')}
+    </div>
+  )
+}
+
+type Media = QueuedPost['media'][number]
+
+/** Queue thumbnail: shows the first frame (preload metadata + #t) and opens
+ *  the full player on click. Videos get a ▶ badge so it reads as playable. */
+function Thumb({ item, onOpen }: { item: Media; onOpen: () => void }) {
+  return (
+    <button onClick={onOpen} aria-label={item.kind === 'video' ? 'Play video' : 'View image'}
+      style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%', height: '100%', position: 'relative' }}>
+      {item.kind === 'video'
+        ? <video src={`${item.url}#t=0.1`} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+        : <img src={item.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+      {item.kind === 'video' && (
+        <span aria-hidden style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+          <span style={{ width: 30, height: 30, borderRadius: 99, background: 'rgba(0,0,0,.55)', display: 'grid', placeItems: 'center' }}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1.5v9l7.5-4.5z" fill="#fff" /></svg>
+          </span>
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** Full-size player for a post's media: video with controls (autoplays with
+ *  sound — the click is the user gesture), images, arrows for carousels,
+ *  Esc / ← / → on the keyboard. */
+function MediaViewer({ media, start, onClose }: { media: Media[]; start: number; onClose: () => void }) {
+  const [i, setI] = useState(start)
+  const m = media[i]
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowRight') setI((x) => Math.min(media.length - 1, x + 1))
+      if (e.key === 'ArrowLeft') setI((x) => Math.max(0, x - 1))
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [media.length, onClose])
+  if (!m) return null
+  const arrow = (dir: -1 | 1) => (
+    <button onClick={(e) => { e.stopPropagation(); setI((x) => x + dir) }} aria-label={dir < 0 ? 'Previous' : 'Next'}
+      style={{ border: 0, width: 40, height: 40, borderRadius: 99, background: 'rgba(255,255,255,.9)', cursor: 'pointer', fontSize: 18 }}>{dir < 0 ? '‹' : '›'}</button>
+  )
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Post media" onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(10,10,12,.82)', display: 'grid', placeItems: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: '100%' }}>
+        {media.length > 1 && (i > 0 ? arrow(-1) : <span style={{ width: 40 }} />)}
+        {m.kind === 'video'
+          ? <video key={m.url} src={m.url} controls autoPlay playsInline style={{ maxHeight: '86vh', maxWidth: 'min(90vw, 720px)', borderRadius: 12, background: '#000' }} />
+          : <img key={m.url} src={m.url} alt="" style={{ maxHeight: '86vh', maxWidth: 'min(90vw, 900px)', borderRadius: 12 }} />}
+        {media.length > 1 && (i < media.length - 1 ? arrow(1) : <span style={{ width: 40 }} />)}
+      </div>
+      <button onClick={onClose} style={{ position: 'fixed', top: 16, right: 16, ...btn('ghost') }}>Close</button>
+      {media.length > 1 && <span style={{ position: 'fixed', bottom: 18, color: '#fff', fontSize: 13 }}>{i + 1} / {media.length}</span>}
     </div>
   )
 }
