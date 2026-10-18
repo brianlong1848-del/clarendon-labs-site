@@ -43,3 +43,6 @@ update public.transactions set owner_flow = 'loan_in'
  where posted_on = '2026-05-19' and amount_cents = -200000 and owner_flow is null;
 update public.transactions set owner_flow = 'contribution'
  where posted_on = '2026-04-24' and amount_cents = -10000 and owner_flow is null;
+
+-- Views need explicit read grants (fixed 2026-10-18: Overview showed "permission denied for view v_owed_to_owner").
+grant select on public.v_owed_to_owner, public.v_owner_equity to authenticated, service_role;
