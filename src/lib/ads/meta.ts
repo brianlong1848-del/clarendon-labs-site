@@ -22,6 +22,7 @@
 
 import { pageFor, igFor, grantedPermissions, PUBLISH_APPS } from '@/lib/publish/platforms'
 import { rest } from '@/lib/publish/store'
+import type { AudiencePreset } from './presets'
 
 const G = 'https://graph.facebook.com/v22.0'  // v22+: Instagram ads use instagram_user_id
 const token = () => process.env.META_ACCESS_TOKEN
@@ -360,3 +361,24 @@ export async function metaCampaignDays(start: string, end: string): Promise<Meta
   } catch (e) { return { error: `Meta report failed: ${(e as Error).message}` } }
   return rows
 }
+
+// ── Saved audience presets (built-ins are in ./presets.ts) ───────────────────
+
+type PresetRow = { id: string; app_id: string; name: string; platform: string | null; goal: string | null; daily_usd: number | null; days: number | null; audience: Audience }
+
+export async function savedPresets(): Promise<AudiencePreset[]> {
+  const rows = await rest<PresetRow[]>('studio_audience_presets?order=created_at.asc&limit=200').catch(() => [])
+  return rows.map((r) => ({
+    id: r.id, appId: r.app_id, name: r.name, saved: true,
+    platform: (r.platform ?? undefined) as AudiencePreset['platform'], goal: (r.goal ?? undefined) as AudiencePreset['goal'],
+    dailyUsd: r.daily_usd ?? undefined, days: r.days ?? undefined, audience: r.audience,
+  }))
+}
+
+export async function savePreset(p: { appId: string; name: string; platform?: string; goal?: string; dailyUsd?: number; days?: number; audience: Audience }) {
+  const row = { app_id: p.appId, name: p.name.slice(0, 80), platform: p.platform ?? null, goal: p.goal ?? null, daily_usd: p.dailyUsd ?? null, days: p.days ?? null, audience: p.audience }
+  return (await rest<PresetRow[]>('studio_audience_presets', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'return=representation' } }))[0]
+}
+
+export const deletePreset = (id: string) =>
+  rest(`studio_audience_presets?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' })

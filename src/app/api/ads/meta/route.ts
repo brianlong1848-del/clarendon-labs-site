@@ -3,8 +3,9 @@ import { consoleAuthed } from '@/lib/console'
 import { getPost } from '@/lib/publish/store'
 import {
   adsStatus, checkPromote, DEFAULT_AUDIENCE, estimateReach, GOALS, listPromotions, promote, promotionResults,
-  searchInterests, searchPlaces, setPromotionStatus, type Audience, type PromoteInput,
+  searchInterests, searchPlaces, setPromotionStatus, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
 } from '@/lib/ads/meta'
+import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
 // ─── /api/ads/meta — promote posts on Facebook / Instagram ──────────────────
 //
@@ -16,7 +17,10 @@ import {
 //   POST { action: 'estimate', audience, platform } → { reach: { low, high } | null }
 //   POST { postId, platform, goal, dailyBudgetCents, startAt, endAt, audience }
 //        → creates campaign + ad set + ad on the shared ad account; spends money.
+//   POST { action: 'savePreset', appId, name, platform?, goal?, dailyUsd?, days?, audience } → { preset }
+//   DELETE ?preset=<id>                 → removes a saved preset
 //   PATCH ?id=&action=pause|resume|stop
+//   GET also returns savedPresets[] (built-ins live in lib/ads/presets.ts).
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -33,7 +37,7 @@ export async function GET(req: Request) {
       if (q.length < 2) return NextResponse.json({ results: [] })
       return NextResponse.json({ results: search === 'interests' ? await searchInterests(q) : await searchPlaces(q) })
     }
-    const [status, promos] = await Promise.all([adsStatus(), listPromotions().catch(() => [])])
+    const [status, promos, presets] = await Promise.all([adsStatus(), listPromotions().catch(() => []), savedPresets()])
     const withResults = await Promise.all(promos.map(async (p, i) => ({
       ...p, results: i < 20 && p.status !== 'failed' && p.status !== 'creating' ? await promotionResults(p) : null,
     })))
@@ -42,6 +46,7 @@ export async function GET(req: Request) {
       goals: Object.entries(GOALS).map(([id, g]) => ({ id, label: g.label })),
       defaults: DEFAULT_AUDIENCE,
       promotions: withResults,
+      savedPresets: presets,
     })
   } catch (e) { return bad((e as Error).message, 500) }
 }
@@ -54,6 +59,15 @@ export async function POST(req: Request) {
   if (body.action === 'estimate') {
     const platform = body.platform === 'facebook' ? 'facebook' : 'instagram'
     return NextResponse.json({ reach: await estimateReach(body.audience as Audience, platform) })
+  }
+
+  if (body.action === 'savePreset') {
+    const appId = String(body.appId ?? ''), name = String(body.name ?? '').trim()
+    if (!PUBLISH_APPS.some((a) => a.id === appId)) return bad('Unknown app.')
+    if (!name) return bad('Give the preset a name.')
+    try {
+      return NextResponse.json({ preset: await savePreset({ appId, name, platform: body.platform, goal: body.goal, dailyUsd: Number(body.dailyUsd) || undefined, days: Number(body.days) || undefined, audience: body.audience as Audience }) })
+    } catch (e) { return bad((e as Error).message, 500) }
   }
 
   // The post has to be one Studio published; take ids from our own row, not the client.
@@ -87,4 +101,11 @@ export async function PATCH(req: Request) {
   try {
     return NextResponse.json({ promotion: await setPromotionStatus(id, action as 'pause' | 'resume' | 'stop') })
   } catch (e) { return bad((e as Error).message, 502) }
+}
+
+export async function DELETE(req: Request) {
+  if (!(await consoleAuthed())) return deny()
+  const id = new URL(req.url).searchParams.get('preset')
+  if (!id) return bad('Expected ?preset=')
+  try { await deletePreset(id); return NextResponse.json({ ok: true }) } catch (e) { return bad((e as Error).message, 500) }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { C, btn } from '@/components/AdminNav'
+import { presetsFor, type AudiencePreset } from '@/lib/ads/presets'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost } from './shared'
 
 // ─── Promote a post (Meta) ───────────────────────────────────────────────────
@@ -21,7 +22,7 @@ export type PromotionRow = {
   id: string; app_id: string; post_id: string | null; platform: 'facebook' | 'instagram'; permalink: string | null; goal: string
   daily_budget_cents: number; start_at: string; end_at: string; audience: Audience; status: string; error: string | null; results: PromoResults | null
 }
-export type AdsData = { status: AdsStatus; goals: { id: string; label: string }[]; defaults: Audience; promotions: PromotionRow[] }
+export type AdsData = { status: AdsStatus; goals: { id: string; label: string }[]; defaults: Audience; promotions: PromotionRow[]; savedPresets?: AudiencePreset[] }
 
 const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: c % 100 ? 2 : 0 })
 const big = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n)
@@ -75,6 +76,41 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
   const [reach, setReach] = useState<{ low: number; high: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showAllPlaces, setShowAllPlaces] = useState(false)
+  const [saved, setSaved] = useState<AudiencePreset[]>(ads.savedPresets ?? [])
+  const presets = presetsFor(post.app_id, saved)
+  const [presetId, setPresetId] = useState<string>('')
+
+  // One click fills goal, platform, budget, dates and audience.
+  const applyPreset = (p: AudiencePreset) => {
+    setPresetId(p.id)
+    if (p.platform && targets.some((t) => t.platform === p.platform)) setPlatform(p.platform)
+    if (p.goal) setGoal(p.goal)
+    if (p.dailyUsd) setDaily(String(p.dailyUsd))
+    if (p.days) setEnd(localInput(new Date(Date.parse(start) + p.days * 864e5)))
+    setAud({ ...p.audience, ageMin: Math.max(p.audience.ageMin, kid ? 25 : ads.status.limits.minAge) })
+    setShowAllPlaces(false)
+  }
+  // The app's first preset is the default, so Gag Order opens already set up.
+  useEffect(() => { if (presets[0]) applyPreset(presets[0]) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveAsPreset = async () => {
+    const name = prompt('Name this audience preset (e.g. "Queer cities · after dark"):')
+    if (!name?.trim()) return
+    const res = await fetch('/api/ads/meta', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'savePreset', appId: post.app_id, name, platform, goal, dailyUsd: Number(daily), days, audience: aud }) })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) { setError(body.error ?? 'Couldn’t save the preset.'); return }
+    const r = body.preset
+    const p: AudiencePreset = { id: r.id, appId: r.app_id, name: r.name, saved: true, platform: r.platform ?? undefined, goal: r.goal ?? undefined, dailyUsd: r.daily_usd ?? undefined, days: r.days ?? undefined, audience: r.audience }
+    setSaved([...saved, p]); setPresetId(p.id)
+  }
+  const removePreset = async (id: string) => {
+    if (!confirm('Delete this saved preset?')) return
+    await fetch(`/api/ads/meta?preset=${id}`, { method: 'DELETE' })
+    setSaved(saved.filter((p) => p.id !== id)); setPresetId('')
+  }
+  const current = presets.find((p) => p.id === presetId)
 
   const dailyCents = Math.round(Number(daily) * 100) || 0
   const days = Math.max(0, Math.ceil((Date.parse(end) - Math.max(Date.parse(start), Date.now())) / 864e5))
@@ -136,6 +172,20 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
           </div>
         )}
 
+        {row('Audience preset', (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select style={{ ...input, width: 'auto', flex: 1, minWidth: 220 }} value={presetId}
+                onChange={(e) => { const p = presets.find((x) => x.id === e.target.value); if (p) applyPreset(p); else setPresetId('') }}>
+                <option value="">Custom (no preset)</option>
+                {presets.map((p) => <option key={p.id} value={p.id}>{p.saved ? '★ ' : ''}{p.name}</option>)}
+              </select>
+              <button style={btn('ghost')} onClick={saveAsPreset}>Save as preset</button>
+              {current?.saved && <button style={{ ...btn('ghost'), color: C.red }} onClick={() => removePreset(current.id)}>Delete</button>}
+            </div>
+            {current?.note && <span style={{ fontSize: 12.5, color: C.ink2 }}>{current.note}</span>}
+          </div>
+        ))}
         {row('Promote on', (
           <Segmented value={platform} onChange={(v) => setPlatform(v)}
             options={targets.map((t) => ({ value: t.platform as 'facebook' | 'instagram', label: t.platform === 'instagram' ? 'Instagram' : 'Facebook' }))} />
@@ -178,7 +228,8 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
               <Search<Place> kind="places" placeholder="Add a country, state or city…" render={(p) => `${p.name}${p.region ? `, ${p.region}` : ''}${p.country && p.type !== 'country' ? `, ${p.country}` : ''} · ${p.type}`}
                 onPick={(p) => !aud.places.some((x) => x.key === p.key) && setAud({ ...aud, places: [...aud.places, p] })} />
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {aud.places.map((p) => <Chip key={p.key} text={p.type === 'city' ? `${p.name} +15mi` : p.name} onRemove={() => setAud({ ...aud, places: aud.places.filter((x) => x.key !== p.key) })} />)}
+                {(showAllPlaces ? aud.places : aud.places.slice(0, 8)).map((p) => <Chip key={p.key} text={p.type === 'city' ? `${p.name} +${p.radiusMiles ?? 15}mi` : p.name} onRemove={() => { setPresetId(''); setAud({ ...aud, places: aud.places.filter((x) => x.key !== p.key) }) }} />)}
+                {aud.places.length > 8 && <button onClick={() => setShowAllPlaces(!showAllPlaces)} style={{ border: 0, background: 'transparent', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: C.ink2 }}>{showAllPlaces ? 'Show fewer' : `+${aud.places.length - 8} more`}</button>}
               </div>
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
