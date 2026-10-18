@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { supabaseServer } from '@/lib/supabase/server'
+import { owedToOwner } from '@/lib/money/owed'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,10 +15,10 @@ export async function GET() {
     sb.from('v_app_pnl_monthly').select('*').order('month', { ascending: false }).limit(400),
     sb.from('apps').select('slug,name').order('name'),
     sb.from('v_roas_daily').select('app_slug,spend_cents,proceeds_cents,installs').gte('day', since),
-    sb.from('v_owner_contributions').select('owed_cents'),
+    owedToOwner(sb).catch((e: Error) => ({ error: e })),
     sb.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unreviewed'),
   ])
-  const err = pnl.error || apps.error || roas.error || owed.error
+  const err = pnl.error || apps.error || roas.error || ('error' in owed ? owed.error : null)
   if (err) return NextResponse.json({ error: err.message }, { status: 500 })
 
   const roasByApp: Record<string, { spend: number; proceeds: number; installs: number }> = {}
@@ -29,7 +30,9 @@ export async function GET() {
     pnl: pnl.data ?? [],
     apps: apps.data ?? [],
     roas30: roasByApp,
-    owedCents: (owed.data ?? []).reduce((n, r) => n + Number(r.owed_cents), 0),
+    // Expenses paid personally + member loans − repayments (Studio widget reads this too).
+    owedCents: 'error' in owed ? 0 : owed.totalCents,
+    owed: 'error' in owed ? null : owed,
     unreviewed: unreviewed.count ?? 0,
   })
 }

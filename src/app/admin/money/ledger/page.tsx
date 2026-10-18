@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, C, btn } from '@/components/AdminNav'
 import { uploadReceipt, type UploadResult } from '@/lib/money/uploadReceipt'
+import type { Owed } from '@/lib/money/owed'
 
 // Money → Quick Add & receipts
 //
@@ -35,6 +36,7 @@ export default function Ledger() {
   const [cats, setCats] = useState<Cat[]>([])
   const [recent, setRecent] = useState<Row[]>([])
   const [owed, setOwed] = useState(0)
+  const [owedParts, setOwedParts] = useState<Owed | null>(null)
   const [inbox, setInbox] = useState<Receipt[]>([])
   const [f, setF] = useState<Form>(blank)
   const [file, setFile] = useState<File | null>(null)
@@ -51,7 +53,7 @@ export default function Ledger() {
       fetch('/api/money/receipts?status=unmatched').then((x) => (x.ok ? x.json() : null)).catch(() => null),
     ])
     if (l) {
-      setApps(l.apps); setPayFrom(l.paidFrom); setCats(l.categories); setRecent(l.recent); setOwed(l.owedCents)
+      setApps(l.apps); setPayFrom(l.paidFrom); setCats(l.categories); setRecent(l.recent); setOwed(l.owedCents); setOwedParts(l.owed ?? null)
       setF((p) => (p.paid_from ? p : { ...p, paid_from: l.paidFrom.find((x: PayFrom) => x.ownership === 'personal')?.id ?? l.paidFrom[0]?.id ?? '' }))
     }
     if (r) setInbox(r.receipts)
@@ -135,8 +137,33 @@ export default function Ledger() {
             <div style={label}>LLC owes Brian</div>
             <div style={{ fontFamily: C.serif, fontSize: 34, fontWeight: 900 }}>{usd(owed)}</div>
           </div>
-          <div style={{ color: C.ink2, fontSize: 13.5, maxWidth: 380 }}>Business costs paid from a personal card, account or cash, not yet reimbursed by the LLC.</div>
+          <div style={{ color: C.ink2, fontSize: 13.5, maxWidth: 420 }}>
+            {owedParts ? (
+              <>
+                <div>Business costs paid personally <b style={{ float: 'right', marginLeft: 16 }}>{usd(owedParts.expensesCents)}</b></div>
+                <div>Member loans to the LLC <b style={{ float: 'right', marginLeft: 16 }}>{usd(owedParts.loansCents)}</b></div>
+                {owedParts.repaidCents > 0 && <div>Loan repayments so far <b style={{ float: 'right', marginLeft: 16 }}>−{usd(owedParts.repaidCents)}</b></div>}
+                <div style={{ color: C.soft, fontSize: 12.5, marginTop: 6 }}>
+                  Paid back tax-free whenever the LLC has the cash.{owedParts.equityCents > 0 ? ` Separately, you've put in ${usd(owedParts.equityCents)} as capital (equity, not owed).` : ''}
+                </div>
+              </>
+            ) : 'Business costs paid from a personal card, account or cash, plus member loans, not yet paid back by the LLC.'}
+          </div>
         </div>
+
+        {owedParts && owedParts.loanItems.length > 0 && (
+          <div style={card}>
+            <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Member loans</h2>
+            {owedParts.loanItems.map((r) => (
+              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '92px 1fr auto', gap: 10, alignItems: 'center', padding: '9px 0', borderTop: `1px solid ${C.rule}`, fontSize: 14 }}>
+                <span style={{ fontFamily: C.mono, fontSize: 12.5, color: C.ink2 }}>{r.posted_on}</span>
+                <span><b>{r.kind === 'loan' ? 'Loan to the LLC' : 'LLC repaid you'}</b><span style={{ display: 'block', color: C.soft, fontSize: 12.5 }}>{r.notes ?? r.merchant}</span></span>
+                <span style={{ fontWeight: 650, color: r.kind === 'loan' ? C.ink : C.mint }}>{r.kind === 'loan' ? '' : '−'}{usd(Math.abs(r.amount_cents))}</span>
+              </div>
+            ))}
+            <p style={{ color: C.soft, fontSize: 12.5, margin: '10px 0 0' }}>New transfers between you and the LLC show up in Triage. Tag them there as a loan, a repayment or a capital contribution.</p>
+          </div>
+        )}
 
         {/* Receipt drop zone */}
         <div style={{ ...card, borderStyle: 'dashed', borderColor: drag ? C.mint : C.rule2, background: drag ? C.mintTint : C.card, textAlign: 'center' }}

@@ -29,7 +29,9 @@ export async function GET() {
   return NextResponse.json({ items, remaining: count.count ?? 0, apps: apps.data ?? [] })
 }
 
-type Body = { id: string; status: 'business' | 'personal' | 'ignored' | 'unreviewed'; app_slug?: string | null; split_apps?: string[] | null; schedule_c?: string | null; makeRule?: boolean }
+type Body = { id: string; status: 'business' | 'personal' | 'ignored' | 'unreviewed'; app_slug?: string | null; split_apps?: string[] | null; schedule_c?: string | null; makeRule?: boolean; owner_flow?: OwnerFlow | null }
+type OwnerFlow = 'loan_in' | 'loan_repayment' | 'contribution' | 'draw'
+const FLOWS = new Set(['loan_in', 'loan_repayment', 'contribution', 'draw'])
 
 export async function POST(req: Request) {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
@@ -40,13 +42,16 @@ export async function POST(req: Request) {
   const sb = await supabaseServer()
   const isBiz = b.status === 'business'
   const split = isBiz && Array.isArray(b.split_apps) && b.split_apps.length >= 2 ? Array.from(new Set(b.split_apps)) : null
-  const fields = { status: b.status, app_slug: isBiz && !split ? b.app_slug ?? null : null, split_apps: split, schedule_c: isBiz ? b.schedule_c ?? null : null }
+  // Owner money (loan in, repayment, capital, draw) is tagged on an ignored row so
+  // it never counts as income or expense but feeds "LLC owes Brian".
+  const owner_flow = b.status === 'ignored' && b.owner_flow && FLOWS.has(b.owner_flow) ? b.owner_flow : null
+  const fields = { status: b.status, app_slug: isBiz && !split ? b.app_slug ?? null : null, split_apps: split, schedule_c: isBiz ? b.schedule_c ?? null : null, owner_flow }
 
   const { data: tx, error } = await sb.from('transactions').update(fields).eq('id', b.id).select('merchant').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   let alsoApplied = 0
-  if (b.makeRule && tx?.merchant && b.status !== 'unreviewed') {
+  if (b.makeRule && !owner_flow && tx?.merchant && b.status !== 'unreviewed') {
     const pattern = `%${tx.merchant.replace(/[%_\\]/g, '')}%`
     const rule = await sb.from('rules').insert({
       match_merchant: pattern, set_status: b.status, set_app: fields.app_slug, set_split_apps: fields.split_apps, set_schedule_c: fields.schedule_c, priority: 80,

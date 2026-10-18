@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { supabaseServer } from '@/lib/supabase/server'
 import { SCHEDULE_C } from '@/lib/money/categories'
+import { owedToOwner } from '@/lib/money/owed'
 import { PAID_FROM_OTHER, appSlugs, isDate, normaliseSplits, resolvePaidFrom, str, toCents } from '@/lib/money/ledger'
 
 export const dynamic = 'force-dynamic'
@@ -31,7 +32,7 @@ export async function GET() {
       .select('id,posted_on,amount_cents,merchant,app_slug,split_apps,schedule_c,paid_from,notes,source,status,splits:transaction_splits(app_slug,share),receipts(id,file_name)')
       .in('source', ['manual', 'recurring']).neq('status', 'ignored')
       .order('posted_on', { ascending: false }).limit(60),
-    sb.from('v_owner_contributions').select('owed_cents'),
+    owedToOwner(sb),
   ])
   if (recent.error) return bad(recent.error.message, 500)
   return NextResponse.json({
@@ -42,7 +43,8 @@ export async function GET() {
     ],
     categories: SCHEDULE_C.map(([value, label]) => ({ value, label })),
     recent: recent.data ?? [],
-    owedCents: (owed.data ?? []).reduce((a, r: { owed_cents: number }) => a + Number(r.owed_cents ?? 0), 0),
+    owedCents: owed.totalCents,
+    owed,
   })
 }
 

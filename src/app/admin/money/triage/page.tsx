@@ -6,6 +6,7 @@ import { SCHEDULE_C, guessCategory } from '@/lib/money/categories'
 
 // Triage: one unreviewed transaction at a time.
 //   B → business, then 0 = shared / 1–6 = that app   ·   P = personal   ·   I = ignore   ·   Z = undo
+//   L = loan from Brian (money in) / paid Brian back (money out)   ·   C = capital in / owner draw
 // "Make this a rule" (R) toggles whether the same merchant is handled automatically from now on.
 
 type Tx = {
@@ -62,11 +63,11 @@ export default function Triage() {
   const cur = items[0]
   useEffect(() => { if (cur) { setCategory(guessCategory(cur.plaid_category)); setPicking(false); setSplitMode(false); setSelected([]) } }, [cur?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const decide = useCallback(async (status: 'business' | 'personal' | 'ignored', app_slug: string | null = null, split: string[] | null = null) => {
+  const decide = useCallback(async (status: 'business' | 'personal' | 'ignored', app_slug: string | null = null, split: string[] | null = null, owner_flow: string | null = null) => {
     if (!cur || busy.current) return
     busy.current = true
     const res = await fetch('/api/money/triage', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: cur.id, status, app_slug, split_apps: split, schedule_c: status === 'business' ? category : null, makeRule }) }).catch(() => null)
+      body: JSON.stringify({ id: cur.id, status, app_slug, split_apps: split, schedule_c: status === 'business' ? category : null, makeRule, owner_flow }) }).catch(() => null)
     busy.current = false
     if (!res || !res.ok) { setMsg('Could not save that — try again.'); return }
     const d = await res.json()
@@ -117,6 +118,8 @@ export default function Triage() {
       if (k === 'b' && cur) setPicking(true)
       else if (k === 'p') decide('personal')
       else if (k === 'i') decide('ignored')
+      else if (k === 'l' && cur) decide('ignored', null, null, cur.amount_cents < 0 ? 'loan_in' : 'loan_repayment')
+      else if (k === 'c' && cur) decide('ignored', null, null, cur.amount_cents < 0 ? 'contribution' : 'draw')
       else if (k === 'z') undo()
       else if (k === 'r') setMakeRule((v) => !v)
       else if (k === 'escape') setPicking(false)
@@ -170,11 +173,27 @@ export default function Triage() {
             )}
 
             {!picking ? (
+              <>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
                 <button style={{ ...btn('mint'), flex: 1 }} onClick={() => setPicking(true)}><span style={{ ...keycap, color: '#fff', borderColor: 'rgba(255,255,255,.5)' }}>B</span>Business</button>
                 <button style={{ ...btn('solid'), flex: 1 }} onClick={() => decide('personal')}><span style={{ ...keycap, color: '#fff', borderColor: 'rgba(255,255,255,.5)' }}>P</span>Personal</button>
                 <button style={{ ...btn('ghost'), flex: 1 }} onClick={() => decide('ignored')}><span style={keycap}>I</span>Ignore</button>
               </div>
+              {/* Money moving between Brian and the LLC: not income or expense, but it changes what the LLC owes him. */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                {cur.amount_cents < 0 ? (
+                  <>
+                    <button style={{ ...btn('ghost'), flex: 1, fontSize: 13 }} onClick={() => decide('ignored', null, null, 'loan_in')}><span style={keycap}>L</span>Loan from Brian</button>
+                    <button style={{ ...btn('ghost'), flex: 1, fontSize: 13 }} onClick={() => decide('ignored', null, null, 'contribution')}><span style={keycap}>C</span>Capital from Brian</button>
+                  </>
+                ) : (
+                  <>
+                    <button style={{ ...btn('ghost'), flex: 1, fontSize: 13 }} onClick={() => decide('ignored', null, null, 'loan_repayment')}><span style={keycap}>L</span>Paid Brian back</button>
+                    <button style={{ ...btn('ghost'), flex: 1, fontSize: 13 }} onClick={() => decide('ignored', null, null, 'draw')}><span style={keycap}>C</span>Owner draw</button>
+                  </>
+                )}
+              </div>
+              </>
             ) : (
               <div style={{ marginTop: 22 }}>
                 <div style={{ fontFamily: C.mono, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft, marginBottom: 8 }}>{splitMode ? 'Tick the apps sharing this cost, evenly split' : 'Which app? press a number'}</div>
