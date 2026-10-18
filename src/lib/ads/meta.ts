@@ -180,7 +180,7 @@ export type Promotion = {
   status: 'creating' | 'active' | 'paused' | 'ended' | 'failed'; error: string | null; source: string; created_at: string; updated_at: string
 }
 
-export const listPromotions = (limit = 60) => rest<Promotion[]>(`studio_promotions?order=created_at.desc&limit=${limit}`)
+export const listPromotions = (limit = 60) => rest<Promotion[]>(`studio_promotions?hidden=eq.false&order=created_at.desc&limit=${limit}`)
 export const getPromotion = async (id: string) => (await rest<Promotion[]>(`studio_promotions?id=eq.${encodeURIComponent(id)}`))[0] ?? null
 const insertPromotion = async (row: Partial<Promotion>) =>
   (await rest<Promotion[]>('studio_promotions', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'return=representation' } }))[0]
@@ -287,6 +287,23 @@ export async function setPromotionStatus(id: string, action: 'pause' | 'resume' 
   if (action === 'resume' && p.status === 'ended') throw new Error('This promotion was stopped; start a new one instead.')
   await post(p.campaign_id, { status: action === 'resume' ? 'ACTIVE' : 'PAUSED' })
   return updatePromotion(id, { status: action === 'pause' ? 'paused' : action === 'resume' ? 'active' : 'ended' })
+}
+
+/** Hide a failed or finished promotion from the list. Its Meta campaign (if
+ *  one was half-built) is archived — never deleted — so spend history stays. */
+export async function clearPromotion(id: string) {
+  const p = await getPromotion(id)
+  if (!p) throw new Error('Promotion not found.')
+  if (p.status === 'active' || p.status === 'paused' || p.status === 'creating') throw new Error('Stop it first, then clear it.')
+  if (p.campaign_id && p.status === 'failed') await post(p.campaign_id, { status: 'ARCHIVED' }).catch(() => {})
+  await rest(`studio_promotions?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ hidden: true, updated_at: new Date().toISOString() }) })
+}
+
+/** Clear every failed promotion in one go. */
+export async function clearFailed() {
+  const rows = await rest<Promotion[]>('studio_promotions?hidden=eq.false&status=eq.failed&select=*')
+  for (const r of rows) await clearPromotion(r.id)
+  return rows.length
 }
 
 export type PromoResults = { spend_cents: number; impressions: number; reach: number; clicks: number; engagements: number; delivery?: string }

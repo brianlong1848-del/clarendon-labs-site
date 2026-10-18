@@ -21,6 +21,7 @@ export type PromoResults = { spend_cents: number; impressions: number; reach: nu
 export type PromotionRow = {
   id: string; app_id: string; post_id: string | null; platform: 'facebook' | 'instagram'; permalink: string | null; goal: string
   daily_budget_cents: number; start_at: string; end_at: string; audience: Audience; status: string; error: string | null; results: PromoResults | null
+  campaign_id?: string | null
 }
 export type AdsData = { status: AdsStatus; goals: { id: string; label: string }[]; defaults: Audience; promotions: PromotionRow[]; savedPresets?: AudiencePreset[] }
 
@@ -272,6 +273,14 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (!ads.promotions.length) return null
+  const clear = async (id?: string) => {
+    setBusy(id ?? 'all'); setError(null)
+    const res = await fetch(id ? `/api/ads/meta?id=${id}&action=clear` : '/api/ads/meta?action=clearFailed', { method: 'PATCH' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) setError(body.error ?? 'Something went wrong.')
+    setBusy(null); onChange()
+  }
+  const failedCount = ads.promotions.filter((p) => p.status === 'failed').length
   const act = async (id: string, action: 'pause' | 'resume' | 'stop') => {
     if (action === 'stop' && !confirm('Stop this promotion for good? Spend so far stays charged.')) return
     setBusy(id); setError(null)
@@ -284,6 +293,7 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
     <section style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={label}>Promoted</span><span style={{ flex: 1, height: 1, background: C.rule }} />
+        {failedCount > 1 && <button style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} disabled={busy === 'all'} onClick={() => clear()}>{busy === 'all' ? 'Clearing…' : `Clear ${failedCount} failed`}</button>}
       </div>
       {error && <p style={{ color: C.red, margin: 0, fontSize: 13 }}>{error}</p>}
       {ads.promotions.map((p) => {
@@ -300,6 +310,7 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: s.color }}>{s.text}</span>
                 <span style={{ fontSize: 12.5, color: C.soft }}>{usd(p.daily_budget_cents)}/day · {when(p.start_at)} → {when(p.end_at)}</span>
                 {p.permalink && <a href={p.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: C.ink2 }}>Post ↗</a>}
+                {p.campaign_id && p.status !== 'failed' && <a href={`https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=1468518541834459&selected_campaign_ids=${p.campaign_id}`} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: C.ink2 }}>Ads Manager ↗</a>}
               </div>
               <span style={{ fontSize: 12.5, color: C.ink2 }}>
                 {p.audience.ageMin}–{p.audience.ageMax}{p.audience.ageMax >= 65 ? '+' : ''} · {p.audience.genders === 'all' ? 'everyone' : p.audience.genders}
@@ -311,6 +322,7 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
             <div style={{ display: 'grid', gap: 8 }}>
               {(p.status === 'active' || p.status === 'paused') && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, p.status === 'active' ? 'pause' : 'resume')}>{p.status === 'active' ? 'Pause' : 'Resume'}</button>}
               {(p.status === 'active' || p.status === 'paused') && <button style={{ ...btn('ghost'), color: C.red }} disabled={busy === p.id} onClick={() => act(p.id, 'stop')}>Stop</button>}
+              {(p.status === 'failed' || p.status === 'ended') && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => clear(p.id)}>Clear</button>}
             </div>
           </article>
         )

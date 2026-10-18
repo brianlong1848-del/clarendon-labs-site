@@ -3,7 +3,7 @@ import { consoleAuthed } from '@/lib/console'
 import { getPost } from '@/lib/publish/store'
 import {
   adsStatus, checkPromote, DEFAULT_AUDIENCE, estimateReach, GOALS, listPromotions, promote, promotionResults,
-  searchInterests, searchPlaces, setPromotionStatus, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
+  searchInterests, searchPlaces, setPromotionStatus, clearPromotion, clearFailed, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
 } from '@/lib/ads/meta'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
@@ -19,7 +19,8 @@ import { PUBLISH_APPS } from '@/lib/publish/platforms'
 //        → creates campaign + ad set + ad on the shared ad account; spends money.
 //   POST { action: 'savePreset', appId, name, platform?, goal?, dailyUsd?, days?, audience } → { preset }
 //   DELETE ?preset=<id>                 → removes a saved preset
-//   PATCH ?id=&action=pause|resume|stop
+//   PATCH ?id=&action=pause|resume|stop|clear   (clear = hide a failed/ended one)
+//   PATCH ?action=clearFailed                   → hides every failed promotion
 //   GET also returns savedPresets[] (built-ins live in lib/ads/presets.ts).
 
 export const dynamic = 'force-dynamic'
@@ -97,7 +98,11 @@ export async function PATCH(req: Request) {
   if (!(await consoleAuthed())) return deny()
   const u = new URL(req.url)
   const id = u.searchParams.get('id'), action = u.searchParams.get('action')
-  if (!id || !['pause', 'resume', 'stop'].includes(action ?? '')) return bad('Expected ?id=&action=pause|resume|stop')
+  try {
+    if (action === 'clearFailed') return NextResponse.json({ cleared: await clearFailed() })
+    if (id && action === 'clear') { await clearPromotion(id); return NextResponse.json({ ok: true }) }
+  } catch (e) { return bad((e as Error).message, 400) }
+  if (!id || !['pause', 'resume', 'stop'].includes(action ?? '')) return bad('Expected ?id=&action=pause|resume|stop|clear')
   try {
     return NextResponse.json({ promotion: await setPromotionStatus(id, action as 'pause' | 'resume' | 'stop') })
   } catch (e) { return bad((e as Error).message, 502) }

@@ -28,3 +28,6 @@ create table if not exists public.studio_promotions (
 alter table public.studio_promotions enable row level security;  -- service role only, no policies
 create index if not exists studio_promotions_post on public.studio_promotions (post_id);
 create index if not exists studio_promotions_recent on public.studio_promotions (created_at desc);
+
+-- 2026-10-18 (later): "Clear" on failed / ended promotions hides them from the list.
+alter table public.studio_promotions add column if not exists hidden boolean not null default false;
