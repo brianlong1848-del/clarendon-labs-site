@@ -115,7 +115,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
   }
 
   const row = (title: string, children: React.ReactNode) => (
-    <div style={{ display: 'grid', gap: 8 }}><span style={label}>{title}</span>{children}</div>
+    <div style={{ display: 'grid', gap: 8, minWidth: 0 }}><span style={label}>{title}</span>{children}</div>
   )
 
   return createPortal(
@@ -149,10 +149,17 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
             ))}
           </div>
         ))}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-          {row('Daily budget (USD)', <input style={input} type="number" min={1} step={1} value={daily} onChange={(e) => setDaily(e.target.value)} />)}
-          {row('Starts', <input style={input} type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />)}
-          {row('Ends', <input style={input} type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />)}
+        {row('Daily budget (USD)', (
+          <div style={{ position: 'relative', width: 160 }}>
+            <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: C.soft, fontSize: 14 }}>$</span>
+            <input style={{ ...input, paddingLeft: 22 }} type="number" min={1} step={1} value={daily} onChange={(e) => setDaily(e.target.value)} />
+          </div>
+        ))}
+        {/* Date-time inputs have a wide built-in minimum, so they get their own
+            row and minWidth: 0; they stack on narrow screens instead of overlapping. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+          {row('Starts', <input style={{ ...input, minWidth: 0 }} type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />)}
+          {row('Ends', <input style={{ ...input, minWidth: 0 }} type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />)}
         </div>
 
         {row('Who sees it', (
