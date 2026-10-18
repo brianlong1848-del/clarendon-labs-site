@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, C } from '@/components/AdminNav'
+import { AdminShell, C, TILE } from '@/components/AdminNav'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import PlaidSyncStatus from '@/components/money/PlaidSyncStatus'
 
@@ -62,10 +62,10 @@ export default function MoneyOverview() {
               ['Costs', usd(tot.cost), C.ink],
               ['Ad spend', usd(tot.ads), C.ink],
               ['Profit', usd(tot.profit), pos(tot.profit)],
-            ].map(([k, v, col]) => (
-              <div key={k} style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '16px 18px' }}>
+            ].map(([k, v, col], i) => (
+              <div key={k} data-card style={{ background: TILE[i % 4].bg, border: `1px solid ${TILE[i % 4].line}`, borderRadius: 12, padding: '16px 18px' }}>
                 <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{k}</div>
-                <div style={{ fontFamily: C.serif, fontSize: 30, fontWeight: 800, marginTop: 6, color: col }}>{v}</div>
+                <div style={{ fontFamily: C.sans, fontSize: 30, fontWeight: 650, letterSpacing: '-.02em', marginTop: 6, color: col }}>{v}</div>
               </div>
             ))}
           </div>
