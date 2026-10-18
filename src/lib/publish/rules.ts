@@ -71,6 +71,14 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
     const spec = PLATFORMS.find((p) => p.id === t.platform)!
     if (text.length > spec.captionMax) add(t.platform, 'error', `Caption is ${text.length - spec.captionMax} characters over ${spec.name}'s ${spec.captionMax.toLocaleString()} limit.`)
 
+    if (t.platform === 'tiktok') {
+      const tags = text.match(/(^|\s)#\w+/g)?.map((x) => x.trim().toLowerCase()) ?? []
+      if (tags.length > 4) add(t.platform, 'error', `TikTok allows 4 hashtags at most (this caption has ${tags.length}).`)
+      // TikTok strips "gay" + city tags (#gaychicago, #gaynyc…) as restricted.
+      const risky = tags.filter((x) => /^#gay(chicago|nyc|newyork|la|losangeles|sf|sanfrancisco|weho|atlanta|miami|dallas|houston|austin|seattle|denver|boston|dc|philly|vegas|nola|neworleans|palmsprings|toronto|london)$/.test(x))
+      if (risky.length) add(t.platform, 'warn', `TikTok often removes ${risky.join(', ')} as a restricted tag. Try #queerchicago, #gaytiktok or #lgbtq.`)
+    }
+
     if (t.platform === 'instagram') {
       if (media.length === 0) add(t.platform, 'error', 'Instagram needs a photo or video.')
       if (count(/(^|\s)#\w/g, text) > 30) add(t.platform, 'error', 'Instagram allows 30 hashtags at most.')

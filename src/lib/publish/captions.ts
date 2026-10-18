@@ -43,7 +43,7 @@ const GUIDE: Record<string, string> = {
   'facebook:reel': 'Facebook Reel. One or two punchy conversational lines; the App Store link can go in directly (clickable on Facebook). 0–2 hashtags. Under 300 characters.',
   'facebook:post': 'Facebook Page post. Friendly, a little longer and more explanatory than Instagram, written for people who share with friends and family. Include the App Store link directly (clickable). 0–2 hashtags. Under 600 characters.',
   'threads:post': 'Threads post. HARD LIMIT 500 characters — aim for 150–300. Conversational, sounds like a person not an ad; ending with a question that invites replies works well. At most one topic tag, no hashtag lists. A link is fine.',
-  'tiktok:post': 'TikTok video caption. Short: a hook or punchline in under ~150 characters, then 3–5 hashtags mixing one broad and a few niche ones. No links (not clickable on TikTok) — say "link in bio" if a CTA fits. Native, lowercase-casual is fine.',
+  'tiktok:post': 'TikTok video caption. Short: a hook or punchline in under ~150 characters, then AT MOST 4 hashtags (the TikTok limit) mixing one broad and a few niche ones. Never "gay" + a place (#gaychicago, #gaynyc…): TikTok removes them as restricted — use #queer<city>, #gaytiktok or #lgbtq instead. No links (not clickable on TikTok) — say "link in bio" if a CTA fits. Native, lowercase-casual is fine.',
 }
 
 const SYSTEM = `You write social captions for Clarendon Labs, a one-person iOS app studio in Chicago ("apps for the group chat").
