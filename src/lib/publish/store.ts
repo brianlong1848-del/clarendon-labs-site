@@ -5,6 +5,7 @@
 // Service-role only — RLS is on with no policies, so nothing else can read it.
 
 import type { MediaItem, Platform, Target } from './rules'
+import type { RepeatRule } from './recur'
 
 export type TargetState = Target & {
   status: 'pending' | 'processing' | 'published' | 'failed' | 'skipped'
@@ -26,6 +27,36 @@ export type Post = {
   created_at: string
   updated_at: string
   source: string
+  series_id?: string | null
+  occurrence?: number | null
+  notes?: string
+  caption_by?: 'brian' | 'ai'
+  logged_at?: string | null
+}
+
+/** A repeating post: what to post, where, and the rule for when. The runner
+ *  turns it into ordinary Post rows, one upcoming copy at a time. */
+export type Series = {
+  id: string
+  app_id: string
+  caption: string
+  overrides: Partial<Record<Platform, string>>
+  media: MediaItem[]
+  targets: Target[]
+  frames: string[]
+  notes: string
+  caption_mode: 'fresh' | 'same'
+  rule: RepeatRule
+  starts_at: string | null
+  ends_at: string | null
+  max_runs: number | null
+  runs: number
+  status: 'active' | 'paused' | 'ended'
+  next_at: string | null
+  last_error: string | null
+  source: string
+  created_at: string
+  updated_at: string
 }
 
 const env = () => {
@@ -36,7 +67,7 @@ const env = () => {
 const headers = (key: string, extra: Record<string, string> = {}) =>
   ({ apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...extra })
 
-async function rest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function rest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { url, key } = env()
   const res = await fetch(`${url}/rest/v1/${path}`, { ...init, cache: 'no-store', headers: { ...headers(key), ...(init.headers as Record<string, string> ?? {}) } })
   if (!res.ok) throw new Error(`Queue storage error ${res.status}: ${(await res.text()).slice(0, 200)}`)
@@ -70,6 +101,46 @@ export const claim = async (id: string) =>
   (await rest<Post[]>(`studio_posts?id=eq.${encodeURIComponent(id)}&status=eq.scheduled`, {
     method: 'PATCH', body: JSON.stringify({ status: 'publishing', updated_at: new Date().toISOString() }), headers: { Prefer: 'return=representation' },
   })).length > 0
+
+// ── Repeating series ─────────────────────────────────────────────────────────
+
+export const listSeries = () =>
+  rest<Series[]>('studio_post_series?status=neq.ended&order=created_at.desc&limit=50')
+
+export const getSeries = async (id: string) =>
+  (await rest<Series[]>(`studio_post_series?id=eq.${encodeURIComponent(id)}`))[0] ?? null
+
+export const insertSeries = async (row: Partial<Series>) =>
+  (await rest<Series[]>('studio_post_series', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'return=representation' } }))[0]
+
+export const updateSeries = async (id: string, patch: Partial<Series>, onlyIfRuns?: number) =>
+  (await rest<Series[]>(`studio_post_series?id=eq.${encodeURIComponent(id)}${onlyIfRuns != null ? `&runs=eq.${onlyIfRuns}` : ''}`, {
+    method: 'PATCH', body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }), headers: { Prefer: 'return=representation' },
+  }))[0] ?? null
+
+/** Active series whose next copy is due within `leadMs` (so the queue shows it
+ *  with its caption ahead of time). */
+export const seriesDue = (leadMs: number) =>
+  rest<Series[]>(`studio_post_series?status=eq.active&next_at=lte."${new Date(Date.now() + leadMs).toISOString()}"&order=next_at.asc&limit=5`)
+
+/** The copy of a series that is still waiting or going out, if any. */
+export const openCopy = async (seriesId: string) =>
+  (await rest<Post[]>(`studio_posts?series_id=eq.${encodeURIComponent(seriesId)}&status=in.(scheduled,publishing)&limit=1`))[0] ?? null
+
+/** Captions already used by a series, newest first — the AI avoids repeating them. */
+export const pastCaptions = async (seriesId: string, limit = 6) =>
+  (await rest<Pick<Post, 'caption' | 'overrides'>[]>(`studio_posts?series_id=eq.${encodeURIComponent(seriesId)}&select=caption,overrides&order=created_at.desc&limit=${limit}`))
+
+export const cancelOpenCopies = (seriesId: string) =>
+  rest<Post[]>(`studio_posts?series_id=eq.${encodeURIComponent(seriesId)}&status=eq.scheduled`, {
+    method: 'PATCH', body: JSON.stringify({ status: 'canceled', updated_at: new Date().toISOString() }), headers: { Prefer: 'return=representation' },
+  })
+
+/** Finished posts not yet written to the app's post log in Drive. */
+export const unloggedPosts = () => {
+  const since = new Date(Date.now() - 3 * 864e5).toISOString()
+  return rest<Post[]>(`studio_posts?status=in.(done,partial)&logged_at=is.null&updated_at=gte."${since}"&order=updated_at.asc&limit=4`)
+}
 
 /** A one-time URL the browser / iPhone uploads the file to directly, so big
  *  videos never pass through a Vercel function. */

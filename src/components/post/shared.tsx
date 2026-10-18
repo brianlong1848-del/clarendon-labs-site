@@ -1,6 +1,7 @@
 'use client'
 import { C } from '@/components/AdminNav'
 import type { Platform } from '@/lib/publish/rules'
+import type { RepeatRule } from '@/lib/publish/recur'
 
 // Shared bits for the /post composer: types that mirror /api/publish, the
 // platform glyphs, and small UI atoms.
@@ -11,6 +12,13 @@ export type TargetState = { platform: Platform; format: string; status: string; 
 export type QueuedPost = {
   id: string; app_id: string; caption: string; media: { url: string; kind: 'image' | 'video'; width: number; height: number }[]
   targets: TargetState[]; status: string; scheduled_at: string | null; created_at: string
+  overrides?: Partial<Record<Platform, string>>; series_id?: string | null; occurrence?: number | null; caption_by?: 'brian' | 'ai'
+}
+/** A repeating post, as /api/publish returns it. */
+export type QueuedSeries = {
+  id: string; app_id: string; caption: string; media: QueuedPost['media']; targets: { platform: Platform; format: string }[]
+  rule: RepeatRule; caption_mode: 'fresh' | 'same'; status: 'active' | 'paused' | 'ended'; runs: number; max_runs: number | null
+  next_at: string | null; ends_at: string | null; last_error: string | null; created_at: string
 }
 
 export const PLATFORM_TINT: Record<Platform, string> = {

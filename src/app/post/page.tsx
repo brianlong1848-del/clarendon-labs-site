@@ -75,7 +75,7 @@ export default function PostPage() {
   return (
     <AdminShell
       title="Post"
-      subtitle="Write it once. Publish to Instagram, Facebook, Threads and TikTok — now or on a schedule."
+      subtitle="Write it once — or let Claude write it. Publish to Instagram, Facebook, Threads and TikTok now, later, or on repeat."
       actions={<div role="tablist" style={{ display: 'flex', background: C.card2, borderRadius: 11, padding: 3 }}>
         {tabBtn('compose', 'Compose')}{tabBtn('queue', queued ? `Queue · ${queued}` : 'Queue')}{tabBtn('accounts', 'Accounts')}
       </div>}

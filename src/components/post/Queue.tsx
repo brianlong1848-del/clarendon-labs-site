@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
-import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost } from './shared'
+import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
+import { describeRule } from '@/lib/publish/recur'
 
-// Everything scheduled, in flight, and recently sent — with the per-platform
+// Repeating posts (pause / resume / stop), then everything scheduled, in
+// flight, and recently sent — with the per-platform
 // outcome, links to the live posts, and cancel / retry.
 
 const STATUS: Record<string, { text: string; color: string; bg: string }> = {
@@ -18,6 +20,7 @@ const STATUS: Record<string, { text: string; color: string; bg: string }> = {
 
 export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: PublishApp[]; refreshKey: number; onCount: (n: number) => void }) {
   const [posts, setPosts] = useState<QueuedPost[] | null>(null)
+  const [series, setSeries] = useState<QueuedSeries[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -26,7 +29,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
       const res = await fetch('/api/publish', { headers: {} })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
-      setPosts(body.posts); onCount(body.posts.filter((p: QueuedPost) => p.status === 'scheduled').length); setError(null)
+      setPosts(body.posts); setSeries(body.series ?? []); onCount(body.posts.filter((p: QueuedPost) => p.status === 'scheduled').length); setError(null)
     } catch (e) { setError((e as Error).message) }
   }, [pw, onCount])
 
@@ -37,9 +40,18 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
     return () => clearInterval(t)
   }, [posts, load])
 
-  const act = async (id: string, method: 'DELETE' | 'PATCH') => {
+  const act = async (id: string, method: 'DELETE' | 'PATCH', action?: string) => {
     setBusy(id)
-    const res = await fetch(`/api/publish?id=${id}`, { method, headers: {} })
+    const res = await fetch(`/api/publish?id=${id}${action ? `&action=${action}` : ''}`, { method, headers: {} })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) setError(body.error ?? 'Something went wrong.')
+    setBusy(null); load()
+  }
+
+  const control = async (id: string, action: 'pause' | 'resume' | 'end') => {
+    if (action === 'end' && !confirm('Stop this repeating post? The copy waiting in the queue is skipped. Posts already out stay up.')) return
+    setBusy(id)
+    const res = await fetch(`/api/publish/series?id=${id}&action=${action}`, { method: 'PATCH' })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) setError(body.error ?? 'Something went wrong.')
     setBusy(null); load()
@@ -75,6 +87,8 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
                 <b style={{ fontSize: 14 }}>{app?.name ?? p.app_id}</b>
                 <span style={{ fontSize: 12.5, color: C.soft }}>{p.scheduled_at ? when(p.scheduled_at) : when(p.created_at)}</span>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 99, padding: '2px 9px' }}>{s.text}</span>
+                {p.series_id && <span title="A copy of a repeating post" style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2, border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '1px 8px' }}>↻ #{p.occurrence ?? '?'}</span>}
+                {p.caption_by === 'ai' && <span title="Caption written by Claude" style={{ fontSize: 11.5, fontWeight: 700, color: C.mint }}>✦ AI caption</span>}
               </div>
               <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.caption || <i>No caption</i>}</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -97,7 +111,8 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
               ))}
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              {p.status === 'scheduled' && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>Cancel</button>}
+              {p.status === 'scheduled' && p.series_id && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH', 'recaption')}>{busy === p.id ? 'Writing…' : '✦ New caption'}</button>}
+              {p.status === 'scheduled' && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip this one' : 'Cancel'}</button>}
               {(p.status === 'failed' || p.status === 'partial') && <button style={btn('solid')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? 'Retrying…' : 'Retry failed'}</button>}
             </div>
           </article>
@@ -109,6 +124,47 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   return (
     <div style={{ display: 'grid', gap: 28 }}>
       {error && <p style={{ color: C.red, margin: 0 }}>{error}</p>}
+      {series.length > 0 && (
+        <section style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={label}>Repeating</span><span style={{ flex: 1, height: 1, background: C.rule }} />
+          </div>
+          {series.map((r) => {
+            const app = apps.find((a) => a.id === r.app_id)
+            const first = r.media[0]
+            const paused = r.status === 'paused'
+            return (
+              <article key={r.id} style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: '64px minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
+                <div style={{ width: 64, height: 64, borderRadius: 12, overflow: 'hidden', background: C.card2 }}>
+                  {first && (first.kind === 'video'
+                    ? <video src={first.url} muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <img src={first.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
+                </div>
+                <div style={{ minWidth: 0, display: 'grid', gap: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {app && <img src={app.icon} alt="" width={20} height={20} style={{ borderRadius: 5 }} />}
+                    <b style={{ fontSize: 14 }}>{app?.name ?? r.app_id}</b>
+                    <span style={{ fontSize: 13, color: C.ink2 }}>↻ {describeRule(r.rule)}</span>
+                    {paused && <span style={{ fontSize: 11.5, fontWeight: 700, color: C.amber, background: '#FBF0DD', borderRadius: 99, padding: '2px 9px' }}>Paused</span>}
+                  </div>
+                  <span style={{ fontSize: 12.5, color: C.soft }}>
+                    {r.runs} sent{r.max_runs ? ` of ${r.max_runs}` : ''}
+                    {!paused && r.next_at ? ` · then ${when(r.next_at)}` : ''}
+                    {r.ends_at ? ` · ends ${new Date(r.ends_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                    {' · '}{r.caption_mode === 'fresh' ? 'fresh AI caption each time' : 'same caption each time'}
+                    {' · '}{r.targets.map((t) => PLATFORMS.find((x) => x.id === t.platform)?.name).join(', ')}
+                  </span>
+                  {r.last_error && <span style={{ fontSize: 12, color: C.amber }}>{r.last_error}</span>}
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <button style={btn('ghost')} disabled={busy === r.id} onClick={() => control(r.id, paused ? 'resume' : 'pause')}>{paused ? 'Resume' : 'Pause'}</button>
+                  <button style={{ ...btn('ghost'), color: C.red }} disabled={busy === r.id} onClick={() => control(r.id, 'end')}>Stop</button>
+                </div>
+              </article>
+            )
+          })}
+        </section>
+      )}
       {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
       {section('Recent', rest, 'Nothing posted from Studio yet.')}
     </div>

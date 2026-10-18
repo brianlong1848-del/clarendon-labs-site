@@ -8,9 +8,14 @@ import {
 } from '@/lib/publish/rules'
 import { Preview } from './Preview'
 import { TikTokPanel, type Creator } from './TikTokPanel'
-import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost } from './shared'
+import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
+import { DAY_SHORT, checkRepeat, describeRule, upcoming, type RepeatSpec } from '@/lib/publish/recur'
 
 // ─── Composer ────────────────────────────────────────────────────────────────
+//
+// One post, every platform — now, later, or on repeat (every Tue + Thu at
+// 10, or hand-picked dates), with captions Claude writes per platform from
+// the video's frames and the app's caption brief in Drive.
 //
 // One post, every platform. Left: what you're saying (app → media → caption →
 // where). Right, sticky: what each platform will actually show, what's wrong
@@ -76,6 +81,26 @@ function quickTimes() {
   ]
 }
 
+// Still frames for the AI to look at: 4 from a video, or the photos themselves.
+async function grabFrames(src: string): Promise<Blob[]> {
+  const v = document.createElement('video')
+  v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = src
+  await new Promise<void>((resolve, reject) => { v.onloadeddata = () => resolve(); v.onerror = () => reject(new Error('Couldn’t read the video to write captions.')) })
+  const d = isFinite(v.duration) && v.duration > 0 ? v.duration : 1
+  const out: Blob[] = []
+  for (const f of [0.08, 0.35, 0.62, 0.9]) {
+    await new Promise<void>((resolve) => { v.onseeked = () => resolve(); v.currentTime = Math.min(d * f, Math.max(0, d - 0.15)) })
+    const scale = Math.min(1, 768 / Math.max(v.videoWidth, v.videoHeight))
+    const c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale)
+    c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height)
+    out.push(await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/jpeg', 0.8)))
+  }
+  return out
+}
+
+const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago' } catch { return 'America/Chicago' } })()
+const shortWhen = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
 export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[]; onPosted: () => void }) {
   const [appId, setAppId] = useState(apps[0]?.id ?? '')
   const [items, setItems] = useState<Item[]>([])
@@ -83,7 +108,25 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const [tailor, setTailor] = useState(false)
   const [overrides, setOverrides] = useState<Partial<Record<Platform, string>>>({})
   const [dest, setDest] = useState<Dest>(initialDest)
-  const [schedule, setSchedule] = useState(false)
+  const [mode, setMode] = useState<'now' | 'later' | 'repeat'>('now')
+  const schedule = mode === 'later'
+  // Repeat settings
+  const [repKind, setRepKind] = useState<'weekly' | 'dates'>('weekly')
+  const [days, setDays] = useState<number[]>([2, 4])
+  const [times, setTimes] = useState<string[]>(['10:00'])
+  const [dates, setDates] = useState<string[]>(() => [localInput(quickTimes()[1].d)])
+  const [endKind, setEndKind] = useState<'never' | 'count' | 'date'>('count')
+  const [endCount, setEndCount] = useState(8)
+  const [endDate, setEndDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 28); return localInput(d).slice(0, 10) })
+  const [fresh, setFresh] = useState(true)
+  // AI captions
+  const [notes, setNotes] = useState('')
+  const [captionBy, setCaptionBy] = useState<'brian' | 'ai'>('brian')
+  const [ai, setAi] = useState<{ ready: boolean; brief: 'drive' | 'built-in' | null } | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiNote, setAiNote] = useState<{ text: string; ok: boolean } | null>(null)
+  const frameCache = useRef<{ key: string; urls: string[] } | null>(null)
+  const [resultSeries, setResultSeries] = useState<QueuedSeries | null>(null)
   const [at, setAt] = useState(() => localInput(quickTimes()[0].d))
   const [previewOn, setPreviewOn] = useState<Platform>('instagram')
   const [sending, setSending] = useState(false)
@@ -108,6 +151,11 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   }
 
   const app = apps.find((a) => a.id === appId)
+  useEffect(() => {
+    let live = true
+    fetch(`/api/publish/captions?app=${appId}`).then((r) => r.json()).then((b) => { if (live) setAi({ ready: !!b.ready, brief: b.brief ?? null }) }).catch(() => { if (live) setAi({ ready: false, brief: null }) })
+    return () => { live = false }
+  }, [appId])
   const account = useCallback((p: Platform) => app?.accounts.find((a) => a.platform === p), [app])
 
   // Draft survives a reload (caption + app only; media is re-picked).
@@ -174,7 +222,16 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const failedUploads = items.some((i) => i.status === 'error')
   const scheduleDate = new Date(at)
   const scheduleOk = !schedule || scheduleDate.getTime() > Date.now() + 60_000
-  const canSend = !sending && targets.length > 0 && errors.length === 0 && !uploading && !failedUploads && scheduleOk
+  const repeatSpec: RepeatSpec = {
+    rule: repKind === 'weekly' ? { kind: 'weekly', days: [...days].sort(), times: Array.from(new Set(times)).sort(), tz: TZ }
+      : { kind: 'dates', at: dates.map((d) => new Date(d)).filter((d) => !isNaN(d.getTime())).map((d) => d.toISOString()) },
+    endsAt: repKind === 'weekly' && endKind === 'date' && endDate && !isNaN(new Date(`${endDate}T23:59:59`).getTime()) ? new Date(`${endDate}T23:59:59`).toISOString() : null,
+    maxRuns: repKind === 'weekly' && endKind === 'count' ? endCount : null,
+    captionMode: fresh ? 'fresh' : 'same', notes,
+  }
+  const repeatProblems = mode === 'repeat' ? (() => { try { return checkRepeat(repeatSpec) } catch { return ['Check the dates.'] } })() : []
+  const nextTimes = mode === 'repeat' && repeatProblems.length === 0 ? upcoming(repeatSpec, 4) : []
+  const canSend = !sending && targets.length > 0 && errors.length === 0 && !uploading && !failedUploads && scheduleOk && repeatProblems.length === 0
 
   const firstTarget = targets[0]?.platform
   useEffect(() => { if (firstTarget && !dest[previewOn]?.on) setPreviewOn(firstTarget) }, [dest, previewOn, firstTarget])
@@ -198,21 +255,59 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     }))
   }, [pw, appId])
 
+  const uploadBlob = async (blob: Blob, name: string) => {
+    const res = await fetch('/api/publish/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, filename: name }) })
+    const up = await res.json()
+    if (!res.ok) throw new Error(up.error ?? 'Could not upload a frame.')
+    await put(up.uploadUrl, blob, 'image/jpeg', () => {})
+    return up.publicUrl as string
+  }
+  /** Public URLs of what the AI should look at; video frames are uploaded once per media set. */
+  const ensureFrames = async (): Promise<string[]> => {
+    const ready = items.filter((i) => i.status === 'ready' && i.url)
+    const key = ready.map((i) => i.url).join('|')
+    if (frameCache.current?.key === key) return frameCache.current.urls
+    const video = ready.find((i) => i.kind === 'video')
+    const urls = video
+      ? await Promise.all((await grabFrames(video.src)).map((b, n) => uploadBlob(b, `frame-${n + 1}.jpg`)))
+      : ready.filter((i) => i.kind === 'image').slice(0, 6).map((i) => i.url!)
+    frameCache.current = { key, urls }
+    return urls
+  }
+  const writeWithAi = async () => {
+    if (aiBusy || !targets.length) return
+    setAiBusy(true); setAiNote(null)
+    try {
+      const frames = await ensureFrames()
+      const res = await fetch('/api/publish/captions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId, targets, frames, notes, draft: caption, media: items.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration })) }),
+      })
+      const out = await res.json()
+      if (!res.ok) throw new Error(out.error ?? 'Couldn’t write captions.')
+      setCaption(out.caption); setOverrides(out.overrides ?? {}); setTailor(true); setCaptionBy('ai')
+      setAiNote({ ok: true, text: `Written per platform from ${frames.length ? `${frames.length} frame${frames.length === 1 ? '' : 's'} and ` : ''}the ${app?.name ?? ''} ${out.brief === 'drive' ? 'caption brief in Drive' : 'built-in facts (no Drive brief found)'} — edit anything.` })
+    } catch (e) { setAiNote({ ok: false, text: (e as Error).message }) }
+    setAiBusy(false)
+  }
+
   const send = async () => {
     if (!canSend) return
     setSending(true); setError(null)
     try {
+      const repeat = mode === 'repeat' ? { ...repeatSpec, frames: fresh ? await ensureFrames().catch(() => []) : [] } : undefined
       const res = await fetch('/api/publish', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           appId, caption, overrides: tailor ? overrides : {}, targets,
           media: items.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })),
           scheduledAt: schedule ? scheduleDate.toISOString() : null,
+          captionBy, notes, ...(repeat ? { repeat } : {}),
         }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? 'Posting failed.')
-      setResult(body.post); onPosted()
+      setResult(body.post); setResultSeries(body.series ?? null); onPosted()
       try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
     } catch (e) { setError((e as Error).message) }
     setSending(false)
@@ -237,7 +332,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const reset = () => { setItems([]); setCaption(''); setOverrides({}); setTailor(false); setResult(null); setSchedule(false) }
+  const reset = () => { setItems([]); setCaption(''); setOverrides({}); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null }
   const move = (from: string, to: string) => setItems((xs) => {
     const a = [...xs], i = a.findIndex((x) => x.key === from), j = a.findIndex((x) => x.key === to)
     if (i < 0 || j < 0) return xs
@@ -249,7 +344,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const previewTarget = targets.find((t) => t.platform === previewOn) ?? targets[0]
   const pname = (p: Platform) => PLATFORMS.find((x) => x.id === p)!.name
 
-  if (result) return <Result post={result} app={app} onNew={reset} />
+  if (result) return <Result post={result} series={resultSeries} app={app} onNew={reset} />
 
   const step = (n: number, title: string, aside?: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
@@ -338,9 +433,20 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
 
         {/* 3 · Caption */}
         <section style={card}>
-          {step(3, 'Caption', <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.ink2, cursor: 'pointer' }}>
-            Tailor per platform <Toggle on={tailor} onChange={setTailor} label="Tailor caption per platform" />
-          </label>)}
+          {step(3, 'Caption', <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button onClick={writeWithAi} disabled={!ai?.ready || aiBusy || !targets.length || uploading}
+              title={!ai?.ready ? 'AI captions need ANTHROPIC_API_KEY on Vercel' : !targets.length ? 'Pick where it’s going first' : uploading ? 'Wait for the upload' : 'Claude writes a caption for each platform'}
+              style={{ ...btn('ghost'), fontSize: 13, padding: '7px 13px', opacity: !ai?.ready || !targets.length || uploading ? 0.5 : 1 }}>
+              {aiBusy ? 'Writing…' : caption ? '✦ Rewrite with AI' : '✦ Write with AI'}
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.ink2, cursor: 'pointer' }}>
+              Tailor per platform <Toggle on={tailor} onChange={setTailor} label="Tailor caption per platform" />
+            </label>
+          </div>)}
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000}
+            placeholder="What’s this post about? (optional — steers the AI, e.g. “new 3D dice, Friday game night vibe”)"
+            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 13.5, color: C.ink, background: C.card, marginBottom: 10 }} />
+          {aiNote && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: aiNote.ok ? C.mint : C.red }}>{aiNote.text}</p>}
           <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={6}
             placeholder={`What's new with ${app?.name ?? 'the app'}? Hashtags and @mentions welcome.`}
             style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.rule2}`, borderRadius: 12, padding: '12px 14px', fontFamily: C.sans, fontSize: 15, lineHeight: 1.5, color: C.ink, background: C.paper, outline: 'none' }} />
@@ -349,7 +455,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
               {caption.length.toLocaleString()}{strictest ? ` / ${strictest.max.toLocaleString()} (${pname(strictest.t.platform)})` : ''}
             </span>
             <span style={{ color: tags > 30 ? C.red : C.soft }}>{tags} hashtag{tags === 1 ? '' : 's'}</span>
-            <span style={{ flex: 1 }} /><span>⌘↵ to {schedule ? 'schedule' : 'post'}</span>
+            <span style={{ flex: 1 }} /><span>⌘↵ to {mode === 'repeat' ? 'start repeating' : schedule ? 'schedule' : 'post'}</span>
           </div>
           {tailor && targets.length > 0 && (
             <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
@@ -470,9 +576,14 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
         </section>
 
         <section style={{ ...card, padding: 18, display: 'grid', gap: 12 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-            <Toggle on={schedule} onChange={setSchedule} label="Schedule for later" /> Schedule for later
-          </label>
+          <Segmented<'now' | 'later' | 'repeat'> value={mode} onChange={setMode}
+            options={[{ value: 'now', label: 'Post now' }, { value: 'later', label: 'Schedule' }, { value: 'repeat', label: 'Repeat' }]} />
+          {mode === 'repeat' && (
+            <RepeatPanel kind={repKind} setKind={setRepKind} days={days} setDays={setDays} times={times} setTimes={setTimes}
+              dates={dates} setDates={setDates} endKind={endKind} setEndKind={setEndKind} endCount={endCount} setEndCount={setEndCount}
+              endDate={endDate} setEndDate={setEndDate} fresh={fresh} setFresh={setFresh} aiReady={!!ai?.ready}
+              problems={repeatProblems} next={nextTimes} tz={TZ} />
+          )}
           {schedule && (
             <div style={{ display: 'grid', gap: 8 }}>
               <input type="datetime-local" value={at} min={localInput(new Date())} onChange={(e) => setAt(e.target.value)}
@@ -492,11 +603,12 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           )}
           <button onClick={send} disabled={!canSend}
             style={{ ...btn('mint'), width: '100%', padding: '14px 18px', fontSize: 15.5, borderRadius: 12, opacity: canSend ? 1 : 0.45, cursor: canSend ? 'pointer' : 'not-allowed' }}>
-            {sending ? (schedule ? 'Scheduling…' : 'Posting…')
+            {sending ? (mode === 'repeat' ? 'Setting up…' : schedule ? 'Scheduling…' : 'Posting…')
+              : mode === 'repeat' ? `Start repeating · ${describeRule(repeatSpec.rule)}`
               : schedule ? `Schedule · ${isNaN(scheduleDate.getTime()) ? '' : when(scheduleDate.toISOString())}`
               : targets.length ? `Post now to ${targets.length} ${targets.length === 1 ? 'place' : 'places'}` : 'Post now'}
           </button>
-          {sending && !schedule && <span style={{ fontSize: 12, color: C.soft, textAlign: 'center' }}>Videos can take a minute while {dest.tiktok.on ? 'Meta and TikTok process' : 'Meta processes'} them.</span>}
+          {sending && mode === 'now' && <span style={{ fontSize: 12, color: C.soft, textAlign: 'center' }}>Videos can take a minute while {dest.tiktok.on ? 'Meta and TikTok process' : 'Meta processes'} them.</span>}
           {error && <span style={{ fontSize: 13, color: C.red }}>{error}</span>}
         </section>
       </aside>
@@ -516,7 +628,7 @@ function Check({ tone, text, platform }: { tone: 'ok' | 'warn' | 'bad' | 'muted'
   )
 }
 
-function Result({ post, app, onNew }: { post: QueuedPost; app?: PublishApp; onNew: () => void }) {
+function Result({ post, series, app, onNew }: { post: QueuedPost; series?: QueuedSeries | null; app?: PublishApp; onNew: () => void }) {
   const scheduled = post.status === 'scheduled'
   const all = post.targets.every((t) => t.status === 'published')
   const busy = post.status === 'publishing'
@@ -527,10 +639,11 @@ function Result({ post, app, onNew }: { post: QueuedPost; app?: PublishApp; onNe
         {scheduled ? '◷' : all ? '✓' : busy ? '…' : '!'}
       </div>
       <h2 style={{ fontFamily: C.serif, fontSize: 26, fontWeight: 900, margin: 0 }}>
-        {scheduled ? 'Scheduled' : all ? 'Posted everywhere' : busy ? 'Publishing…' : 'Some didn’t go through'}
+        {series ? 'Repeating' : scheduled ? 'Scheduled' : all ? 'Posted everywhere' : busy ? 'Publishing…' : 'Some didn’t go through'}
       </h2>
       <p style={{ margin: 0, color: C.ink2 }}>
-        {scheduled && post.scheduled_at ? `${app?.name ?? 'It'} goes out ${when(post.scheduled_at)}. It’s in the queue if you change your mind.`
+        {series && post.scheduled_at ? `${describeRule(series.rule)}. First one goes out ${when(post.scheduled_at)}${series.caption_mode === 'fresh' ? ', and every copy after that gets a fresh AI caption' : ''}. Pause or stop it from the Queue.`
+          : scheduled && post.scheduled_at ? `${app?.name ?? 'It'} goes out ${when(post.scheduled_at)}. It’s in the queue if you change your mind.`
           : busy ? 'Still processing the media — this updates on its own.'
           : `${app?.name ?? ''} · ${post.targets.length} platform${post.targets.length === 1 ? '' : 's'}`}
       </p>
@@ -554,5 +667,100 @@ function Result({ post, app, onNew }: { post: QueuedPost; app?: PublishApp; onNe
         <button style={btn('solid')} onClick={onNew}>New post</button>
       </div>
     </section>
+  )
+}
+
+// Repeat settings: weekdays + times, or hand-picked dates; when to stop; and
+// whether each copy gets a fresh AI caption.
+function RepeatPanel(p: {
+  kind: 'weekly' | 'dates'; setKind: (k: 'weekly' | 'dates') => void
+  days: number[]; setDays: (d: number[]) => void; times: string[]; setTimes: (t: string[]) => void
+  dates: string[]; setDates: (d: string[]) => void
+  endKind: 'never' | 'count' | 'date'; setEndKind: (k: 'never' | 'count' | 'date') => void
+  endCount: number; setEndCount: (n: number) => void; endDate: string; setEndDate: (d: string) => void
+  fresh: boolean; setFresh: (v: boolean) => void; aiReady: boolean
+  problems: string[]; next: Date[]; tz: string
+}) {
+  const input: React.CSSProperties = { border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '8px 11px', fontFamily: C.sans, fontSize: 14, color: C.ink, background: C.paper }
+  const chip = (active: boolean): React.CSSProperties => ({
+    border: `1px solid ${active ? C.ink : C.rule2}`, background: active ? C.ink : C.card, color: active ? C.paper : C.ink2,
+    borderRadius: 99, padding: '5px 0', width: 40, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans,
+  })
+  const small: React.CSSProperties = { border: 0, background: 'transparent', color: C.mint, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', padding: 0, fontFamily: C.sans }
+  const presets: { label: string; days: number[] }[] = [
+    { label: 'Tue + Thu', days: [2, 4] }, { label: 'Mon/Wed/Fri', days: [1, 3, 5] }, { label: 'Weekdays', days: [1, 2, 3, 4, 5] }, { label: 'Every day', days: [0, 1, 2, 3, 4, 5, 6] },
+  ]
+  return (
+    <div style={{ display: 'grid', gap: 12, padding: 14, borderRadius: 14, background: C.paper, border: `1px solid ${C.rule}` }}>
+      <Segmented<'weekly' | 'dates'> value={p.kind} onChange={p.setKind}
+        options={[{ value: 'weekly', label: 'Every week' }, { value: 'dates', label: 'Custom dates' }]} />
+
+      {p.kind === 'weekly' ? (
+        <>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+            {DAY_SHORT.map((d, i) => {
+              const on = p.days.includes(i)
+              return <button key={d} aria-pressed={on} style={chip(on)} onClick={() => p.setDays(on ? p.days.filter((x) => x !== i) : [...p.days, i])}>{d}</button>
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {presets.map((x) => <button key={x.label} style={small} onClick={() => p.setDays(x.days)}>{x.label}</button>)}
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <span style={label}>At</span>
+            {p.times.map((t, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="time" value={t} onChange={(e) => p.setTimes(p.times.map((x, j) => j === i ? e.target.value : x))} style={input} />
+                {p.times.length > 1 && <button style={{ ...small, color: C.soft }} onClick={() => p.setTimes(p.times.filter((_, j) => j !== i))}>Remove</button>}
+              </div>
+            ))}
+            {p.times.length < 4 && <button style={{ ...small, justifySelf: 'start' }} onClick={() => p.setTimes([...p.times, '18:00'])}>+ Another time each day</button>}
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {p.dates.map((d, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="datetime-local" value={d} min={localInput(new Date())} onChange={(e) => p.setDates(p.dates.map((x, j) => j === i ? e.target.value : x))} style={{ ...input, flex: 1, minWidth: 0 }} />
+              {p.dates.length > 1 && <button style={{ ...small, color: C.soft }} onClick={() => p.setDates(p.dates.filter((_, j) => j !== i))}>Remove</button>}
+            </div>
+          ))}
+          {p.dates.length < 60 && <button style={{ ...small, justifySelf: 'start' }} onClick={() => {
+            const last = p.dates.length ? new Date(p.dates[p.dates.length - 1]) : new Date()
+            const d = isNaN(last.getTime()) ? new Date() : last; d.setDate(d.getDate() + 7)
+            p.setDates([...p.dates, localInput(d)])
+          }}>+ Add a date</button>}
+        </div>
+      )}
+
+      {p.kind === 'weekly' && (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <span style={label}>Stop</span>
+          <Segmented<'never' | 'count' | 'date'> value={p.endKind} onChange={p.setEndKind}
+            options={[{ value: 'count', label: 'After' }, { value: 'date', label: 'On a date' }, { value: 'never', label: 'Never' }]} />
+          {p.endKind === 'count' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: C.ink2 }}>
+              <input type="number" min={1} max={500} value={p.endCount} onChange={(e) => p.setEndCount(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} style={{ ...input, width: 76 }} /> posts
+            </label>
+          )}
+          {p.endKind === 'date' && <input type="date" value={p.endDate} onChange={(e) => p.setEndDate(e.target.value)} style={input} />}
+        </div>
+      )}
+
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: C.ink2, cursor: p.aiReady ? 'pointer' : 'not-allowed', lineHeight: 1.45 }}>
+        <Toggle on={p.fresh && p.aiReady} disabled={!p.aiReady} onChange={p.setFresh} label="Fresh AI caption each time" />
+        <span><b style={{ color: C.ink }}>Fresh caption each time</b><br />
+          {p.aiReady ? 'The first post uses your caption; Claude writes a new one for every copy after, so feeds never see the same words twice. Each copy shows in the Queue a day or two ahead — rewrite or skip it there.'
+            : 'Needs AI captions switched on (ANTHROPIC_API_KEY). Until then every copy reuses your caption.'}</span>
+      </label>
+
+      {p.problems.length > 0
+        ? p.problems.map((x) => <span key={x} style={{ fontSize: 12, color: C.red }}>{x}</span>)
+        : <div style={{ fontSize: 12.5, color: C.ink2, lineHeight: 1.6 }}>
+            <span style={label}>Next</span><br />
+            {p.next.map((d) => shortWhen(d)).join(' · ')}{p.next.length === 4 ? ' …' : ''}
+            {p.kind === 'weekly' && <><br /><span style={{ color: C.soft, fontSize: 11.5 }}>Times are {p.tz.replace('_', ' ')} time.</span></>}
+          </div>}
+    </div>
   )
 }

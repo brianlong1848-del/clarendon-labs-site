@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
-import { claim, duePosts } from '@/lib/publish/store'
+import { claim, duePosts, getSeries, unloggedPosts, updatePost } from '@/lib/publish/store'
+import { materializeDue } from '@/lib/publish/series'
+import { logPost } from '@/lib/publish/marketing'
+import { driveConfigured } from '@/lib/drive'
 import { run } from '@/lib/publish/runner'
 import { refreshThreadsTokens } from '@/lib/publish/tokens'
 import { refreshTikTokTokens } from '@/lib/publish/tiktok'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { consoleAuthed } from '@/lib/console'
 
+// Each run: (1) tops up repeating series — makes the next copy, with a fresh
+// AI caption, up to 48h ahead; (2) publishes whatever is due; (3) appends
+// finished posts to Marketing/<App>-post-log.md in Drive.
+//
 // Poked every 5 minutes by pg_cron in Supabase (job "studio-publish-runner"),
 // which sends "Authorization: Bearer <PUBLISH_RUN_SECRET>" from Supabase Vault.
 // The /post page also pokes it while you're signed in, so a signed-in admin
@@ -29,9 +36,10 @@ async function handle(req: Request) {
   }
   await refreshThreadsTokens().catch(() => {})
   await refreshTikTokTokens(PUBLISH_APPS.map((a) => a.id)).catch(() => {})
+  const started = Date.now()
+  const made = await materializeDue(15_000).catch(() => 0)
   const due = await duePosts().catch(() => [])
   const results: { id: string; status: string }[] = []
-  const started = Date.now()
   for (const p of due) {
     if (Date.now() - started > 40_000) break
     // A post the composer is actively publishing right now is left to it.
@@ -40,7 +48,20 @@ async function handle(req: Request) {
     const done = await run({ ...p, status: 'publishing' }, 20_000)
     results.push({ id: done.id, status: done.status })
   }
-  return NextResponse.json({ ran: results.length, results })
+  let logged = 0
+  const logErrors: string[] = []
+  if (driveConfigured() && Date.now() - started < 48_000) {
+    for (const p of await unloggedPosts().catch(() => [])) {
+      if (Date.now() - started > 52_000) break
+      try {
+        const series = p.series_id ? await getSeries(p.series_id).catch(() => null) : null
+        await logPost(p, series)
+        await updatePost(p.id, { logged_at: new Date().toISOString() })
+        logged++
+      } catch (e) { logErrors.push(`${p.app_id}: ${(e as Error).message}`) }
+    }
+  }
+  return NextResponse.json({ made, ran: results.length, results, logged, ...(logErrors.length ? { logErrors } : {}) })
 }
 
 export const GET = handle
