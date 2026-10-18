@@ -64,8 +64,9 @@ const SHELL_CSS = `
 @keyframes adm-dot{0%,100%{box-shadow:0 0 4px rgba(43,212,224,.55)}50%{box-shadow:0 0 14px rgba(43,212,224,.95),0 0 24px rgba(43,212,224,.4)}}
 .adm-shell{-webkit-font-smoothing:antialiased}
 .adm-shell h1,.adm-shell h2,.adm-shell h3{letter-spacing:-.02em}
-.adm-main{position:relative;isolation:isolate}
-.adm-main::before{content:'';position:absolute;top:-40px;right:-20px;width:min(620px,90%);height:340px;pointer-events:none;z-index:-1;
+.adm-shell{overflow-x:clip;max-width:100vw}
+.adm-main{position:relative;isolation:isolate;overflow-x:clip}
+.adm-main::before{content:'';position:absolute;top:-40px;right:0;width:min(620px,90%);height:340px;pointer-events:none;z-index:-1;
   background:radial-gradient(closest-side at 30% 40%,rgba(43,212,224,.26),transparent),radial-gradient(closest-side at 70% 55%,rgba(79,70,229,.20),transparent),radial-gradient(closest-side at 55% 20%,rgba(255,90,78,.12),transparent);
   filter:blur(24px);animation:adm-drift 14s ease-in-out infinite alternate}
 .adm-main>*{animation:adm-rise .55s cubic-bezier(.2,.7,.2,1) both}
