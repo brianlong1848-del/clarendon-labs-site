@@ -98,6 +98,8 @@ async function grabFrames(src: string): Promise<Blob[]> {
   return out
 }
 
+type BestTime = { heat: number[]; reason: string; best: string[]; auto: string[]; weekly: { days: number[]; times: string[] }; basis: { level: 'typical' | 'learning' | 'yours'; measured: number; igOnline: boolean } }
+
 const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago' } catch { return 'America/Chicago' } })()
 const shortWhen = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
@@ -111,7 +113,9 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const [mode, setMode] = useState<'now' | 'later' | 'repeat'>('now')
   const schedule = mode === 'later'
   // Repeat settings
-  const [repKind, setRepKind] = useState<'weekly' | 'dates'>('weekly')
+  const [repKind, setRepKind] = useState<'weekly' | 'auto' | 'dates'>('auto')
+  const [perWeek, setPerWeek] = useState(2)
+  const [bt, setBt] = useState<BestTime | null>(null)
   const [days, setDays] = useState<number[]>([2, 4])
   const [times, setTimes] = useState<string[]>(['10:00'])
   const [dates, setDates] = useState<string[]>(() => [localInput(quickTimes()[1].d)])
@@ -223,15 +227,29 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const scheduleDate = new Date(at)
   const scheduleOk = !schedule || scheduleDate.getTime() > Date.now() + 60_000
   const repeatSpec: RepeatSpec = {
-    rule: repKind === 'weekly' ? { kind: 'weekly', days: [...days].sort(), times: Array.from(new Set(times)).sort(), tz: TZ }
+    rule: repKind === 'auto' ? { kind: 'auto', perWeek, tz: TZ }
+      : repKind === 'weekly' ? { kind: 'weekly', days: [...days].sort(), times: Array.from(new Set(times)).sort(), tz: TZ }
       : { kind: 'dates', at: dates.map((d) => new Date(d)).filter((d) => !isNaN(d.getTime())).map((d) => d.toISOString()) },
-    endsAt: repKind === 'weekly' && endKind === 'date' && endDate && !isNaN(new Date(`${endDate}T23:59:59`).getTime()) ? new Date(`${endDate}T23:59:59`).toISOString() : null,
-    maxRuns: repKind === 'weekly' && endKind === 'count' ? endCount : null,
+    endsAt: repKind !== 'dates' && endKind === 'date' && endDate && !isNaN(new Date(`${endDate}T23:59:59`).getTime()) ? new Date(`${endDate}T23:59:59`).toISOString() : null,
+    maxRuns: repKind !== 'dates' && endKind === 'count' ? endCount : null,
     captionMode: fresh ? 'fresh' : 'same', notes,
   }
   const repeatProblems = mode === 'repeat' ? (() => { try { return checkRepeat(repeatSpec) } catch { return ['Check the dates.'] } })() : []
-  const nextTimes = mode === 'repeat' && repeatProblems.length === 0 ? upcoming(repeatSpec, 4) : []
+  const nextTimes = mode === 'repeat' && repeatProblems.length === 0
+    ? (repKind === 'auto' ? (bt?.auto ?? []).map((d) => new Date(d)) : upcoming(repeatSpec, 4)) : []
   const canSend = !sending && targets.length > 0 && errors.length === 0 && !uploading && !failedUploads && scheduleOk && repeatProblems.length === 0
+
+  // Best time for this app on the chosen platforms (re-asked when they change).
+  const btKey = `${appId}|${targets.map((t) => t.platform).join(',')}|${perWeek}|${days.length}`
+  useEffect(() => {
+    const [a, pf, pw, nd] = btKey.split('|')
+    let live = true
+    const t = setTimeout(() => {
+      fetch(`/api/publish/besttime?app=${a}&platforms=${pf}&perWeek=${pw}&days=${nd || pw}&tz=${encodeURIComponent(TZ)}`)
+        .then((r) => r.ok ? r.json() : null).then((b) => { if (live && b) setBt(b) }).catch(() => {})
+    }, 300)
+    return () => { live = false; clearTimeout(t) }
+  }, [btKey])
 
   const firstTarget = targets[0]?.platform
   useEffect(() => { if (firstTarget && !dest[previewOn]?.on) setPreviewOn(firstTarget) }, [dest, previewOn, firstTarget])
@@ -582,13 +600,19 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
             <RepeatPanel kind={repKind} setKind={setRepKind} days={days} setDays={setDays} times={times} setTimes={setTimes}
               dates={dates} setDates={setDates} endKind={endKind} setEndKind={setEndKind} endCount={endCount} setEndCount={setEndCount}
               endDate={endDate} setEndDate={setEndDate} fresh={fresh} setFresh={setFresh} aiReady={!!ai?.ready}
-              problems={repeatProblems} next={nextTimes} tz={TZ} />
+              problems={repeatProblems} next={nextTimes} tz={TZ} perWeek={perWeek} setPerWeek={setPerWeek} bt={bt} />
           )}
           {schedule && (
             <div style={{ display: 'grid', gap: 8 }}>
               <input type="datetime-local" value={at} min={localInput(new Date())} onChange={(e) => setAt(e.target.value)}
                 style={{ border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 14, color: C.ink, background: C.paper }} />
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {bt?.best?.[0] && (() => {
+                  const d = new Date(bt.best[0]); const active = at === localInput(d)
+                  return <button title={bt.reason} onClick={() => setAt(localInput(d))}
+                    style={{ border: `1px solid ${C.mint}`, background: active ? C.mint : C.mintTint, color: active ? '#fff' : C.mint, borderRadius: 99, padding: '5px 11px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans }}>
+                    ✦ Best: {d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric' })}</button>
+                })()}
                 {quickTimes().map((q) => {
                   const active = at === localInput(q.d)
                   return (
@@ -598,7 +622,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                 })}
               </div>
               {!scheduleOk && <span style={{ fontSize: 12, color: C.red }}>Pick a time at least a minute from now.</span>}
-              <span style={{ fontSize: 11.5, color: C.soft }}>Goes out within 5 minutes of this time.</span>
+              <span style={{ fontSize: 11.5, color: C.soft }}>Goes out within 5 minutes of this time.{bt ? ` ✦ ${bt.reason}` : ''}</span>
             </div>
           )}
           <button onClick={send} disabled={!canSend}
@@ -673,7 +697,8 @@ function Result({ post, series, app, onNew }: { post: QueuedPost; series?: Queue
 // Repeat settings: weekdays + times, or hand-picked dates; when to stop; and
 // whether each copy gets a fresh AI caption.
 function RepeatPanel(p: {
-  kind: 'weekly' | 'dates'; setKind: (k: 'weekly' | 'dates') => void
+  kind: 'weekly' | 'auto' | 'dates'; setKind: (k: 'weekly' | 'auto' | 'dates') => void
+  perWeek: number; setPerWeek: (n: number) => void; bt: BestTime | null
   days: number[]; setDays: (d: number[]) => void; times: string[]; setTimes: (t: string[]) => void
   dates: string[]; setDates: (d: string[]) => void
   endKind: 'never' | 'count' | 'date'; setEndKind: (k: 'never' | 'count' | 'date') => void
@@ -692,10 +717,18 @@ function RepeatPanel(p: {
   ]
   return (
     <div style={{ display: 'grid', gap: 12, padding: 14, borderRadius: 14, background: C.paper, border: `1px solid ${C.rule}` }}>
-      <Segmented<'weekly' | 'dates'> value={p.kind} onChange={p.setKind}
-        options={[{ value: 'weekly', label: 'Every week' }, { value: 'dates', label: 'Custom dates' }]} />
+      <Segmented<'weekly' | 'auto' | 'dates'> value={p.kind} onChange={p.setKind}
+        options={[{ value: 'auto', label: '✦ Best times' }, { value: 'weekly', label: 'Every week' }, { value: 'dates', label: 'Custom dates' }]} />
 
-      {p.kind === 'weekly' ? (
+      {p.kind === 'auto' ? (
+        <div style={{ display: 'grid', gap: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: C.ink2 }}>
+            <input type="number" min={1} max={14} value={p.perWeek} onChange={(e) => p.setPerWeek(Math.max(1, Math.min(14, Number(e.target.value) || 1)))} style={{ ...input, width: 66 }} /> posts a week, at the best hours
+          </label>
+          {p.bt && <Heatmap heat={p.bt.heat} />}
+          <span style={{ fontSize: 12, color: C.ink2, lineHeight: 1.5 }}>{p.bt ? p.bt.reason : 'Working out the best hours…'} Each copy’s time is picked when it’s made, so it keeps learning.</span>
+        </div>
+      ) : p.kind === 'weekly' ? (
         <>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {DAY_SHORT.map((d, i) => {
@@ -704,6 +737,7 @@ function RepeatPanel(p: {
             })}
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {p.bt && <button style={small} title={p.bt.reason} onClick={() => { p.setDays(p.bt!.weekly.days); p.setTimes(p.bt!.weekly.times) }}>✦ Suggest days & time</button>}
             {presets.map((x) => <button key={x.label} style={small} onClick={() => p.setDays(x.days)}>{x.label}</button>)}
           </div>
           <div style={{ display: 'grid', gap: 6 }}>
@@ -733,7 +767,7 @@ function RepeatPanel(p: {
         </div>
       )}
 
-      {p.kind === 'weekly' && (
+      {p.kind !== 'dates' && (
         <div style={{ display: 'grid', gap: 6 }}>
           <span style={label}>Stop</span>
           <Segmented<'never' | 'count' | 'date'> value={p.endKind} onChange={p.setEndKind}
@@ -759,8 +793,28 @@ function RepeatPanel(p: {
         : <div style={{ fontSize: 12.5, color: C.ink2, lineHeight: 1.6 }}>
             <span style={label}>Next</span><br />
             {p.next.map((d) => shortWhen(d)).join(' · ')}{p.next.length === 4 ? ' …' : ''}
-            {p.kind === 'weekly' && <><br /><span style={{ color: C.soft, fontSize: 11.5 }}>Times are {p.tz.replace('_', ' ')} time.</span></>}
+            {p.kind !== 'dates' && <><br /><span style={{ color: C.soft, fontSize: 11.5 }}>Times are {p.tz.replace('_', ' ')} time.</span></>}
           </div>}
+    </div>
+  )
+}
+
+// 7 × 24 "when your audience is around" grid, darker = better.
+function Heatmap({ heat }: { heat: number[] }) {
+  return (
+    <div aria-label="Best hours of the week" style={{ display: 'grid', gap: 2 }}>
+      {DAY_SHORT.map((d, di) => (
+        <div key={d} style={{ display: 'grid', gridTemplateColumns: '28px repeat(24, 1fr)', gap: 2, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: C.soft, fontFamily: C.mono }}>{d}</span>
+          {heat.slice(di * 24, di * 24 + 24).map((v, h) => (
+            <span key={h} title={`${d} ${((h + 11) % 12) + 1} ${h < 12 ? 'AM' : 'PM'}`}
+              style={{ height: 9, borderRadius: 2, background: C.mint, opacity: 0.08 + 0.92 * v * v }} />
+          ))}
+        </div>
+      ))}
+      <div style={{ display: 'grid', gridTemplateColumns: '28px repeat(4, 1fr)', fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>
+        <span /><span>12a</span><span>6a</span><span>12p</span><span>6p</span>
+      </div>
     </div>
   )
 }

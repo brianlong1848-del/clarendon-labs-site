@@ -32,7 +32,12 @@ export type Post = {
   notes?: string
   caption_by?: 'brian' | 'ai'
   logged_at?: string | null
+  stats?: Partial<Record<Platform, PostStat>> | null
+  stats_at?: string | null
 }
+
+/** One platform's result for a post, read ~48h after it went out. */
+export type PostStat = { reach: number; engagement: number; at: string }
 
 /** A repeating post: what to post, where, and the rule for when. The runner
  *  turns it into ordinary Post rows, one upcoming copy at a time. */
@@ -141,6 +146,16 @@ export const unloggedPosts = () => {
   const since = new Date(Date.now() - 3 * 864e5).toISOString()
   return rest<Post[]>(`studio_posts?status=in.(done,partial)&logged_at=is.null&updated_at=gte."${since}"&order=updated_at.asc&limit=4`)
 }
+
+/** Published 2–14 days ago and not measured yet. */
+export const postsNeedingStats = () => {
+  const now = Date.now()
+  return rest<Post[]>(`studio_posts?status=in.(done,partial)&stats_at=is.null&scheduled_at=lte."${new Date(now - 48 * 3600_000).toISOString()}"&scheduled_at=gte."${new Date(now - 14 * 864e5).toISOString()}"&order=scheduled_at.asc&limit=4`)
+}
+
+/** Measured posts for one app (the "Best time" learning set). */
+export const measuredPosts = (appId: string) =>
+  rest<Pick<Post, 'scheduled_at' | 'created_at' | 'stats'>[]>(`studio_posts?app_id=eq.${encodeURIComponent(appId)}&stats=not.is.null&select=scheduled_at,created_at,stats&order=scheduled_at.desc&limit=300`)
 
 /** A one-time URL the browser / iPhone uploads the file to directly, so big
  *  videos never pass through a Vercel function. */

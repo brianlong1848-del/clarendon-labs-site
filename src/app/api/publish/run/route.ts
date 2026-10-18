@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
-import { claim, duePosts, getSeries, unloggedPosts, updatePost } from '@/lib/publish/store'
+import { claim, duePosts, getSeries, postsNeedingStats, unloggedPosts, updatePost, type PostStat } from '@/lib/publish/store'
+import { postStats } from '@/lib/publish/platforms'
 import { materializeDue } from '@/lib/publish/series'
 import { logPost } from '@/lib/publish/marketing'
 import { driveConfigured } from '@/lib/drive'
@@ -12,7 +13,8 @@ import { consoleAuthed } from '@/lib/console'
 
 // Each run: (1) tops up repeating series — makes the next copy, with a fresh
 // AI caption, up to 48h ahead; (2) publishes whatever is due; (3) appends
-// finished posts to Marketing/<App>-post-log.md in Drive.
+// finished posts to Marketing/<App>-post-log.md in Drive; (4) reads each
+// post's reach/engagement ~48h later so "Best time" learns.
 //
 // Poked every 5 minutes by pg_cron in Supabase (job "studio-publish-runner"),
 // which sends "Authorization: Bearer <PUBLISH_RUN_SECRET>" from Supabase Vault.
@@ -61,7 +63,21 @@ async function handle(req: Request) {
       } catch (e) { logErrors.push(`${p.app_id}: ${(e as Error).message}`) }
     }
   }
-  return NextResponse.json({ made, ran: results.length, results, logged, ...(logErrors.length ? { logErrors } : {}) })
+  // (4) Read results ~48h after posting, for "Best time".
+  let measured = 0
+  if (Date.now() - started < 50_000) {
+    for (const p of await postsNeedingStats().catch(() => [])) {
+      if (Date.now() - started > 54_000) break
+      const stats: Record<string, PostStat> = {}
+      for (const t of p.targets) {
+        const r = await postStats(p, t)
+        if (r) stats[t.platform] = { ...r, at: new Date().toISOString() }
+      }
+      await updatePost(p.id, { stats: Object.keys(stats).length ? stats : null, stats_at: new Date().toISOString() }).catch(() => null)
+      measured++
+    }
+  }
+  return NextResponse.json({ made, measured, ran: results.length, results, logged, ...(logErrors.length ? { logErrors } : {}) })
 }
 
 export const GET = handle

@@ -8,6 +8,7 @@
 
 import { nextAfter, type RepeatSpec } from './recur'
 import { captionsConfigured, writeCaptions } from './captions'
+import { nextBest } from './timing'
 import {
   insertPost, insertSeries, openCopy, pastCaptions, seriesDue, updatePost, updateSeries, cancelOpenCopies, getSeries,
   type Post, type Series, type TargetState,
@@ -20,13 +21,25 @@ export const specOf = (s: Series): RepeatSpec => ({
   rule: s.rule, startsAt: s.starts_at, endsAt: s.ends_at, maxRuns: s.max_runs, captionMode: s.caption_mode, notes: s.notes, frames: s.frames,
 })
 
+/** When the next copy goes out — sync rules via recur.ts, 'auto' via timing.ts. */
+/** `fresh` = starting or resuming: an auto rule may pick the very next good slot
+ *  instead of keeping its usual spacing from `after`. */
+export async function nextTime(spec: RepeatSpec, appId: string, targets: Target[], after: Date, runsSoFar: number, fresh = false): Promise<Date | null> {
+  if (spec.rule.kind !== 'auto') return nextAfter(spec, after, runsSoFar)
+  if (spec.maxRuns != null && runsSoFar >= spec.maxRuns) return null
+  const startsAt = spec.startsAt ? new Date(spec.startsAt) : null
+  const start = startsAt && startsAt > after ? startsAt : fresh ? new Date(0) : after
+  const next = await nextBest(appId, targets, start, spec.rule.perWeek, spec.rule.tz)
+  return next && spec.endsAt && next > new Date(spec.endsAt) ? null : next ?? null
+}
+
 const pending = (targets: Target[]) => targets.map((t) => ({ ...t, status: 'pending' }) as TargetState)
 
 export async function createSeries(input: {
   appId: string; caption: string; overrides: Partial<Record<Platform, string>>; media: MediaItem[]; targets: Target[]
   repeat: RepeatSpec; captionBy: 'brian' | 'ai'; source: string
 }): Promise<{ series: Series; post: Post | null }> {
-  const first = nextAfter(input.repeat, new Date())
+  const first = await nextTime(input.repeat, input.appId, input.targets, new Date(), 0, true)
   if (!first) throw new Error('None of those times are in the future.')
   const series = await insertSeries({
     app_id: input.appId, caption: input.caption, overrides: input.overrides, media: input.media, targets: input.targets,
@@ -46,7 +59,7 @@ export async function materialize(s: Series, opts: { firstCaptionBy?: 'brian' | 
   if (await openCopy(s.id)) return null
   const at = new Date(s.next_at)
   const occurrence = s.runs + 1
-  const after = nextAfter(specOf(s), at, occurrence)
+  const after = await nextTime(specOf(s), s.app_id, s.targets, at, occurrence)
   // Claim this occurrence first (only succeeds if nobody else advanced `runs`).
   const claimed = await updateSeries(s.id, { runs: occurrence, next_at: after?.toISOString() ?? null, status: after ? 'active' : 'ended' }, s.runs)
   if (!claimed) return null
@@ -92,7 +105,7 @@ export async function setSeriesState(id: string, action: 'pause' | 'resume' | 'e
   const s = await getSeries(id)
   if (!s) return null
   if (action === 'resume') {
-    const next = nextAfter(specOf(s), new Date(), s.runs)
+    const next = await nextTime(specOf(s), s.app_id, s.targets, new Date(), s.runs, true)
     const fresh = await updateSeries(id, { status: next ? 'active' : 'ended', next_at: next?.toISOString() ?? null })
     if (fresh) await materialize(fresh).catch(() => null)
     return getSeries(id)

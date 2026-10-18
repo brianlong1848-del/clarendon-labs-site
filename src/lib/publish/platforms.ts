@@ -324,3 +324,54 @@ export async function advance(p: Post, t: TargetState): Promise<Step> {
     return { status: 'failed', error: (e as Error).message }
   }
 }
+
+// ── Results (for "Best time") ────────────────────────────────────────────────
+//
+// Reach + engagement per published target, read once ~48h after posting by
+// the runner. Instagram and Facebook come from the Meta token we already have.
+// Threads (needs threads_manage_insights) and TikTok (needs video.list) would
+// need new scopes and a reconnect, so they learn from the app's Meta results
+// until then.
+
+export async function postStats(p: Post, t: TargetState): Promise<{ reach: number; engagement: number } | null> {
+  if (t.status !== 'published' || !t.remoteId) return null
+  try {
+    if (t.platform === 'instagram' && t.format !== 'story') {
+      const token = metaToken()
+      if (!token) return null
+      const body = await call(`${G}/${t.remoteId}/insights?metric=reach,total_interactions&access_token=${token}`)
+      const v = (name: string) => Number(body.data?.find((d: { name: string }) => d.name === name)?.values?.[0]?.value ?? 0)
+      return { reach: v('reach'), engagement: v('total_interactions') }
+    }
+    if (t.platform === 'facebook') {
+      const page = await pageFor(p.app_id)
+      if (!page?.access_token) return null
+      const token = page.access_token
+      const count = (b: { summary?: { total_count?: number } } | undefined) => Number(b?.summary?.total_count ?? 0)
+      try {
+        const b = await call(`${G}/${t.remoteId}?fields=reactions.limit(0).summary(true),comments.limit(0).summary(true),shares&access_token=${token}`)
+        return { reach: 0, engagement: count(b.reactions) + count(b.comments) + Number(b.shares?.count ?? 0) }
+      } catch {
+        // Videos / Reels are video objects, not posts.
+        const b = await call(`${G}/${t.remoteId}?fields=likes.limit(0).summary(true),comments.limit(0).summary(true)&access_token=${token}`)
+        return { reach: 0, engagement: count(b.likes) + count(b.comments) }
+      }
+    }
+  } catch { return null }
+  return null
+}
+
+/** Instagram "followers online" by weekday/hour (last 30 days), when Meta has it
+ *  (accounts with 100+ followers). Keys are Meta's hours, which it reports in
+ *  Pacific time. Returns null when unavailable. */
+export async function igOnlineFollowers(appId: string): Promise<{ date: string; hours: Record<string, number> }[] | null> {
+  const ig = await igFor(appId), token = metaToken()
+  if (!ig || !token) return null
+  try {
+    const body = await call(`${G}/${ig}/insights?metric=online_followers&period=lifetime&access_token=${token}`)
+    const values = body.data?.[0]?.values ?? []
+    const out = values.filter((v: { value?: object }) => v.value && Object.keys(v.value).length)
+      .map((v: { value: Record<string, number>; end_time: string }) => ({ date: v.end_time, hours: v.value }))
+    return out.length ? out : null
+  } catch { return null }
+}

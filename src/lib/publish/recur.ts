@@ -9,10 +9,15 @@
 //   weekly — chosen weekdays at one or more wall-clock times in a time zone
 //            ("every Tue + Thu at 10:00 Chicago time"), DST-safe.
 //   dates  — a hand-picked list of exact moments.
+//   auto   — N times a week at the best times for that app's audience on the
+//            chosen platforms (lib/publish/timing.ts picks each slot when the
+//            copy is made, so it keeps learning). Async, server-side only:
+//            nextAfter() returns null for it; use series.nextTime().
 
 export type WeeklyRule = { kind: 'weekly'; days: number[]; times: string[]; tz: string }
 export type DatesRule = { kind: 'dates'; at: string[] }
-export type RepeatRule = WeeklyRule | DatesRule
+export type AutoRule = { kind: 'auto'; perWeek: number; tz: string }
+export type RepeatRule = WeeklyRule | DatesRule | AutoRule
 
 /** What the composer sends alongside a post to make it repeat. */
 export type RepeatSpec = {
@@ -38,8 +43,11 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 export function checkRepeat(spec: RepeatSpec, now = new Date()): string[] {
   const out: string[] = []
   const r = spec.rule
-  if (!r || (r.kind !== 'weekly' && r.kind !== 'dates')) return ['Pick how it repeats.']
-  if (r.kind === 'weekly') {
+  if (!r || (r.kind !== 'weekly' && r.kind !== 'dates' && r.kind !== 'auto')) return ['Pick how it repeats.']
+  if (r.kind === 'auto') {
+    if (!Number.isInteger(r.perWeek) || r.perWeek < 1 || r.perWeek > 14) out.push('Pick 1–14 posts a week.')
+    if (!validTz(r.tz)) out.push('Unknown time zone.')
+  } else if (r.kind === 'weekly') {
     if (!r.days?.length) out.push('Pick at least one day.')
     if (r.days?.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) out.push('Unknown weekday.')
     if (!r.times?.length) out.push('Pick a time.')
@@ -53,7 +61,7 @@ export function checkRepeat(spec: RepeatSpec, now = new Date()): string[] {
   }
   if (spec.maxRuns != null && (!Number.isInteger(spec.maxRuns) || spec.maxRuns < 1 || spec.maxRuns > 500)) out.push('“After N posts” must be between 1 and 500.')
   if (spec.endsAt && isNaN(new Date(spec.endsAt).getTime())) out.push('The end date isn’t a real date.')
-  if (!out.length && !nextAfter(spec, now)) out.push('None of these times are in the future.')
+  if (!out.length && r.kind !== 'auto' && !nextAfter(spec, now)) out.push('None of these times are in the future.')
   return out
 }
 
@@ -91,6 +99,7 @@ export function nextAfter(spec: RepeatSpec, after: Date, runsSoFar = 0): Date | 
   const end = spec.endsAt ? new Date(spec.endsAt) : null
   let next: Date | null = null
   const r = spec.rule
+  if (r.kind === 'auto') return null
   if (r.kind === 'dates') {
     next = r.at.map((s) => new Date(s)).filter((d) => !isNaN(d.getTime()) && d > start).sort((a, b) => a.getTime() - b.getTime())[0] ?? null
   } else {
@@ -131,6 +140,7 @@ const list = (xs: string[]) => xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1)
 
 /** "Every Tue & Thu at 10 AM", "Every day at 9 AM & 7 PM", "5 custom dates". */
 export function describeRule(rule: RepeatRule): string {
+  if (rule.kind === 'auto') return `Best times, ${rule.perWeek}× a week`
   if (rule.kind === 'dates') return `${rule.at.length} custom date${rule.at.length === 1 ? '' : 's'}`
   const d = [...rule.days].sort()
   const days = d.length === 7 ? 'day' : d.join() === '1,2,3,4,5' ? 'weekday' : d.join() === '0,6' ? 'weekend day' : list(d.map((x) => DAY_SHORT[x]))
