@@ -37,6 +37,13 @@ export default function MoneyOverview() {
     ads: t.ads + r.ad_spend_cents, profit: t.profit + r.profit_cents,
   }), { revenue: 0, cost: 0, ads: 0, profit: 0 })
 
+  // All-time = every month on record, all apps (same view as the monthly tiles).
+  const all = (d?.pnl ?? []).reduce((t, r) => ({
+    revenue: t.revenue + r.revenue_cents, cost: t.cost + r.direct_cost_cents + r.allocated_cost_cents,
+    ads: t.ads + r.ad_spend_cents, profit: t.profit + r.profit_cents,
+  }), { revenue: 0, cost: 0, ads: 0, profit: 0 })
+  const firstMonth = months[months.length - 1]
+
   const th: React.CSSProperties = { textAlign: 'right', fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.1em', textTransform: 'uppercase', color: C.soft, fontWeight: 500, padding: '8px 10px' }
   const td: React.CSSProperties = { textAlign: 'right', padding: '12px 10px', fontVariantNumeric: 'tabular-nums', borderTop: `1px solid ${C.rule}`, whiteSpace: 'nowrap' }
   const pos = (n: number) => (n > 0 ? C.mint : n < 0 ? C.amber : C.ink2)
@@ -56,6 +63,23 @@ export default function MoneyOverview() {
 
       {d && (
         <>
+          <div data-card style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: '18px 20px', display: 'grid', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>All-time profit / loss</span>
+              {firstMonth && <span style={{ fontSize: 12.5, color: C.soft }}>since {monthLabel(firstMonth)}</span>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: C.sans, fontSize: 40, fontWeight: 700, letterSpacing: '-.02em', color: pos(all.profit) }}>{usd(all.profit)}</span>
+              {[['Revenue', all.revenue], ['Costs', all.cost], ['Ad spend', all.ads]].map(([k, v]) => (
+                <span key={k as string} style={{ display: 'grid', gap: 2 }}>
+                  <span style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{k}</span>
+                  <span style={{ fontSize: 18, fontWeight: 650 }}>{usd(v as number)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{month ? monthLabel(month) : 'This month'}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
             {[
               ['Revenue', usd(tot.revenue), C.ink],
