@@ -3,9 +3,10 @@ import { consoleAuthed } from '@/lib/console'
 import { studioDb } from '@/lib/money/studioDb'
 import { analyticsRegistry } from '@/lib/analytics/registry'
 import { tiktokCampaignDays } from '@/lib/money/adSpend'
+import { closeFinished, metaCampaignDays } from '@/lib/ads/meta'
 
 // Nightly (vercel.json) and the "Sync now" button on Money → Ads: pull every
-// app's TikTok campaigns, day by day, into ad_spend. Idempotent: rows are keyed
+// app's TikTok campaigns, plus every campaign on the shared Meta ad account, day by day, into ad_spend. Idempotent: rows are keyed
 // on (platform, day, campaign_id), so re-pulling a window just refreshes it,
 // which also picks up TikTok's late attribution. Backfill with ?days=365.
 //
@@ -36,5 +37,16 @@ export async function GET(req: Request) {
     const saved = await db.upsert('ad_spend', rows.map((r) => ({ ...r, owner_id: db.owner, app_slug: app.id, synced_at: now })), 'platform,day,campaign_id')
     results[app.id] = saved.ok ? { rows: rows.length } : { error: saved.error }
   }
+  // Meta: one shared ad account; each campaign row already carries its app.
+  // Jinglewire rows keep spend only (metaCampaignDays zeroes attribution).
+  const meta = await metaCampaignDays(start, end)
+  if ('error' in meta) results.meta = { error: meta.error }
+  else if (meta.length) {
+    const now = new Date().toISOString()
+    const saved = await db.upsert('ad_spend', meta.map((r) => ({ ...r, owner_id: db.owner, synced_at: now })), 'platform,day,campaign_id')
+    results.meta = saved.ok ? { rows: meta.length } : { error: saved.error }
+  } else results.meta = { rows: 0 }
+  await closeFinished()
+
   return NextResponse.json({ ok: true, window: { start, end }, results })
 }

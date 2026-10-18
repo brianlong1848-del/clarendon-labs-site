@@ -8,7 +8,7 @@ import type { RepeatRule } from '@/lib/publish/recur'
 
 export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string; connect?: 'threads' | 'tiktok' }
 export type PublishApp = { id: string; name: string; accent: string; icon: string; accounts: Account[] }
-export type TargetState = { platform: Platform; format: string; status: string; permalink?: string; error?: string; tiktok?: { mode: 'direct' | 'draft' } }
+export type TargetState = { platform: Platform; format: string; status: string; permalink?: string; remoteId?: string; error?: string; tiktok?: { mode: 'direct' | 'draft' } }
 export type QueuedPost = {
   id: string; app_id: string; caption: string; media: { url: string; kind: 'image' | 'video'; width: number; height: number }[]
   targets: TargetState[]; status: string; scheduled_at: string | null; created_at: string

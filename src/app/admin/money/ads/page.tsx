@@ -114,7 +114,7 @@ export default function Ads() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr>
                   <th style={{ ...th, textAlign: 'left' }}>Campaign</th><th style={th}>Spend</th><th style={th}></th><th style={th}>Impr.</th><th style={th}>CTR</th>
-                  <th style={th}>Installs</th><th style={th}>CPI</th><th style={th} title="Purchase value TikTok attributes to this campaign">TikTok ROAS</th>
+                  <th style={th}>Installs</th><th style={th}>CPI</th><th style={th} title="Purchase value the ad platform (TikTok or Meta) attributes to this campaign">Platform ROAS</th>
                   <th style={th} title="App Store proceeds credited by this campaign's share of the app's ad installs">Est. ROAS</th>
                 </tr></thead>
                 <tbody>
@@ -134,7 +134,7 @@ export default function Ads() {
                 </tbody>
               </table>
               <p style={{ color: C.soft, fontSize: 12.5, margin: '12px 0 0' }}>
-                TikTok ROAS is the in-app purchase value TikTok attributes to the campaign. Est. ROAS credits the app&rsquo;s real App Store proceeds to each campaign by its share of that app&rsquo;s ad installs, so it&rsquo;s an estimate; the app-level blended ROAS is exact.
+                Platform ROAS is the in-app purchase value TikTok or Meta attributes to the campaign. Est. ROAS credits the app&rsquo;s real App Store proceeds to each campaign by its share of that app&rsquo;s ad installs, so it&rsquo;s an estimate; the app-level blended ROAS is exact.
                 {d.last_sync ? ` Last synced ${new Date(d.last_sync).toLocaleString()}.` : ''}
               </p>
             </div>

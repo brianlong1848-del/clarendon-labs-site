@@ -5,6 +5,7 @@ import { C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { describeRule } from '@/lib/publish/recur'
+import { PromoteSheet, Promotions, promotable, type AdsData } from './Promote'
 
 // Repeating posts (pause / resume / stop), then everything scheduled, in
 // flight, and recently sent — with the per-platform
@@ -23,6 +24,14 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   const [series, setSeries] = useState<QueuedSeries[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [ads, setAds] = useState<AdsData | null>(null)
+  const [promoting, setPromoting] = useState<QueuedPost | null>(null)
+
+  const loadAds = useCallback(async () => {
+    const r = await fetch('/api/ads/meta').then((x) => (x.ok ? x.json() : null)).catch(() => null)
+    if (r) setAds(r)
+  }, [])
+  useEffect(() => { loadAds() }, [loadAds, refreshKey])
 
   const load = useCallback(async () => {
     try {
@@ -113,6 +122,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
             <div style={{ display: 'grid', gap: 8 }}>
               {p.status === 'scheduled' && p.series_id && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH', 'recaption')}>{busy === p.id ? 'Writing…' : '✦ New caption'}</button>}
               {p.status === 'scheduled' && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip this one' : 'Cancel'}</button>}
+              {ads && promotable(p).length > 0 && <button style={btn('mint')} onClick={() => setPromoting(p)}>{ads.promotions.some((x) => x.post_id === p.id && (x.status === 'active' || x.status === 'paused')) ? 'Promote again' : 'Promote'}</button>}
               {(p.status === 'failed' || p.status === 'partial') && <button style={btn('solid')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? 'Retrying…' : 'Retry failed'}</button>}
             </div>
           </article>
@@ -165,6 +175,8 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
           })}
         </section>
       )}
+      {ads && <Promotions ads={ads} apps={apps} onChange={loadAds} />}
+      {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
       {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
       {section('Recent', rest, 'Nothing posted from Studio yet.')}
     </div>

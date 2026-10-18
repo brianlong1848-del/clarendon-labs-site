@@ -32,7 +32,7 @@ export const PUBLISH_APPS = [
   { id: 'gagorder', name: 'Gag Order', accent: '#F0509A', pageId: '1384167881445516' },
   { id: 'yulepick', name: 'YulePick', accent: '#E8474C', pageId: '1379556148567077' },
   { id: 'borea', name: 'Borea', accent: '#22D3C4', pageId: '1365844183274727' },
-  { id: 'jinglewire', name: 'Jinglewire', accent: '#1F6B3A', pageId: '' },
+  { id: 'jinglewire', name: 'Jinglewire', accent: '#1F6B3A', pageId: '1302483119622294' },
 ] as const
 
 const envFor = (app: string, key: string) => process.env[`${app.toUpperCase()}_${key}`]
@@ -66,7 +66,7 @@ async function pages(): Promise<PageRow[]> {
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
-async function pageFor(appId: string): Promise<PageRow | undefined> {
+export async function pageFor(appId: string): Promise<PageRow | undefined> {
   const app = PUBLISH_APPS.find((a) => a.id === appId)
   if (!app) return undefined
   const rows = await pages()
@@ -78,7 +78,7 @@ async function pageFor(appId: string): Promise<PageRow | undefined> {
     || undefined
 }
 
-async function igFor(appId: string): Promise<string | undefined> {
+export async function igFor(appId: string): Promise<string | undefined> {
   return envFor(appId, 'IG_ACCOUNT_ID') || (await pageFor(appId))?.instagram_business_account?.id
 }
 
@@ -86,7 +86,7 @@ async function threadsToken(appId: string): Promise<string | undefined> {
   return envFor(appId, 'THREADS_TOKEN')?.trim() || process.env[`THREADS_TOKEN_${appId.toUpperCase()}`] || (await getToken('threads', appId))?.token
 }
 
-async function grantedPermissions(): Promise<Set<string>> {
+export async function grantedPermissions(): Promise<Set<string>> {
   const token = metaToken()
   if (!token) return new Set()
   try {
