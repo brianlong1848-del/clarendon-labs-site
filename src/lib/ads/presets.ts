@@ -23,7 +23,7 @@ export type AudiencePreset = {
   name: string
   note?: string
   platform?: 'instagram' | 'facebook'
-  goal?: 'engagement' | 'reach'
+  goal?: 'engagement' | 'reach' | 'downloads'
   dailyUsd?: number
   days?: number
   audience: {
@@ -80,8 +80,8 @@ const GAME_NIGHT_INTERESTS: PresetInterest[] = [
 export const BUILT_IN_PRESETS: AudiencePreset[] = [
   {
     id: 'gagorder-queer-cities', appId: 'gagorder', name: 'Queer cities · game night',
-    note: '28 US cities with the biggest gay & lesbian communities, 21–44, nightlife / game-night interests, Meta expands to people like the ones who engage.',
-    platform: 'instagram', goal: 'engagement', dailyUsd: 10, days: 3,
+    note: '28 US cities with the biggest gay & lesbian communities, 21–44, nightlife / game-night interests, Download button to the App Store, Meta expands to people like the ones who tap.',
+    platform: 'instagram', goal: 'downloads', dailyUsd: 10, days: 3,
     audience: { ageMin: 21, ageMax: 44, genders: 'all', places: QUEER_CITIES, interests: GAME_NIGHT_INTERESTS, expand: true },
   },
   {

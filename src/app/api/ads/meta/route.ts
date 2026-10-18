@@ -3,7 +3,7 @@ import { consoleAuthed } from '@/lib/console'
 import { getPost } from '@/lib/publish/store'
 import {
   adsStatus, checkPromote, DEFAULT_AUDIENCE, estimateReach, GOALS, listPromotions, promote, promotionResults,
-  searchInterests, searchPlaces, setPromotionStatus, clearPromotion, clearFailed, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
+  STORE_LINKS, searchInterests, searchPlaces, setPromotionStatus, clearPromotion, clearFailed, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
 } from '@/lib/ads/meta'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
@@ -45,6 +45,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       status,
       goals: Object.entries(GOALS).map(([id, g]) => ({ id, label: g.label })),
+      storeApps: Object.keys(STORE_LINKS),
       defaults: DEFAULT_AUDIENCE,
       promotions: withResults,
       savedPresets: presets,

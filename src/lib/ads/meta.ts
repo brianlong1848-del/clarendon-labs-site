@@ -167,10 +167,22 @@ export async function estimateReach(a: Audience, platform: 'facebook' | 'instagr
 
 // ── Promotions ───────────────────────────────────────────────────────────────
 
-export type Goal = 'engagement' | 'reach'
+export type Goal = 'engagement' | 'reach' | 'downloads'
 export const GOALS: Record<Goal, { label: string; objective: string; optimization: string; destination?: string }> = {
+  // Traffic to the App Store with a "Download" button on the ad. (True
+  // install-optimised campaigns need each app registered as a Meta app with
+  // SKAdNetwork; this works today and still sends people straight to install.)
+  downloads: { label: 'App downloads — “Download” button to the App Store', objective: 'OUTCOME_TRAFFIC', optimization: 'LINK_CLICKS', destination: 'WEBSITE' },
   engagement: { label: 'More engagement (likes, comments, shares)', objective: 'OUTCOME_ENGAGEMENT', optimization: 'POST_ENGAGEMENT', destination: 'ON_POST' },
   reach: { label: 'Reach as many people as possible', objective: 'OUTCOME_AWARENESS', optimization: 'REACH' },
+}
+
+/** Live App Store pages. YulePick / Jinglewire join when they're on the store
+ *  (Jinglewire is kid-directed: its button must go to a parents' page). */
+export const STORE_LINKS: Record<string, string> = {
+  rolligan: 'https://apps.apple.com/us/app/rolligan/id6774974562',
+  gagorder: 'https://apps.apple.com/us/app/gag-order-party-game/id6776382535',
+  borea: 'https://apps.apple.com/us/app/borea/id6799219647',
 }
 
 export type Promotion = {
@@ -209,6 +221,7 @@ export function checkPromote(i: PromoteInput): string[] {
   if (i.platform !== 'facebook' && i.platform !== 'instagram') out.push('Only Facebook and Instagram posts can be promoted here so far.')
   if (!i.remoteId) out.push('That post hasn’t gone out yet.')
   if (!GOALS[i.goal]) out.push('Pick a goal.')
+  if (i.goal === 'downloads' && !STORE_LINKS[i.appId]) out.push('This app isn’t on the App Store yet, so it can’t have a Download button.')
   if (!Number.isFinite(i.dailyBudgetCents) || i.dailyBudgetCents < LIMITS.minDailyCents) out.push(`Daily budget must be at least $${LIMITS.minDailyCents / 100}.`)
   if (i.dailyBudgetCents > LIMITS.maxDailyCents) out.push(`Daily budget is capped at $${LIMITS.maxDailyCents / 100} (META_MAX_DAILY_USD).`)
   const start = Date.parse(i.startAt), end = Date.parse(i.endAt)
@@ -265,9 +278,11 @@ export async function promote(i: PromoteInput): Promise<Promotion> {
       ...(eu ? { dsa_beneficiary: 'Clarendon Labs LLC', dsa_payor: 'Clarendon Labs LLC' } : {}),
     })
     patch.adset_id = adset.id
-    const creative = await post(`${act()}/adcreatives`, i.platform === 'facebook'
-      ? { name, object_story_id: await fbStoryId(page.id, i.remoteId) }
-      : { name, object_id: page.id, instagram_user_id: ig, source_instagram_media_id: i.remoteId })
+    const creative = await post(`${act()}/adcreatives`, i.goal === 'downloads'
+      ? await downloadCreative(name, page.id, ig, i)
+      : i.platform === 'facebook'
+        ? { name, object_story_id: await fbStoryId(page.id, i.remoteId) }
+        : { name, object_id: page.id, instagram_user_id: ig, source_instagram_media_id: i.remoteId })
     const ad = await post(`${act()}/ads`, { name, adset_id: adset.id, creative: { creative_id: creative.id }, status: 'ACTIVE' })
     patch.ad_id = ad.id
     return await updatePromotion(row.id, { ...patch, status: 'active', error: null })
@@ -278,6 +293,27 @@ export async function promote(i: PromoteInput): Promise<Promotion> {
     await updatePromotion(row.id, { ...patch, status: 'failed', error: msg })
     throw new Error(msg)
   }
+}
+
+/** Same post, plus a "Download" button that opens the App Store.
+ *  Instagram: the existing post keeps its likes and comments.
+ *  Facebook: an existing post can't take a new button, so the ad is the same
+ *  video with the button (shown only as an ad, not on the Page). */
+async function downloadCreative(name: string, pageId: string, ig: string | undefined, i: PromoteInput) {
+  const link = STORE_LINKS[i.appId]
+  const cta = { type: 'DOWNLOAD', value: { link } }
+  if (i.platform === 'instagram') {
+    return { name, object_id: pageId, instagram_user_id: ig, source_instagram_media_id: i.remoteId, call_to_action: cta }
+  }
+  let videoId = i.remoteId
+  if (videoId.includes('_')) {
+    const att = await get(videoId, { fields: 'attachments{media_type,target}' }).catch(() => null)
+    const a = att?.attachments?.data?.[0]
+    if (a?.media_type !== 'video' || !a?.target?.id) throw new Error('On Facebook the Download button works on video posts. Promote the Instagram version, or pick a video post.')
+    videoId = String(a.target.id)
+  }
+  const v = await get(videoId, { fields: 'picture,description' })
+  return { name, object_story_spec: { page_id: pageId, video_data: { video_id: videoId, image_url: v.picture, message: v.description ?? '', call_to_action: cta } } }
 }
 
 export async function setPromotionStatus(id: string, action: 'pause' | 'resume' | 'stop') {

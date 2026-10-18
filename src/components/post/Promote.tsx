@@ -23,7 +23,7 @@ export type PromotionRow = {
   daily_budget_cents: number; start_at: string; end_at: string; audience: Audience; status: string; error: string | null; results: PromoResults | null
   campaign_id?: string | null
 }
-export type AdsData = { status: AdsStatus; goals: { id: string; label: string }[]; defaults: Audience; promotions: PromotionRow[]; savedPresets?: AudiencePreset[] }
+export type AdsData = { status: AdsStatus; goals: { id: string; label: string }[]; defaults: Audience; promotions: PromotionRow[]; savedPresets?: AudiencePreset[]; storeApps?: string[] }
 
 const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: c % 100 ? 2 : 0 })
 const big = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n)
@@ -69,7 +69,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
   const targets = promotable(post)
   const kid = post.app_id === 'jinglewire'
   const [platform, setPlatform] = useState(targets[0]?.platform as 'facebook' | 'instagram')
-  const [goal, setGoal] = useState(ads.goals[0]?.id ?? 'engagement')
+  const [goal, setGoal] = useState((ads.storeApps ?? []).includes(post.app_id) ? 'downloads' : 'engagement')
   const [daily, setDaily] = useState('10')
   const [start, setStart] = useState(localInput(new Date()))
   const [end, setEnd] = useState(localInput(new Date(Date.now() + 7 * 864e5)))
@@ -86,7 +86,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
   const applyPreset = (p: AudiencePreset) => {
     setPresetId(p.id)
     if (p.platform && targets.some((t) => t.platform === p.platform)) setPlatform(p.platform)
-    if (p.goal) setGoal(p.goal)
+    if (p.goal) setGoal(p.goal === 'downloads' && !(ads.storeApps ?? []).includes(post.app_id) ? 'engagement' : p.goal)
     if (p.dailyUsd) setDaily(String(p.dailyUsd))
     if (p.days) setEnd(localInput(new Date(Date.parse(start) + p.days * 864e5)))
     setAud({ ...p.audience, ageMin: Math.max(p.audience.ageMin, kid ? 25 : ads.status.limits.minAge) })
@@ -193,7 +193,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
         ))}
         {row('Goal', (
           <div style={{ display: 'grid', gap: 6 }}>
-            {ads.goals.map((g) => (
+            {ads.goals.filter((g) => g.id !== 'downloads' || (ads.storeApps ?? []).includes(post.app_id)).map((g) => (
               <label key={g.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, cursor: 'pointer' }}>
                 <input type="radio" name="goal" checked={goal === g.id} onChange={() => setGoal(g.id)} />{g.label}
               </label>
