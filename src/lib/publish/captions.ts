@@ -100,10 +100,13 @@ export async function writeCaptions(input: CaptionInput): Promise<CaptionOutput>
       method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(45_000),
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: MODEL(), max_tokens: 2000, system: SYSTEM,
+        model: MODEL(), max_tokens: 8000, system: SYSTEM,  // room for the model's thinking + the captions
         tools: [{ name: 'post_captions', description: 'One caption per destination.', input_schema: { type: 'object', properties: props, required: Object.keys(props) } }],
-        tool_choice: { type: 'tool', name: 'post_captions' },
-        messages: [{ role: 'user', content }],
+        // Newer models (extended thinking on by default) reject a forced
+        // tool_choice ("tool"/"any"), so let the model choose and ask for the
+        // tool in the prompt; a JSON answer in plain text is accepted too.
+        tool_choice: { type: 'auto' },
+        messages: [{ role: 'user', content: [...content, { type: 'text', text: 'Answer by calling the post_captions tool (or, if you cannot, reply with only a JSON object with the same keys).' }] }],
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -114,7 +117,13 @@ export async function writeCaptions(input: CaptionInput): Promise<CaptionOutput>
   // An image Anthropic couldn't fetch shouldn't cost the caption: retry text-only.
   if (!r.ok && r.status === 400 && input.frames.length) r = await call(false)
   if (!r.ok) throw new Error(`Claude couldn’t write captions: ${r.body?.error?.message ?? `HTTP ${r.status}`}`)
-  const out = (r.body.content ?? []).find((c: { type: string }) => c.type === 'tool_use')?.input as Record<string, string> | undefined
+  const blocks = (r.body.content ?? []) as { type: string; input?: Record<string, string>; text?: string }[]
+  let out = blocks.find((c) => c.type === 'tool_use')?.input
+  if (!out) {
+    const text = blocks.filter((c) => c.type === 'text').map((c) => c.text ?? '').join('\n')
+    const json = text.match(/\{[\s\S]*\}/)?.[0]
+    try { out = json ? JSON.parse(json) : undefined } catch { out = undefined }
+  }
   if (!out) throw new Error('Claude didn’t return captions.')
 
   const overrides: Partial<Record<Platform, string>> = {}
