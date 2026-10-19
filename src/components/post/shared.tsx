@@ -13,6 +13,8 @@ export type QueuedPost = {
   id: string; app_id: string; caption: string; media: { url: string; kind: 'image' | 'video'; width: number; height: number }[]
   targets: TargetState[]; status: string; scheduled_at: string | null; created_at: string
   overrides?: Partial<Record<Platform, string>>; series_id?: string | null; occurrence?: number | null; caption_by?: 'brian' | 'ai'
+  /** Market edition ('gb', 'cafr', …; lib/publish/markets.ts). */
+  market?: string | null; edition_group?: string | null
 }
 /** A repeating post, as /api/publish returns it. */
 export type QueuedSeries = {

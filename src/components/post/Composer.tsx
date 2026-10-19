@@ -10,6 +10,7 @@ import { Preview } from './Preview'
 import { TikTokPanel, type Creator } from './TikTokPanel'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { DAY_SHORT, checkRepeat, describeRule, upcoming, type RepeatSpec } from '@/lib/publish/recur'
+import { MARKETS, assignMedia, inZone, localTimeIn, marketsFor, wrongLanguage, type Assignment, type MarketId } from '@/lib/publish/markets'
 
 // ─── Composer ────────────────────────────────────────────────────────────────
 //
@@ -28,6 +29,10 @@ type Item = {
   progress: number; status: 'preparing' | 'uploading' | 'ready' | 'error'; error?: string; url?: string
 }
 type Dest = Record<Platform, { on: boolean; format: Format }>
+/** One market edition's words (markets.ts): its caption and per-platform versions. */
+type Edition = { caption: string; overrides: Partial<Record<Platform, string>> }
+const BLANK: Edition = { caption: '', overrides: {} }
+type OverridesArg = Partial<Record<Platform, string>> | ((o: Partial<Record<Platform, string>>) => Partial<Record<Platform, string>>)
 
 const DRAFT_KEY = 'clarendon:post-draft'
 const initialDest = (): Dest => ({
@@ -106,9 +111,23 @@ const shortWhen = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', mon
 export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[]; onPosted: () => void }) {
   const [appId, setAppId] = useState(apps[0]?.id ?? '')
   const [items, setItems] = useState<Item[]>([])
-  const [caption, setCaption] = useState('')
   const [tailor, setTailor] = useState(false)
-  const [overrides, setOverrides] = useState<Partial<Record<Platform, string>>>({})
+  // Market editions: which countries/languages this post goes to, and each
+  // edition's caption. With one market (most apps) it's the classic composer.
+  const [mkts, setMkts] = useState<MarketId[]>(['us'])
+  const [active, setActive] = useState<MarketId>('us')
+  const [eds, setEds] = useState<Partial<Record<MarketId, Edition>>>({})
+  const [picked, setPicked] = useState<Partial<Record<MarketId, string[]>>>({})
+  const [choosing, setChoosing] = useState<MarketId | null>(null)
+  const [localTime, setLocalTime] = useState(true)
+  const [results, setResults] = useState<{ market: MarketId; post: QueuedPost }[] | null>(null)
+  const ed = eds[active] ?? BLANK
+  const caption = ed.caption, overrides = ed.overrides
+  const setCaption = (v: string) => setEds((e) => ({ ...e, [active]: { ...(e[active] ?? BLANK), caption: v } }))
+  const setOverrides = (v: OverridesArg) => setEds((e) => {
+    const cur = e[active] ?? BLANK
+    return { ...e, [active]: { ...cur, overrides: typeof v === 'function' ? v(cur.overrides) : v } }
+  })
   const [dest, setDest] = useState<Dest>(initialDest)
   const [mode, setMode] = useState<'now' | 'later' | 'repeat'>('now')
   const schedule = mode === 'later'
@@ -130,6 +149,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const [aiBusy, setAiBusy] = useState(false)
   const [aiNote, setAiNote] = useState<{ text: string; ok: boolean } | null>(null)
   const frameCache = useRef<{ key: string; urls: string[] } | null>(null)
+  const framesByKey = useRef(new Map<string, string[]>())
   const [resultSeries, setResultSeries] = useState<QueuedSeries | null>(null)
   const [at, setAt] = useState(() => localInput(quickTimes()[0].d))
   const [previewOn, setPreviewOn] = useState<Platform>('instagram')
@@ -155,6 +175,14 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   }
 
   const app = apps.find((a) => a.id === appId)
+  const available = useMemo(() => marketsFor(appId), [appId])
+  const home = available[0].id
+  // New app → back to its home market (its other editions are opt-in).
+  useEffect(() => { setMkts([home]); setActive(home); setPicked({}); setChoosing(null) }, [home])
+  const multi = mkts.length > 1
+  const sx = available.length > 1 ? 1 : 0
+  useEffect(() => { if (!mkts.includes(active)) setActive(mkts[0]) }, [mkts, active])
+  useEffect(() => { if (multi && mode === 'repeat') setMode('now') }, [multi, mode])
   useEffect(() => {
     let live = true
     fetch(`/api/publish/captions?app=${appId}`).then((r) => r.json()).then((b) => { if (live) setAi({ ready: !!b.ready, brief: b.brief ?? null }) }).catch(() => { if (live) setAi({ ready: false, brief: null }) })
@@ -195,7 +223,13 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     return () => { live = false }
   }, [ttOn, appId])
 
-  const media: MediaItem[] = useMemo(() => items.map((i) => ({ url: i.url ?? 'https://pending', kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })), [items])
+  // Each edition's media: its own file (matched from the file name), the
+  // shared files, or the nearest same-language edition's; or Brian's pick.
+  const assignment: Record<string, Assignment> = useMemo(() => assignMedia(items, mkts, appId, picked), [items, mkts, appId, picked])
+  const itemsFor = useCallback((m: MarketId) => multi ? (assignment[m]?.keys ?? []).map((k) => items.find((i) => i.key === k)!).filter(Boolean) : items, [multi, assignment, items])
+  const toMedia = (list: Item[]): MediaItem[] => list.map((i) => ({ url: i.url ?? 'https://pending', kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime }))
+  const activeItems = itemsFor(active)
+  const media: MediaItem[] = useMemo(() => toMedia(activeItems), [activeItems]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep Instagram's format sensible as media changes.
   useEffect(() => {
@@ -216,7 +250,16 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   }, [media])
 
   const targets: Target[] = PLATFORMS.filter((p) => dest[p.id].on).map((p) => ({ platform: p.id, format: dest[p.id].format, ...(p.id === 'tiktok' ? { tiktok: tt } : {}) }))
-  const issues = validate(targets, media, caption, tailor ? overrides : {})
+  const tag = (m: MarketId) => `${MARKETS[m].flag} ${MARKETS[m].short}: `
+  const issues = !multi ? validate(targets, media, caption, tailor ? overrides : {}) : mkts.flatMap((m) => {
+    const a = assignment[m], e = eds[m] ?? BLANK
+    const out = validate(targets, toMedia(itemsFor(m)), e.caption, tailor ? e.overrides : {}).map((i) => ({ ...i, text: tag(m) + i.text }))
+    if (items.length && a?.how === 'none') out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no photo or video for this edition — add one named for ${MARKETS[m].short}, or pick one.` })
+    if (a?.note) out.push({ platform: targets[0]?.platform ?? 'instagram', level: wrongLanguage(a) ? 'error' : 'warn', text: tag(m) + a.note })
+    if (!e.caption.trim() && targets.some((t) => t.format !== 'story')) out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no ${MARKETS[m].langName} caption yet — ✦ Write with AI does every edition at once.` })
+    return out
+  })
+  if (multi && mode === 'now' && targets.length) issues.push({ platform: targets[0].platform, level: 'warn', text: `All ${mkts.length} editions go to the same accounts at once. Schedule → “same local time” spreads them across time zones.` })
   const ttVideo = media.length === 1 && media[0].kind === 'video' ? media[0] : undefined
   if (ttOn && creator.loading) issues.push({ platform: 'tiktok', level: 'error', text: 'Checking the TikTok account…' })
   if (ttOn && !creator.loading && !creator.info) issues.push({ platform: 'tiktok', level: 'error', text: creator.error ?? 'Couldn’t read the TikTok account.' })
@@ -225,7 +268,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const uploading = items.some((i) => i.status === 'preparing' || i.status === 'uploading')
   const failedUploads = items.some((i) => i.status === 'error')
   const scheduleDate = new Date(at)
-  const scheduleOk = !schedule || scheduleDate.getTime() > Date.now() + 60_000
+  const scheduleOk = !schedule || (mkts.length > 1 && localTime ? !isNaN(scheduleDate.getTime()) : scheduleDate.getTime() > Date.now() + 60_000)
   const repeatSpec: RepeatSpec = {
     rule: repKind === 'auto' ? { kind: 'auto', perWeek, tz: TZ }
       : repKind === 'weekly' ? { kind: 'weekly', days: [...days].sort(), times: Array.from(new Set(times)).sort(), tz: TZ }
@@ -237,7 +280,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const repeatProblems = mode === 'repeat' ? (() => { try { return checkRepeat(repeatSpec) } catch { return ['Check the dates.'] } })() : []
   const nextTimes = mode === 'repeat' && repeatProblems.length === 0
     ? (repKind === 'auto' ? (bt?.auto ?? []).map((d) => new Date(d)) : upcoming(repeatSpec, 4)) : []
-  const canSend = !sending && targets.length > 0 && errors.length === 0 && !uploading && !failedUploads && scheduleOk && repeatProblems.length === 0
+  const canSend = !(multi && mode === 'repeat') && !sending && targets.length > 0 && errors.length === 0 && !uploading && !failedUploads && scheduleOk && repeatProblems.length === 0
 
   // Best time for this app on the chosen platforms (re-asked when they change).
   const btKey = `${appId}|${targets.map((t) => t.platform).join(',')}|${perWeek}|${days.length}`
@@ -281,25 +324,52 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     return up.publicUrl as string
   }
   /** Public URLs of what the AI should look at; video frames are uploaded once per media set. */
-  const ensureFrames = async (): Promise<string[]> => {
-    const ready = items.filter((i) => i.status === 'ready' && i.url)
+  const ensureFrames = async (from: Item[] = activeItems): Promise<string[]> => {
+    const ready = from.filter((i) => i.status === 'ready' && i.url)
     const key = ready.map((i) => i.url).join('|')
     if (frameCache.current?.key === key) return frameCache.current.urls
+    const cached = framesByKey.current.get(key)
+    if (cached) return cached
     const video = ready.find((i) => i.kind === 'video')
     const urls = video
       ? await Promise.all((await grabFrames(video.src)).map((b, n) => uploadBlob(b, `frame-${n + 1}.jpg`)))
       : ready.filter((i) => i.kind === 'image').slice(0, 6).map((i) => i.url!)
-    frameCache.current = { key, urls }
+    frameCache.current = { key, urls }; framesByKey.current.set(key, urls)
     return urls
   }
   const writeWithAi = async () => {
     if (aiBusy || !targets.length) return
     setAiBusy(true); setAiNote(null)
+    if (multi) {
+      // Every edition at once, each in its own language, from its own video.
+      const intent = (eds[home] ?? BLANK).caption || caption
+      const done = await Promise.all(mkts.map(async (m) => {
+        try {
+          const list = itemsFor(m)
+          const frames = await ensureFrames(list)
+          const res = await fetch('/api/publish/captions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ appId, targets, frames, notes, market: m, draft: (eds[m] ?? BLANK).caption || intent,
+              media: list.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration })) }),
+          })
+          const out = await res.json()
+          if (!res.ok) throw new Error(out.error ?? 'Couldn’t write captions.')
+          setEds((e) => ({ ...e, [m]: { caption: out.caption, overrides: out.overrides ?? {} } }))
+          return null
+        } catch (e) { return `${tag(m)}${(e as Error).message}` }
+      }))
+      const failed = done.filter(Boolean) as string[]
+      setTailor(true); setCaptionBy('ai')
+      setAiNote(failed.length ? { ok: false, text: failed.join(' · ') }
+        : { ok: true, text: `Wrote ${mkts.length} editions, each in its own language and from its own video — switch tabs to read and edit them.` })
+      setAiBusy(false)
+      return
+    }
     try {
       const frames = await ensureFrames()
       const res = await fetch('/api/publish/captions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appId, targets, frames, notes, draft: caption, media: items.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration })) }),
+        body: JSON.stringify({ appId, targets, frames, notes, draft: caption, market: active === 'us' ? undefined : active, media: activeItems.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration })) }),
       })
       const out = await res.json()
       if (!res.ok) throw new Error(out.error ?? 'Couldn’t write captions.')
@@ -309,9 +379,33 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     setAiBusy(false)
   }
 
+  const editionTime = (m: MarketId): Date | null =>
+    mode !== 'later' ? null : localTime && multi ? localTimeIn(at, MARKETS[m].tz) : scheduleDate
   const send = async () => {
     if (!canSend) return
     setSending(true); setError(null)
+    if (multi) {
+      const group = crypto.randomUUID()
+      const out = await Promise.all(mkts.map(async (m) => {
+        const e = eds[m] ?? BLANK, t = editionTime(m)
+        const res = await fetch('/api/publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appId, caption: e.caption, overrides: tailor ? e.overrides : {}, targets, market: m, editionGroup: group,
+            media: itemsFor(m).map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })),
+            scheduledAt: t ? t.toISOString() : null, captionBy, notes,
+          }),
+        }).catch(() => null)
+        const body = await res?.json().catch(() => null)
+        return res?.ok && body?.post ? { market: m, post: body.post as QueuedPost } : { market: m, error: body?.error ?? 'Posting failed.' }
+      }))
+      const ok = out.filter((x): x is { market: MarketId; post: QueuedPost } => 'post' in x)
+      const bad = out.filter((x) => 'error' in x) as { market: MarketId; error: string }[]
+      if (ok.length) { setResults(ok); onPosted(); try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ } }
+      if (bad.length) setError(bad.map((b) => tag(b.market) + b.error).join(' · '))
+      setSending(false)
+      return
+    }
     try {
       const repeat = mode === 'repeat' ? { ...repeatSpec, frames: fresh ? await ensureFrames().catch(() => []) : [] } : undefined
       const res = await fetch('/api/publish', {
@@ -350,7 +444,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const reset = () => { setItems([]); setCaption(''); setOverrides({}); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null }
+  const reset = () => { setItems([]); setEds({}); setPicked({}); setResults(null); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null }
   const move = (from: string, to: string) => setItems((xs) => {
     const a = [...xs], i = a.findIndex((x) => x.key === from), j = a.findIndex((x) => x.key === to)
     if (i < 0 || j < 0) return xs
@@ -363,6 +457,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const pname = (p: Platform) => PLATFORMS.find((x) => x.id === p)!.name
 
   if (result) return <Result post={result} series={resultSeries} app={app} onNew={reset} />
+  if (results) return <EditionsResult results={results} app={app} onNew={reset} />
 
   const step = (n: number, title: string, aside?: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
@@ -449,24 +544,124 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         </section>
 
+        {/* 3 · Countries & languages (apps that ship in more than one) */}
+        {available.length > 1 && (
+          <section style={card}>
+            {step(3, 'Countries & languages', <span style={{ fontSize: 12.5, color: C.soft }}>{mkts.length} edition{mkts.length === 1 ? '' : 's'}</span>)}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+              {available.map((m) => {
+                const on = mkts.includes(m.id)
+                return (
+                  <button key={m.id} aria-pressed={on} title={`${m.name} · ${m.langName}`}
+                    onClick={() => setMkts((xs) => on ? (xs.length > 1 ? xs.filter((x) => x !== m.id) : xs) : available.map((a) => a.id).filter((id) => id === m.id || xs.includes(id)))}
+                    style={{ border: `1.5px solid ${on ? C.mint : C.rule2}`, background: on ? C.mintTint : C.card, color: on ? C.ink : C.ink2, borderRadius: 99,
+                             padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: C.sans }}>
+                    {m.flag} {m.short} <span style={{ fontWeight: 500, color: C.soft }}>{m.lang}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: multi ? 14 : 0 }}>
+              {[
+                { label: `All ${available.length}`, ids: available.map((m) => m.id) },
+                { label: 'English-speaking', ids: available.filter((m) => m.lang.startsWith('en')).map((m) => m.id) },
+                { label: 'Matching my files', ids: available.filter((m) => m.id === home || items.some((i) => assignMedia([i], [m.id], appId)[m.id].how === 'tagged')).map((m) => m.id) },
+                { label: `${available[0].short} only`, ids: [home] },
+              ].filter((q) => q.ids.length).map((q) => (
+                <button key={q.label} onClick={() => setMkts(q.ids)}
+                  style={{ border: 0, background: 'transparent', color: C.mint, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', padding: 0, fontFamily: C.sans }}>{q.label}</button>
+              ))}
+            </div>
+            {multi && (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {mkts.map((id) => {
+                  const m = MARKETS[id], a = assignment[id], list = itemsFor(id)
+                  const how = a?.how === 'tagged' ? 'Matched from the file name' : a?.how === 'universal' ? 'Shared file (no market in its name)'
+                    : a?.how === 'picked' ? 'Picked by you' : a?.how === 'same-language' ? 'Borrowed' : items.length ? 'Nothing for this market yet' : 'Add media above'
+                  return (
+                    <div key={id} style={{ display: 'grid', gap: 8, padding: 10, borderRadius: 12, background: C.paper, border: `1px solid ${a?.note && wrongLanguage(a) ? C.red : C.rule}` }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '150px auto minmax(0,1fr) auto', gap: 12, alignItems: 'center' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: 13.5 }}>{m.flag} {m.name}</div>
+                          <div style={{ fontSize: 11.5, color: C.soft }}>{m.langName}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {list.slice(0, 4).map((i) => (
+                            <span key={i.key} title={i.name} style={{ width: 38, height: 38, borderRadius: 8, overflow: 'hidden', background: C.card2, display: 'block' }}>
+                              {i.src && (i.kind === 'video' ? <video src={i.src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={i.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
+                            </span>
+                          ))}
+                          {!list.length && <span style={{ width: 38, height: 38, borderRadius: 8, border: `1.5px dashed ${C.rule2}`, display: 'block' }} />}
+                        </div>
+                        <div style={{ fontSize: 12, color: a?.note ? (wrongLanguage(a) ? C.red : C.amber) : C.soft, lineHeight: 1.4, minWidth: 0 }}>
+                          {a?.note ?? how}
+                          {mode === 'later' && localTime && <><br /><span style={{ color: C.ink2 }}>Goes out {inZone(localTimeIn(at, m.tz), m.tz)} local</span></>}
+                        </div>
+                        {items.length > 0 && (
+                          <button onClick={() => setChoosing(choosing === id ? null : id)}
+                            style={{ border: 0, background: 'transparent', color: C.mint, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', fontFamily: C.sans }}>{choosing === id ? 'Done' : 'Change'}</button>
+                        )}
+                      </div>
+                      {choosing === id && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {items.map((i) => {
+                            const on = list.some((x) => x.key === i.key)
+                            return (
+                              <button key={i.key} title={i.name} aria-pressed={on}
+                                onClick={() => setPicked((pk) => { const cur = list.map((x) => x.key); const next = on ? cur.filter((k) => k !== i.key) : items.map((x) => x.key).filter((k) => k === i.key || cur.includes(k)); return { ...pk, [id]: next } })}
+                                style={{ width: 52, height: 52, borderRadius: 9, overflow: 'hidden', padding: 0, cursor: 'pointer', background: C.card2,
+                                         border: `2.5px solid ${on ? C.mint : 'transparent'}`, opacity: on ? 1 : 0.55 }}>
+                                {i.src && (i.kind === 'video' ? <video src={i.src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={i.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
+                              </button>
+                            )
+                          })}
+                          {picked[id] && <button onClick={() => setPicked((pk) => { const n = { ...pk }; delete n[id]; return n })}
+                            style={{ border: 0, background: 'transparent', color: C.soft, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', fontFamily: C.sans }}>Back to automatic</button>}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                <span style={{ fontSize: 11.5, color: C.soft, lineHeight: 1.5 }}>
+                  Name files with their market and each edition finds its own: “Rolligan — UK.mp4”, “promo es-MX.mov”, “German cut.mp4”, “Borea fr-CA.mp4”. Files with no market in the name go to every edition that has nothing of its own.
+                </span>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* 3 · Caption */}
         <section style={card}>
-          {step(3, 'Caption', <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {step(3 + sx, multi ? 'Captions' : 'Caption', <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button onClick={writeWithAi} disabled={!ai?.ready || aiBusy || !targets.length || uploading}
               title={!ai?.ready ? 'AI captions need ANTHROPIC_API_KEY on Vercel' : !targets.length ? 'Pick where it’s going first' : uploading ? 'Wait for the upload' : 'Claude writes a caption for each platform'}
               style={{ ...btn('ghost'), fontSize: 13, padding: '7px 13px', opacity: !ai?.ready || !targets.length || uploading ? 0.5 : 1 }}>
-              {aiBusy ? 'Writing…' : caption ? '✦ Rewrite with AI' : '✦ Write with AI'}
+              {aiBusy ? (multi ? `Writing ${mkts.length} editions…` : 'Writing…') : multi ? `✦ Write all ${mkts.length} with AI` : caption ? '✦ Rewrite with AI' : '✦ Write with AI'}
             </button>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.ink2, cursor: 'pointer' }}>
               Tailor per platform <Toggle on={tailor} onChange={setTailor} label="Tailor caption per platform" />
             </label>
           </div>)}
+          {multi && (
+            <div role="tablist" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+              {mkts.map((id) => {
+                const m = MARKETS[id], on = id === active, has = !!(eds[id]?.caption.trim())
+                return (
+                  <button key={id} role="tab" aria-selected={on} onClick={() => setActive(id)}
+                    style={{ border: `1.5px solid ${on ? C.ink : C.rule2}`, background: on ? C.ink : C.card, color: on ? C.paper : C.ink2, borderRadius: 99,
+                             padding: '5px 11px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans }}>
+                    {m.flag} {m.short}{has ? ' ✓' : ''}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000}
             placeholder="What’s this post about? (optional — steers the AI, e.g. “new 3D dice, Friday game night vibe”)"
             style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 13.5, color: C.ink, background: C.card, marginBottom: 10 }} />
           {aiNote && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: aiNote.ok ? C.mint : C.red }}>{aiNote.text}</p>}
           <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={6}
-            placeholder={`What's new with ${app?.name ?? 'the app'}? Hashtags and @mentions welcome.`}
+            placeholder={multi ? `${MARKETS[active].flag} ${MARKETS[active].langName} caption — or ✦ Write with AI for every edition` : `What's new with ${app?.name ?? 'the app'}? Hashtags and @mentions welcome.`}
             style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.rule2}`, borderRadius: 12, padding: '12px 14px', fontFamily: C.sans, fontSize: 15, lineHeight: 1.5, color: C.ink, background: C.paper, outline: 'none' }} />
           <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
             <span style={{ color: strictest && caption.length > strictest.max ? C.red : C.soft }}>
@@ -498,7 +693,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
 
         {/* 4 · Destinations */}
         <section style={card}>
-          {step(4, 'Where to post', <span style={{ fontSize: 12.5, color: C.soft }}>{targets.length} selected</span>)}
+          {step(4 + sx, 'Where to post', <span style={{ fontSize: 12.5, color: C.soft }}>{targets.length} selected</span>)}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 10 }}>
             {PLATFORMS.map((p) => {
               const acc = account(p.id)
@@ -566,7 +761,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       <aside style={{ position: 'sticky', top: 24, display: 'grid', gap: 14 }}>
         <section style={{ ...card, padding: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-            <span style={{ ...label, marginRight: 6 }}>Preview</span>
+            <span style={{ ...label, marginRight: 6 }}>Preview{multi ? ` · ${MARKETS[active].flag} ${MARKETS[active].short}` : ''}</span>
             {targets.map((t) => (
               <button key={t.platform} onClick={() => setPreviewOn(t.platform)} aria-pressed={previewOn === t.platform} title={pname(t.platform)}
                 style={{ width: 32, height: 32, borderRadius: 9, cursor: 'pointer', display: 'grid', placeItems: 'center',
@@ -580,7 +775,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
             <Preview platform={previewTarget.platform} format={previewTarget.format} appName={app?.name ?? ''}
               handle={account(previewTarget.platform)?.handle} avatar={account(previewTarget.platform)?.avatar ?? app?.icon ?? ''}
               caption={previewTarget.format === 'story' ? '' : captionFor(previewTarget.platform, caption, tailor ? overrides : {})}
-              media={items.filter((i) => i.src).map((i) => ({ src: i.src, kind: i.kind, width: i.width, height: i.height }))} />
+              media={activeItems.filter((i) => i.src).map((i) => ({ src: i.src, kind: i.kind, width: i.width, height: i.height }))} />
           ) : <p style={{ color: C.soft, fontSize: 13.5, textAlign: 'center', margin: '30px 0' }}>Turn on a platform to preview it.</p>}
         </section>
 
@@ -595,7 +790,8 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
 
         <section style={{ ...card, padding: 18, display: 'grid', gap: 12 }}>
           <Segmented<'now' | 'later' | 'repeat'> value={mode} onChange={setMode}
-            options={[{ value: 'now', label: 'Post now' }, { value: 'later', label: 'Schedule' }, { value: 'repeat', label: 'Repeat' }]} />
+            options={[{ value: 'now', label: 'Post now' }, { value: 'later', label: 'Schedule' },
+              { value: 'repeat', label: 'Repeat', disabled: multi, title: multi ? 'Repeating posts go to one market — turn the other editions off to repeat' : undefined }]} />
           {mode === 'repeat' && (
             <RepeatPanel kind={repKind} setKind={setRepKind} days={days} setDays={setDays} times={times} setTimes={setTimes}
               dates={dates} setDates={setDates} endKind={endKind} setEndKind={setEndKind} endCount={endCount} setEndCount={setEndCount}
@@ -621,13 +817,22 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                   )
                 })}
               </div>
-              {!scheduleOk && <span style={{ fontSize: 12, color: C.red }}>Pick a time at least a minute from now.</span>}
+              {multi && (
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12.5, color: C.ink2, lineHeight: 1.45, cursor: 'pointer' }}>
+                  <Toggle on={localTime} onChange={setLocalTime} label="Same local time in each country" />
+                  <span><b style={{ color: C.ink }}>Same local time in each country</b><br />
+                    {localTime ? mkts.map((id) => `${MARKETS[id].flag} ${inZone(localTimeIn(at, MARKETS[id].tz), MARKETS[id].tz)}`).join(' · ')
+                      : 'Every edition goes out at the moment above.'}</span>
+                </label>
+              )}
+              {!scheduleOk && !(multi && localTime) && <span style={{ fontSize: 12, color: C.red }}>Pick a time at least a minute from now.</span>}
               <span style={{ fontSize: 11.5, color: C.soft }}>Goes out within 5 minutes of this time.{bt ? ` ✦ ${bt.reason}` : ''}</span>
             </div>
           )}
           <button onClick={send} disabled={!canSend}
             style={{ ...btn('mint'), width: '100%', padding: '14px 18px', fontSize: 15.5, borderRadius: 12, opacity: canSend ? 1 : 0.45, cursor: canSend ? 'pointer' : 'not-allowed' }}>
             {sending ? (mode === 'repeat' ? 'Setting up…' : schedule ? 'Scheduling…' : 'Posting…')
+              : multi ? `${schedule ? 'Schedule' : 'Post'} ${mkts.length} editions${schedule ? (localTime ? ' · local times' : ` · ${isNaN(scheduleDate.getTime()) ? '' : when(scheduleDate.toISOString())}`) : ' now'}`
               : mode === 'repeat' ? `Start repeating · ${describeRule(repeatSpec.rule)}`
               : schedule ? `Schedule · ${isNaN(scheduleDate.getTime()) ? '' : when(scheduleDate.toISOString())}`
               : targets.length ? `Post now to ${targets.length} ${targets.length === 1 ? 'place' : 'places'}` : 'Post now'}
@@ -649,6 +854,34 @@ function Check({ tone, text, platform }: { tone: 'ok' | 'warn' | 'bad' | 'muted'
       <span style={{ width: 18, height: 18, borderRadius: 99, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 900, color: '#fff', background: color }}>{mark}</span>
       {platform && <span style={{ flexShrink: 0, paddingTop: 1 }}><PlatformGlyph platform={platform} size={15} /></span>}<span>{text}</span>
     </div>
+  )
+}
+
+function EditionsResult({ results, app, onNew }: { results: { market: MarketId; post: QueuedPost }[]; app?: PublishApp; onNew: () => void }) {
+  return (
+    <section style={{ ...card, maxWidth: 680, width: '100%', margin: '10px auto', padding: 30, display: 'grid', gap: 16, boxSizing: 'border-box' }}>
+      <h2 style={{ fontFamily: C.serif, fontSize: 26, fontWeight: 900, margin: 0, textAlign: 'center' }}>{results.length} editions of {app?.name ?? 'the post'}</h2>
+      <p style={{ margin: 0, color: C.ink2, textAlign: 'center' }}>Each one is its own post in the Queue, tagged with its country, so you can promote it to that market.</p>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {results.map(({ market, post }) => {
+          const m = MARKETS[market]
+          const sched = post.status === 'scheduled'
+          const ok = post.targets.filter((t) => t.status === 'published').length
+          return (
+            <div key={market} style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr)', gap: 12, padding: '10px 14px', borderRadius: 12, background: C.card2, alignItems: 'center' }}>
+              <b style={{ fontSize: 14 }}>{m.flag} {m.name}</b>
+              <span style={{ fontSize: 12.5, color: post.status === 'failed' ? C.red : C.ink2, minWidth: 0 }}>
+                {sched && post.scheduled_at ? `Scheduled · ${inZone(new Date(post.scheduled_at), m.tz)} local (${when(post.scheduled_at)} yours)`
+                  : post.status === 'publishing' ? 'Publishing — check the Queue'
+                  : `${ok} of ${post.targets.length} posted`}
+                {post.targets.filter((t) => t.permalink).map((t) => <a key={t.platform} href={t.permalink} target="_blank" rel="noreferrer" style={{ color: C.mint, fontWeight: 700, marginLeft: 8 }}>{PLATFORMS.find((p) => p.id === t.platform)?.name} ↗</a>)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center' }}><button style={btn('solid')} onClick={onNew}>New post</button></div>
+    </section>
   )
 }
 

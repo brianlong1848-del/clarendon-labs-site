@@ -7,6 +7,7 @@ import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { describeRule } from '@/lib/publish/recur'
 import { PromoteSheet, Promotions, promotable, type AdsData } from './Promote'
+import { isMarket, MARKETS } from '@/lib/publish/markets'
 
 // Repeating posts (pause / resume / stop), then everything scheduled, in
 // flight, and recently sent — with the per-platform
@@ -131,7 +132,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
                 {p.series_id && <span title="A copy of a repeating post" style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2, border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '1px 8px' }}>↻ #{p.occurrence ?? '?'}</span>}
                 {p.caption_by === 'ai' && <span title="Caption written by Claude" style={{ fontSize: 11.5, fontWeight: 700, color: C.mint }}>✦ AI caption</span>}
               </div>
-              <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.caption || <i>No caption</i>}</p>
+              <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMarket(p.market) && <b title={`${MARKETS[p.market].name} edition · ${MARKETS[p.market].langName}`} style={{ color: C.ink }}>{MARKETS[p.market].flag} {MARKETS[p.market].short} · </b>}{p.caption || <i>No caption</i>}</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {p.targets.map((t) => {
                   const name = PLATFORMS.find((x) => x.id === t.platform)?.name
@@ -164,6 +165,81 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
       ))}
     </section>
   )
+
+  // "All apps": one lane per app — what's next, what needs attention, how it's
+  // going — instead of every card from every app in one long column. Picking
+  // an app (or "Open") switches to the full cards for that app.
+  const dayFmt = (iso: string) => new Date(iso).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
+  const timeFmt = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const small: React.CSSProperties = { ...btn('ghost'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }
+  const row = (p: QueuedPost, tone?: 'bad') => {
+    const at = p.scheduled_at ?? p.created_at
+    const mk = isMarket(p.market) ? MARKETS[p.market] : null
+    return (
+      <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '58px 40px minmax(0,1fr) auto', gap: 12, alignItems: 'center', padding: '10px 0', borderTop: `1px solid ${C.rule}` }}>
+        <div style={{ lineHeight: 1.25 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: tone ? C.red : C.ink }}>{dayFmt(at)}</div>
+          <div style={{ fontSize: 11.5, color: C.soft }}>{timeFmt(at)}</div>
+        </div>
+        <div style={{ width: 40, height: 40, borderRadius: 8, overflow: 'hidden', background: C.card2 }}>
+          {p.media[0] ? <Thumb item={p.media[0]} onOpen={() => setViewing({ media: p.media, index: 0 })} /> : null}
+        </div>
+        <div style={{ minWidth: 0, display: 'grid', gap: 3 }}>
+          <span style={{ fontSize: 13, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {mk && <b style={{ color: C.ink }}>{mk.flag} {mk.short} · </b>}{p.caption || <i>No caption</i>}
+          </span>
+          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {p.targets.map((t) => <PlatformGlyph key={t.platform} platform={t.platform} size={13} color={t.status === 'failed' ? C.red : t.status === 'published' ? C.mint : C.soft} />)}
+            {p.series_id && <span style={{ fontSize: 11, color: C.soft }}>↻ #{p.occurrence ?? '?'}</span>}
+            {p.caption_by === 'ai' && <span style={{ fontSize: 11, fontWeight: 700, color: C.mint }}>✦ AI</span>}
+            {tone && <span style={{ fontSize: 11.5, color: C.red, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.targets.filter((t) => t.status === 'failed').map((t) => PLATFORMS.find((x) => x.id === t.platform)?.name).join(', ')} failed</span>}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {tone && <button style={{ ...small, ...btn('solid'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? '…' : 'Retry'}</button>}
+          {!tone && <button style={small} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip' : 'Cancel'}</button>}
+        </div>
+      </div>
+    )
+  }
+  const lane = (id: string) => {
+    const a = apps.find((x) => x.id === id)
+    const next = posts.filter((p) => p.status === 'scheduled' && p.app_id === id).sort((x, y) => (x.scheduled_at ?? '').localeCompare(y.scheduled_at ?? ''))
+    const trouble = posts.filter((p) => (p.status === 'failed' || p.status === 'partial') && p.app_id === id).slice(0, 2)
+    const sent = posts.filter((p) => (p.status === 'done' || p.status === 'partial') && p.app_id === id)
+    const last = sent[0]
+    const boosts = (ads?.promotions ?? []).filter((x) => x.app_id === id && x.status === 'active').length
+    const reps = series.filter((r) => r.app_id === id && r.status === 'active').length
+    const SHOW = 3
+    return (
+      <article key={id} style={{ ...card, padding: 0, overflow: 'hidden', display: 'grid' }}>
+        <div style={{ height: 4, background: a?.accent ?? C.mint }} />
+        <div style={{ padding: '14px 18px 4px', display: 'flex', alignItems: 'center', gap: 11 }}>
+          {a && <img src={a.icon} alt="" width={32} height={32} style={{ borderRadius: 8 }} />}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{a?.name ?? id}</div>
+            <div style={{ fontSize: 12, color: C.soft, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <span>{next.length ? `${next.length} scheduled · next ${when(next[0].scheduled_at!)}` : 'Nothing scheduled'}</span>
+              {reps > 0 && <span>↻ {reps} repeating</span>}
+              {boosts > 0 && <span style={{ color: C.mint, fontWeight: 700 }}>● {boosts} boost{boosts === 1 ? '' : 's'} running</span>}
+            </div>
+          </div>
+          <button style={small} onClick={() => setAppFilter(id)}>Open →</button>
+        </div>
+        <div style={{ padding: '4px 18px 6px' }}>
+          {trouble.map((p) => row(p, 'bad'))}
+          {next.slice(0, SHOW).map((p) => row(p))}
+          {!next.length && !trouble.length && <p style={{ margin: '8px 0 10px', fontSize: 12.5, color: C.soft, borderTop: `1px solid ${C.rule}`, paddingTop: 10 }}>Queue is empty — compose one to keep the account warm.</p>}
+        </div>
+        <div style={{ padding: '10px 18px', background: C.card2, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, color: C.ink2, marginTop: 'auto' }}>
+          <span style={{ flex: 1 }}>
+            {last ? <>Last posted {when(last.scheduled_at ?? last.created_at)}{last.targets.filter((t) => t.permalink).slice(0, 2).map((t) => <a key={t.platform} href={t.permalink} target="_blank" rel="noreferrer" style={{ color: C.mint, fontWeight: 700, marginLeft: 6 }}>{PLATFORMS.find((x) => x.id === t.platform)?.name} ↗</a>)}</> : 'Nothing posted yet'}
+          </span>
+          {next.length > SHOW && <button onClick={() => setAppFilter(id)} style={{ border: 0, background: 'transparent', color: C.mint, fontWeight: 800, fontSize: 12, cursor: 'pointer', padding: 0, fontFamily: C.sans }}>+{next.length - SHOW} more</button>}
+        </div>
+      </article>
+    )
+  }
 
   return (
     <div style={{ display: 'grid', gap: 28 }}>
@@ -216,8 +292,19 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
       {shownAds && <Promotions ads={shownAds} apps={apps} onChange={loadAds} />}
       {viewing && <MediaViewer media={viewing.media} start={viewing.index} onClose={() => setViewing(null)} />}
       {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
-      {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
-      {section('Recent', rest, 'Nothing posted from Studio yet.')}
+      {appFilter === 'all' && appIds.length > 1 ? (
+        <section style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={label}>By app</span><span style={{ flex: 1, height: 1, background: C.rule }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 440px), 1fr))', gap: 14, alignItems: 'start' }}>
+            {appIds.map(lane)}
+          </div>
+        </section>
+      ) : (<>
+        {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
+        {section('Recent', rest, 'Nothing posted from Studio yet.')}
+      </>)}
     </div>
   )
 }

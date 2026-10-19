@@ -108,6 +108,9 @@ export type Audience = {
   interests: Interest[]
   /** Let Meta reach beyond the interests when it predicts better results. */
   expand: boolean
+  /** Meta language ids — only people who use Facebook/Instagram in these
+   *  languages (a market edition's language; see publish/markets.ts). */
+  locales?: number[]
 }
 export const DEFAULT_AUDIENCE: Audience = { ageMin: 18, ageMax: 65, genders: 'all', places: [{ key: 'US', name: 'United States', type: 'country' }], interests: [], expand: false }
 
@@ -149,6 +152,7 @@ function targetingSpec(a: Audience, platform: 'facebook' | 'instagram') {
     age_min: a.expand ? Math.min(a.ageMin, 25) : a.ageMin,
     age_max: a.expand ? 65 : a.ageMax,
     ...(a.genders === 'men' ? { genders: [1] } : a.genders === 'women' ? { genders: [2] } : {}),
+    ...(a.locales?.length ? { locales: a.locales } : {}),
     ...(a.interests.length ? { flexible_spec: [{ interests: a.interests.map((i) => ({ id: i.id, name: i.name })) }] } : {}),
     publisher_platforms: [platform],
     ...(platform === 'facebook' ? { facebook_positions: ['feed', 'video_feeds', 'facebook_reels'] } : { instagram_positions: ['stream', 'reels', 'story'] }),

@@ -8,6 +8,7 @@
 
 import { nextAfter, type RepeatSpec } from './recur'
 import { captionsConfigured, writeCaptions } from './captions'
+import { isMarket } from './markets'
 import { nextBest } from './timing'
 import {
   insertPost, insertSeries, openCopy, pastCaptions, seriesDue, updatePost, updateSeries, cancelOpenCopies, getSeries,
@@ -122,6 +123,7 @@ export async function recaption(post: Post): Promise<Post> {
   const out = await writeCaptions({
     appId: post.app_id, targets: post.targets, media: post.media, frames: s?.frames ?? post.media.filter((m) => m.kind === 'image').map((m) => m.url).slice(0, 4),
     notes: post.notes || s?.notes, draft: s?.caption ?? post.caption,
+    market: isMarket(post.market) ? post.market : undefined,
     avoid: [post.caption, ...Object.values(post.overrides ?? {}), ...prev.flatMap((p) => [p.caption, ...Object.values(p.overrides ?? {})])].filter(Boolean).slice(0, 10) as string[],
   })
   return updatePost(post.id, { caption: out.caption, overrides: out.overrides, caption_by: 'ai' })

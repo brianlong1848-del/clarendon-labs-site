@@ -14,6 +14,8 @@
 import { PLATFORMS, FORMAT_LABEL, ratioName, type MediaItem, type Platform, type Target } from './rules'
 import { PUBLISH_APPS } from './platforms'
 import { captionBrief } from './marketing'
+import { APP_MARKET_NOTES, MARKETS, storeLinkFor, type MarketId } from './markets'
+import { STORE_APPS } from '@/lib/ads/store'
 
 const MODEL = () => process.env.ANTHROPIC_CAPTION_MODEL || 'claude-sonnet-5-5'
 export const captionsConfigured = () => !!process.env.ANTHROPIC_API_KEY
@@ -29,6 +31,9 @@ export type CaptionInput = {
   draft?: string
   /** Captions already used for this post; don't repeat them. */
   avoid?: string[]
+  /** The market edition this caption is for: its language variant, local
+   *  App Store link and local hashtags (markets.ts). Omitted = US English. */
+  market?: MarketId
 }
 export type CaptionOutput = {
   caption: string
@@ -85,6 +90,7 @@ export async function writeCaptions(input: CaptionInput): Promise<CaptionOutput>
     input.notes?.trim() ? `Brian's notes on this post: ${input.notes.trim()}` : '',
     input.draft?.trim() ? `Brian's draft (keep the intent, improve the words):\n${input.draft.trim()}` : '',
     input.avoid?.length ? `Captions this post has already used — do NOT reuse their hooks or wording:\n${input.avoid.map((c, i) => `${i + 1}. ${c.replace(/\s+/g, ' ').slice(0, 400)}`).join('\n')}` : '',
+    marketBlock(input.appId, input.market),
     `Destinations:\n${targets.map((t) => `- ${t.platform}: ${GUIDE[`${t.platform}:${t.format}`] ?? GUIDE[`${t.platform}:post`]}`).join('\n')}`,
   ].filter(Boolean).join('\n\n')
 
@@ -133,6 +139,22 @@ export async function writeCaptions(input: CaptionInput): Promise<CaptionOutput>
   }
   const first = targets[0].platform
   return { caption: overrides[first] ?? '', overrides, model: MODEL(), brief: brief.source }
+}
+
+/** Language, dialect and local details for one market edition. */
+function marketBlock(appId: string, id?: MarketId): string {
+  if (!id || id === 'us') return ''
+  const m = MARKETS[id]
+  const link = storeLinkFor((STORE_APPS as Record<string, { store?: string }>)[appId]?.store, m)
+  return [
+    `MARKET EDITION: ${m.flag} ${m.name}. Write EVERY caption entirely in ${m.langName} (${m.lang}) — native copy for people there, not a translation of an English caption.`,
+    `Language variant: ${m.voice}`,
+    APP_MARKET_NOTES[appId]?.[id] ? `App wording for this market: ${APP_MARKET_NOTES[appId]![id]}` : '',
+    'Hashtags: local ones people in this market actually use, in the local language (plus the app name tag). Keep the per-platform hashtag limits.',
+    'Calls to action and "link in bio" in the local language (e.g. "lien en bio", "link en la bio", "Link in Bio").',
+    link ? `Where a link is allowed (Facebook, Threads), use this market's App Store link: ${link}` : '',
+    'The brief is written in English; its facts and do-nots still apply in every language.',
+  ].filter(Boolean).join('\n')
 }
 
 /** Trim to a limit on a word boundary (Threads' 500 is the one that bites). */

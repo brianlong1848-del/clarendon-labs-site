@@ -17,6 +17,7 @@ import { findFile, readText, writeText, driveConfigured } from '@/lib/drive'
 import { PLATFORMS, FORMAT_LABEL, captionFor, ratioName } from './rules'
 import { describeRule, type RepeatRule } from './recur'
 import type { Post } from './store'
+import { isMarket, MARKETS } from './markets'
 
 export const MARKETING_FOLDER = process.env.DRIVE_MARKETING_FOLDER_ID || '1-vzqBJv0-EeSM6Lt4NJyBNx0coNJNzmz'
 
@@ -76,6 +77,7 @@ export async function logPost(post: Post, series?: { rule: RepeatRule } | null):
     `### ${stamp(post.scheduled_at ?? post.created_at)} CT — ${where}`,
     `- Result: ${ok === post.targets.length ? 'Posted everywhere' : `Posted ${ok} of ${post.targets.length}`}`,
     `- Sent from: ${post.source === 'studio-ios' ? 'Studio iPhone app' : 'clarendon.dev/post'}${post.series_id ? ` · repeat #${post.occurrence ?? '?'}${series ? ` (${describeRule(series.rule)})` : ''}` : ''}`,
+    ...(isMarket(post.market) ? [`- Market edition: ${MARKETS[post.market].name} (${MARKETS[post.market].lang})${post.edition_group ? ` · group ${post.edition_group.slice(0, 8)}` : ''}`] : []),
     `- Caption written by: ${post.caption_by === 'ai' ? 'AI (Claude), from the caption brief' : 'Brian'}`,
     `- Media: ${mediaLine}${m[0]?.url ? ` — ${m.map((x) => x.url).join(' , ')}` : ''}`,
     ...(post.notes ? [`- Notes: ${post.notes.replace(/\s+/g, ' ').trim()}`] : []),

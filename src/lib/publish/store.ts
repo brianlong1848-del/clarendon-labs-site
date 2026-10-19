@@ -31,6 +31,10 @@ export type Post = {
   occurrence?: number | null
   notes?: string
   caption_by?: 'brian' | 'ai'
+  /** Market edition ('gb', 'cafr', …; see markets.ts) — null for a single-market post. */
+  market?: string | null
+  /** Shared by the editions of one multi-market post. */
+  edition_group?: string | null
   logged_at?: string | null
   stats?: Partial<Record<Platform, PostStat>> | null
   stats_at?: string | null

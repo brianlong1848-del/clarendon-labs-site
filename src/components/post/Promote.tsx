@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { C, btn } from '@/components/AdminNav'
-import { presetsFor, type AudiencePreset } from '@/lib/ads/presets'
+import { marketPresetId, presetsFor, type AudiencePreset } from '@/lib/ads/presets'
+import { isMarket, MARKETS } from '@/lib/publish/markets'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost } from './shared'
 
 // ─── Promote a post (Meta) ───────────────────────────────────────────────────
@@ -92,8 +93,14 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
     setAud({ ...p.audience, ageMin: Math.max(p.audience.ageMin, kid ? 25 : ads.status.limits.minAge) })
     setShowAllPlaces(false)
   }
-  // The app's first preset is the default, so Gag Order opens already set up.
-  useEffect(() => { if (presets[0]) applyPreset(presets[0]) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // A market edition opens aimed at its own market (UK edition → UK + Ireland,
+  // Québec edition → Canada in French); otherwise the app's first preset, so
+  // Gag Order opens already set up.
+  const market = isMarket(post.market) ? MARKETS[post.market] : null
+  useEffect(() => {
+    const p = (market && presets.find((x) => x.id === marketPresetId(post.app_id, market.id))) || presets[0]
+    if (p) applyPreset(p)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveAsPreset = async () => {
     const name = prompt('Name this audience preset (e.g. "Queer cities · after dark"):')
@@ -164,6 +171,7 @@ export function PromoteSheet({ post, app, ads, onClose, onDone }: { post: Queued
           <b style={{ fontSize: 17, flex: 1 }}>Promote {app?.name ?? ''} post</b>
           <button onClick={onClose} style={{ ...btn('ghost'), padding: '6px 10px' }}>Close</button>
         </div>
+        {market && <span style={{ fontSize: 12, fontWeight: 800, color: C.ink2 }}>{market.flag} {market.name} edition · {market.langName}</span>}
         <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.caption || 'No caption'}</p>
 
         {!ads.status.ready && (
@@ -325,7 +333,8 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
               </div>
               <span style={{ fontSize: 12.5, color: C.ink2 }}>
                 {p.audience.ageMin}–{p.audience.ageMax}{p.audience.ageMax >= 65 ? '+' : ''} · {p.audience.genders === 'all' ? 'everyone' : p.audience.genders}
-                {' · '}{p.audience.places.map((x) => x.name).join(', ')}{p.audience.interests.length ? ` · ${p.audience.interests.map((x) => x.name).join(', ')}` : ''}
+                {' · '}<span title={p.audience.places.map((x) => x.name).join(', ')}>{p.audience.places.length > 4 ? `${p.audience.places.slice(0, 3).map((x) => x.name).join(', ')} +${p.audience.places.length - 3} more places` : p.audience.places.map((x) => x.name).join(', ')}</span>
+                {p.audience.interests.length > 0 && <span title={p.audience.interests.map((x) => x.name).join(', ')}>{' · '}{p.audience.interests.length > 3 ? `${p.audience.interests.slice(0, 2).map((x) => x.name).join(', ')} +${p.audience.interests.length - 2} interests` : p.audience.interests.map((x) => x.name).join(', ')}</span>}
               </span>
               {r && <span style={{ fontSize: 13 }}><b>{usd(r.spend_cents)}</b> spent · {big(r.reach)} reached · {big(r.impressions)} views · {r.engagements || r.clicks} {r.engagements ? 'engagements' : 'clicks'}{r.delivery && r.delivery !== 'ACTIVE' && p.status === 'active' ? ` · Meta: ${r.delivery.toLowerCase().replace(/_/g, ' ')}` : ''}</span>}
               {p.error && <span style={{ fontSize: 12, color: C.red }}>{p.error}</span>}

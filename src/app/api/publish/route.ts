@@ -6,6 +6,7 @@ import { checkRepeat, type RepeatSpec } from '@/lib/publish/recur'
 import { getPost, insertPost, listPosts, listSeries, updatePost, type TargetState } from '@/lib/publish/store'
 import { createSeries, recaption } from '@/lib/publish/series'
 import { run } from '@/lib/publish/runner'
+import { isMarket } from '@/lib/publish/markets'
 
 // ─── /api/publish — the "post everywhere" queue ─────────────────────────────
 //
@@ -13,7 +14,8 @@ import { run } from '@/lib/publish/runner'
 // the Compose screen in the Studio iOS app.
 //
 //   GET                       → { posts, series } recent + scheduled posts, live repeating series
-//   POST                      → { appId, caption, overrides, media, targets, scheduledAt?, repeat?, captionBy?, notes? }
+//   POST                      → { appId, caption, overrides, media, targets, scheduledAt?, repeat?, captionBy?, notes?, market?, editionGroup? }
+//                               (one call per market edition; editions of one post share editionGroup)
 //                               posts now (and waits up to ~45s for it to land), queues it,
 //                               or — with `repeat` (see lib/publish/recur.ts) — starts a series
 //   PATCH ?id=                → retry the failed platforms of a post
@@ -48,6 +50,9 @@ export async function POST(req: Request) {
   const captionBy: 'brian' | 'ai' = body.captionBy === 'ai' ? 'ai' : 'brian'
   const notes = String(body.notes ?? '').slice(0, 1000)
   const source = req.headers.get('x-studio-client') === 'ios' ? 'studio-ios' : 'web'
+  const market = body.market == null || body.market === '' ? null : body.market
+  if (market !== null && !isMarket(market)) return bad('Unknown market.')
+  const editionGroup = typeof body.editionGroup === 'string' && /^[0-9a-f-]{36}$/i.test(body.editionGroup) ? body.editionGroup : null
   if (!targets.length) return bad('Pick at least one place to post.')
   if (targets.some((t) => !PLATFORMS.some((p) => p.id === t.platform && p.formats.includes(t.format)))) return bad('Unknown platform or format.')
   if (media.some((m) => typeof m.url !== 'string' || !/^https:\/\//.test(m.url))) return bad('Media must be uploaded first.')
@@ -77,6 +82,7 @@ export async function POST(req: Request) {
       status: later ? 'scheduled' : 'publishing',
       scheduled_at: (when ?? new Date()).toISOString(),
       source, notes, caption_by: captionBy,
+      ...(market ? { market } : {}), ...(editionGroup ? { edition_group: editionGroup } : {}),
     })
     const post = later ? row : await run(row, 45_000)
     return NextResponse.json({ post })

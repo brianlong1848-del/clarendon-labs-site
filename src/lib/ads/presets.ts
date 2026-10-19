@@ -29,9 +29,14 @@ export type AudiencePreset = {
   audience: {
     ageMin: number; ageMax: number; genders: 'all' | 'men' | 'women'
     places: PresetPlace[]; interests: PresetInterest[]; expand: boolean
+    locales?: number[]
   }
+  /** Set on the per-market presets (publish/markets.ts). */
+  market?: MarketId
   saved?: boolean
 }
+
+import { APP_MARKETS, COUNTRY_NAME, MARKETS, type MarketId } from '@/lib/publish/markets'
 
 const city = (key: string, name: string, region: string, radiusMiles = 15): PresetPlace => ({ key, name, type: 'city', region, radiusMiles })
 
@@ -98,5 +103,25 @@ export const BUILT_IN_PRESETS: AudiencePreset[] = [
   },
 ]
 
+// One preset per market for apps that ship in several languages: that
+// market's countries, and (where a country speaks more than one language)
+// only people using Facebook/Instagram in the edition's language.
+const MARKET_AGES: Record<string, [number, number]> = { rolligan: [18, 44], borea: [21, 54], yulepick: [25, 55] }
+export const marketPresetId = (appId: string, m: MarketId) => `market-${appId}-${m}`
+const MARKET_PRESETS: AudiencePreset[] = Object.entries(APP_MARKETS).filter(([, ms]) => ms.length > 1).flatMap(([appId, ms]) =>
+  ms.map((id) => {
+    const m = MARKETS[id]
+    const [ageMin, ageMax] = MARKET_AGES[appId] ?? [18, 65]
+    return {
+      id: marketPresetId(appId, id), appId, market: id, name: `${m.flag} ${m.short} · ${m.langName}`,
+      note: `${m.countries.map((c) => COUNTRY_NAME[c] ?? c).join(', ')}${m.metaLocales.length ? `, people using Facebook/Instagram in ${m.langName}` : ''}. Pairs with the ${m.short} edition of a post.`,
+      platform: 'instagram', goal: 'downloads', dailyUsd: 10, days: 3,
+      audience: {
+        ageMin, ageMax, genders: 'all', interests: [], expand: true, locales: m.metaLocales,
+        places: m.countries.map((c) => ({ key: c, name: COUNTRY_NAME[c] ?? c, type: 'country' as const })),
+      },
+    } satisfies AudiencePreset
+  }))
+
 export const presetsFor = (appId: string, saved: AudiencePreset[] = []) =>
-  [...BUILT_IN_PRESETS.filter((p) => p.appId === appId), ...saved.filter((p) => p.appId === appId)]
+  [...BUILT_IN_PRESETS.filter((p) => p.appId === appId), ...MARKET_PRESETS.filter((p) => p.appId === appId), ...saved.filter((p) => p.appId === appId)]

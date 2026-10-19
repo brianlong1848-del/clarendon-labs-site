@@ -4,9 +4,11 @@ import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { PLATFORMS, type MediaItem, type Target } from '@/lib/publish/rules'
 import { captionsConfigured, writeCaptions } from '@/lib/publish/captions'
 import { captionBrief } from '@/lib/publish/marketing'
+import { isMarket } from '@/lib/publish/markets'
 
 // POST /api/publish/captions — "Write captions" in the composer.
-//   { appId, targets, media, frames, notes?, draft? } → { caption, overrides, model, brief }
+//   { appId, targets, media, frames, notes?, draft?, market? } → { caption, overrides, model, brief }
+//   market: write in that edition's language variant (markets.ts)
 // GET  /api/publish/captions?app= → { ready, brief } so the composer can say
 //   whether AI captions are on and whether the Drive brief was found.
 export const dynamic = 'force-dynamic'
@@ -30,6 +32,6 @@ export async function POST(req: Request) {
   const frames = (Array.isArray(b.frames) ? b.frames : []).filter(https).slice(0, 6) as string[]
   const media = (Array.isArray(b.media) ? b.media : []) as MediaItem[]
   try {
-    return NextResponse.json(await writeCaptions({ appId: b.appId, targets, media, frames, notes: String(b.notes ?? '').slice(0, 1000), draft: String(b.draft ?? '').slice(0, 3000) }))
+    return NextResponse.json(await writeCaptions({ appId: b.appId, targets, media, frames, notes: String(b.notes ?? '').slice(0, 1000), draft: String(b.draft ?? '').slice(0, 3000), market: isMarket(b.market) ? b.market : undefined }))
   } catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 500 }) }
 }
