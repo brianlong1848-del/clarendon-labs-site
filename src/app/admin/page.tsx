@@ -13,8 +13,14 @@ import { AdminShell, C, btn } from '@/components/AdminNav'
 // admin API with that app's token (see src/lib/console.ts and
 // docs/APP_ADMIN_CONTRACT.md).
 
-type Suggestion = { id: string; message: string; audience: string | null; player_name: string | null; platform: string | null; created_at: string }
-type LiveCard = { id: string; text: string; pack_id: string; tier: string; format: string; active: boolean }
+type Suggestion = {
+  id: string; message: string; audience: string | null; player_name: string | null; platform: string | null; created_at: string
+  /** Default thank-you the app would send if published as-is (Gag Order's /api/admin). */
+  thank_you_draft?: string
+  /** False when the suggester's build didn't send a device id — the note is kept but can't be shown. */
+  reachable?: boolean
+}
+type LiveCard = { id: string; text: string; pack_id: string; tier: string; format: string; active: boolean; credit_name?: string | null }
 type Stat = { label: string; value: number | string; delta?: string; hint?: string; format?: 'usd' }
 type Recent = { icon?: string; title: string; detail?: string; at: string }
 type AppState = {
@@ -22,7 +28,13 @@ type AppState = {
   pending: Suggestion[]; live: LiveCard[]; stats?: Stat[]; recent?: Recent[]
 }
 type Missing = { id: string; name: string; accent: string }
-type Draft = { text: string; pack: string; tier: string; format: string }
+type Draft = {
+  text: string; pack: string; tier: string; format: string
+  /** Thank-you note for the suggester. Follows the card text/pack until edited by hand. */
+  note: string; noteEdited: boolean
+  /** "Suggested by <name>" under the card in game. */
+  credit: boolean
+}
 
 const PACKS = [['base', 'Everyone'], ['afterdark', 'After Dark'], ['gay', 'Gay'], ['lesbian', 'Lesbian'], ['transenby', 'Dolls']] as const
 const TIERS = [['free', 'Free'], ['core', 'Core'], ['afterdark', 'After Dark']] as const
@@ -36,6 +48,21 @@ const NOTES: Record<string, string> = {
   jinglewire: 'Jinglewire’s numbers show here once its admin API is connected (JINGLEWIRE_ADMIN_URL + JINGLEWIRE_ADMIN_TOKEN).',
 }
 
+// The app drafts the note against the suggestion as submitted. While Brian hasn't
+// touched the note, keep it in step with edits to the card text and pack so the
+// note never quotes a card that isn't the one being published.
+const packPhrase = (pack: string) => pack === 'base'
+  ? 'for every Gag Order table'
+  : `in the ${PACKS.find(([v]) => v === pack)?.[1] ?? pack} pack for every Gag Order table`
+const quoted = (t: string) => `“${t.trim().replace(/\{player\}/g, '___')}”`
+function retarget(base: string, s: Suggestion, startPack: string, text: string, pack: string) {
+  return base.replace(quoted(s.message), quoted(text)).replace(packPhrase(startPack), packPhrase(pack))
+}
+const firstName = (n: string | null) => {
+  const f = (n ?? '').trim().split(/\s+/)[0] ?? ''
+  return f ? f.charAt(0).toUpperCase() + f.slice(1, 24) : null
+}
+
 const fmtNum = (v: number | string, format?: 'usd') =>
   typeof v !== 'number' ? v : format === 'usd' ? v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : v.toLocaleString('en-US')
 function ago(iso: string) {
@@ -46,6 +73,8 @@ function ago(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 const ICON: Record<string, string> = { person: '👤', gift: '🎁', mail: '✉︎', star: '★', lock: '🔒', card: '🃏' }
+
+const startPack = (s: Suggestion) => s.audience && PACKS.some(([v]) => v === s.audience) ? s.audience : 'base'
 
 export default function ConsolePage() {
   const [pw, setPw] = useState('')
@@ -80,8 +109,9 @@ export default function ConsolePage() {
         const k = `${app.id}:${s.id}`
         next[k] = prev[k] ?? {
           text: s.message,
-          pack: s.audience && PACKS.some(([v]) => v === s.audience) ? s.audience : 'base',
+          pack: startPack(s),
           tier: 'free', format: /\{player\}/.test(s.message) ? 'action' : 'vote',
+          note: s.thank_you_draft ?? '', noteEdited: false, credit: true,
         }
       }
       return next
@@ -98,7 +128,12 @@ export default function ConsolePage() {
     const out = await res?.json().catch(() => ({})) ?? {}
     setBusy(null)
     if (!res?.ok) { setToast({ text: out.error ?? 'That didn’t go through.', tone: 'bad' }); return }
-    if (payload.action === 'approve') setToast({ text: out.voiced ? `Published ${out.id ?? 'card'} — voiced and live now.` : `Published ${out.id ?? 'card'} — live now, but the voice clip failed.`, tone: out.voiced ? 'ok' : 'bad' })
+    if (payload.action === 'approve') {
+      const base = out.voiced ? `Published ${out.id ?? 'card'} — voiced and live now.` : `Published ${out.id ?? 'card'} — live now, but the voice clip failed.`
+      const who = typeof out.credit === 'string' ? out.credit : 'They'
+      const thanks = out.thanked ? ` ${who} will see your thank-you next time they open the app.` : ' (Their app version can’t receive the thank-you.)'
+      setToast({ text: base + thanks, tone: out.voiced ? 'ok' : 'bad' })
+    }
     if (payload.action === 'reject') setToast({ text: 'Suggestion rejected.', tone: 'ok' })
     if (payload.action === 'retire') setToast({ text: 'Card retired.', tone: 'ok' })
     load(pw)
@@ -239,7 +274,14 @@ export default function ConsolePage() {
                 const k = `${app.id}:${s.id}`
                 const d = drafts[k]
                 if (!d) return null
-                const set = (patch: Partial<Draft>) => setDrafts((x) => ({ ...x, [k]: { ...d, ...patch } }))
+                const set = (patch: Partial<Draft>) => setDrafts((x) => {
+                  const nd = { ...d, ...patch }
+                  if (!nd.noteEdited && ('text' in patch || 'pack' in patch) && s.thank_you_draft) {
+                    nd.note = retarget(s.thank_you_draft, s, startPack(s), nd.text, nd.pack)
+                  }
+                  return { ...x, [k]: nd }
+                })
+                const who = firstName(s.player_name)
                 const edited = d.text.trim() !== s.message.trim()
                 return (
                   <article key={k} style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 18, display: 'grid', gap: 14 }}>
@@ -263,11 +305,32 @@ export default function ConsolePage() {
                       <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 10, alignItems: 'center' }}><span style={label}>Tier</span>{chips(d.tier, TIERS, (v) => set({ tier: v }))}</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 10, alignItems: 'center' }}><span style={label}>Format</span>{chips(d.format, FORMATS, (v) => set({ format: v }))}</div>
                     </div>
+                    {/* Close the loop with whoever sent it */}
+                    <div style={{ display: 'grid', gap: 8, background: C.card2, borderRadius: 14, padding: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={label}>Thank-you to {who ?? 'the player'}</span>
+                        <span style={{ flex: 1 }} />
+                        {d.noteEdited && s.thank_you_draft && (
+                          <button style={{ all: 'unset', cursor: 'pointer', fontSize: 12, color: C.soft, textDecoration: 'underline' }}
+                            onClick={() => set({ noteEdited: false, note: retarget(s.thank_you_draft!, s, startPack(s), d.text, d.pack) })}>Reset</button>
+                        )}
+                      </div>
+                      <textarea value={d.note} rows={4} aria-label="Thank-you note"
+                        onChange={(e) => set({ note: e.target.value, noteEdited: true })}
+                        style={{ border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, lineHeight: 1.45, fontFamily: C.sans, background: C.card, resize: 'vertical' }} />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.ink2, cursor: who ? 'pointer' : 'default' }}>
+                        <input type="checkbox" checked={!!who && d.credit} disabled={!who} onChange={(e) => set({ credit: e.target.checked })} />
+                        {who ? <>Show “Suggested by {who}” on the card in game</> : <>No name on this suggestion — no credit line</>}
+                      </label>
+                      {s.reachable === false && (
+                        <p style={{ margin: 0, fontSize: 12, color: C.soft }}>Sent from an older app version, so there’s no way to deliver the note to them. The credit line still shows.</p>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                       {edited && <button style={btn('ghost')} onClick={() => set({ text: s.message })}>Undo edits</button>}
                       <button style={btn('ghost')} disabled={busy === k} onClick={() => act(app.id, k, { action: 'reject', feedbackId: s.id })}>Reject</button>
                       <button style={{ ...btn('mint'), minWidth: 150 }} disabled={busy === k || !d.text.trim()}
-                        onClick={() => act(app.id, k, { action: 'approve', feedbackId: s.id, ...d })}>
+                        onClick={() => act(app.id, k, { action: 'approve', feedbackId: s.id, text: d.text, pack: d.pack, tier: d.tier, format: d.format, thankYou: d.note, credit: d.credit })}>
                         {busy === k ? 'Publishing…' : edited ? 'Publish edited card' : 'Publish card'}
                       </button>
                     </div>
@@ -286,7 +349,7 @@ export default function ConsolePage() {
                   <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 16, alignItems: 'center', padding: '12px 18px', borderTop: i ? `1px solid ${C.rule}` : 'none' }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 14.5, fontWeight: 600 }}>{c.text}</div>
-                      <div style={{ fontSize: 11.5, color: C.soft, marginTop: 3 }}>{app.name} · {c.id}</div>
+                      <div style={{ fontSize: 11.5, color: C.soft, marginTop: 3 }}>{app.name} · {c.id}{c.credit_name ? ` · Suggested by ${c.credit_name}` : ''}</div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {[PACKS.find(([v]) => v === c.pack_id)?.[1] ?? c.pack_id, TIERS.find(([v]) => v === c.tier)?.[1] ?? c.tier, c.format].map((t) => (
