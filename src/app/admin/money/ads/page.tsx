@@ -52,25 +52,43 @@ export default function Ads() {
   }, [days])
   useEffect(() => { load() }, [load])
 
-  async function sync() {
-    setBusy(true); setMsg(null)
+  // Sync quietly whenever the page is open: on arrival if the last pull is
+  // more than 10 minutes old, then every 10 minutes while the tab is visible.
+  // "Sync now" still forces one and shows the full per-platform result.
+  async function sync(quiet = false) {
+    setBusy(true); if (!quiet) setMsg(null)
     const r = await fetch(`/api/cron/ad-spend?days=${Math.max(days, 30)}`).catch(() => null)
     const j = await r?.json().catch(() => null)
     if (!r?.ok || !j) setMsg({ text: 'Sync failed.', bad: true })
     else {
-      const parts = Object.entries(j.results as Record<string, { rows?: number; error?: string; skipped?: string }>)
-        .map(([app, v]) => `${app}: ${v.error ? `error — ${v.error}` : v.skipped ? v.skipped : `${v.rows} campaign-days`}`)
-      setMsg({ text: `Synced ${j.window.start} → ${j.window.end}. ${parts.join(' · ')}`, bad: parts.some((p) => p.includes('error')) })
+      const entries = Object.entries(j.results as Record<string, { rows?: number; error?: string; skipped?: string }>)
+      const errors = entries.filter(([, v]) => v.error).map(([k, v]) => `${k}: ${v.error}`)
+      const notes = entries.filter(([, v]) => !v.error).map(([k, v]) => `${k === 'tiktok' ? 'TikTok' : k === 'meta' ? 'Meta' : k}: ${v.skipped ?? `${v.rows} campaign-days`}`)
+      if (errors.length) setMsg({ text: `Sync problem — ${errors.join(' · ')}`, bad: true })
+      else if (!quiet) setMsg({ text: `Synced ${j.window.start} → ${j.window.end}. ${notes.join(' · ')}` })
+      else setMsg(null)
       await load()
     }
     setBusy(false)
   }
 
+  const lastSync = d?.last_sync ?? null
+  const loaded = d !== null
+  useEffect(() => {
+    if (!loaded) return
+    const STALE = 10 * 60 * 1000
+    const due = () => !lastSync || Date.now() - new Date(lastSync).getTime() > STALE
+    if (due()) sync(true)
+    const t = setInterval(() => { if (document.visibilityState === 'visible') sync(true) }, STALE)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
+
   const name = (slug: string | null) => d?.app_names.find((a) => a.slug === slug)?.name ?? slug ?? 'Shared'
 
   return (
     <AdminShell title="Money · Ads" subtitle="Every campaign, what it cost, and what it brought back"
-      actions={<button style={btn('ghost')} disabled={busy} onClick={sync}>{busy ? 'Syncing…' : 'Sync now'}</button>}>
+      actions={<button style={btn('ghost')} disabled={busy} onClick={() => sync()}>{busy ? 'Syncing…' : 'Sync now'}</button>}>
       <MoneyTabs />
       <div style={{ padding: '24px 0', maxWidth: 1180 }}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
@@ -97,7 +115,7 @@ export default function Ads() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr><th style={{ ...th, textAlign: 'left' }}>App</th><th style={th}>Spend</th><th style={th}>Installs</th><th style={th}>CPI</th><th style={th}>Proceeds</th><th style={th}>Blended ROAS</th></tr></thead>
                 <tbody>
-                  {d.apps.length === 0 && <tr><td colSpan={6} style={{ ...td, textAlign: 'left', color: C.soft }}>No ad spend in this window yet. Press “Sync now”.</td></tr>}
+                  {d.apps.length === 0 && <tr><td colSpan={6} style={{ ...td, textAlign: 'left', color: C.soft }}>No ad spend in this window yet.</td></tr>}
                   {d.apps.map((a) => (
                     <tr key={a.app_slug}>
                       <td style={{ ...td, textAlign: 'left', fontWeight: 650 }}>{name(a.app_slug)}</td>
@@ -135,7 +153,7 @@ export default function Ads() {
               </table>
               <p style={{ color: C.soft, fontSize: 12.5, margin: '12px 0 0' }}>
                 Platform ROAS is the in-app purchase value TikTok or Meta attributes to the campaign. Est. ROAS credits the app&rsquo;s real App Store proceeds to each campaign by its share of that app&rsquo;s ad installs, so it&rsquo;s an estimate; the app-level blended ROAS is exact.
-                {d.last_sync ? ` Last synced ${new Date(d.last_sync).toLocaleString()}.` : ''}
+                {d.last_sync ? ` Last synced ${new Date(d.last_sync).toLocaleString()}${busy ? ' (syncing…)' : ''}; refreshes on its own every 10 minutes while this page is open.` : ''}
               </p>
             </div>
           </>

@@ -28,7 +28,11 @@ export async function GET(req: Request) {
   const start = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10)
 
   const results: Record<string, { rows?: number; error?: string; skipped?: string }> = {}
-  for (const app of analyticsRegistry()) {
+  // TikTok isn't connected until TIKTOK_ACCESS_TOKEN is set: report that once
+  // as a note, not a per-app error.
+  const tiktokOn = !!process.env.TIKTOK_ACCESS_TOKEN
+  if (!tiktokOn) results.tiktok = { skipped: 'not connected yet' }
+  for (const app of tiktokOn ? analyticsRegistry() : []) {
     if (NEVER.has(app.id)) { results[app.id] = { skipped: 'kid-directed' }; continue }
     if (!app.tiktokAdvertiserId) { results[app.id] = { skipped: 'no TikTok ad account' }; continue }
     const rows = await tiktokCampaignDays(app.tiktokAdvertiserId, start, end)
