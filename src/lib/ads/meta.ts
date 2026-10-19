@@ -23,6 +23,7 @@
 import { pageFor, igFor, grantedPermissions, PUBLISH_APPS } from '@/lib/publish/platforms'
 import { rest } from '@/lib/publish/store'
 import type { AudiencePreset } from './presets'
+import { STORE_APPS, downloadLink } from './store'
 
 const G = 'https://graph.facebook.com/v22.0'  // v22+: Instagram ads use instagram_user_id
 const token = () => process.env.META_ACCESS_TOKEN
@@ -177,13 +178,8 @@ export const GOALS: Record<Goal, { label: string; objective: string; optimizatio
   reach: { label: 'Reach as many people as possible', objective: 'OUTCOME_AWARENESS', optimization: 'REACH' },
 }
 
-/** Live App Store pages. YulePick / Jinglewire join when they're on the store
- *  (Jinglewire is kid-directed: its button must go to a parents' page). */
-export const STORE_LINKS: Record<string, string> = {
-  rolligan: 'https://apps.apple.com/us/app/rolligan/id6774974562',
-  gagorder: 'https://apps.apple.com/us/app/gag-order-party-game/id6776382535',
-  borea: 'https://apps.apple.com/us/app/borea/id6799219647',
-}
+// Apps with a Download button: see ./store.ts (links go via clarendon.dev/get/<app>).
+export const STORE_LINKS: Record<string, string> = Object.fromEntries(Object.keys(STORE_APPS).map((id) => [id, downloadLink(id)]))
 
 export type Promotion = {
   id: string; app_id: string; post_id: string | null; network: 'meta' | 'tiktok'; platform: string; remote_id: string; permalink: string | null
