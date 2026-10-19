@@ -360,6 +360,35 @@ export async function promotionResults(p: Promotion): Promise<PromoResults | nul
   } catch { return null }
 }
 
+/** Everything Meta says about why a boost is or isn't delivering, in plain
+ *  lines: ad / ad set / campaign status, review feedback, delivery issues,
+ *  learning phase, and the ad account's own status. */
+export async function diagnosePromotion(id: string): Promise<{ lines: string[]; raw: Record<string, unknown> }> {
+  const p = await getPromotion(id)
+  if (!p) throw new Error('Promotion not found.')
+  const safe = (path: string, fields: string) => get(path, { fields }).catch((e: Error) => ({ error: e.message }))
+  const [ad, adset, camp, acct] = await Promise.all([
+    p.ad_id ? safe(p.ad_id, 'effective_status,configured_status,ad_review_feedback,issues_info,created_time,updated_time') : Promise.resolve(null),
+    p.adset_id ? safe(p.adset_id, 'effective_status,configured_status,issues_info,learning_stage_info,start_time,end_time,daily_budget,targeting') : Promise.resolve(null),
+    p.campaign_id ? safe(p.campaign_id, 'effective_status,configured_status,issues_info') : Promise.resolve(null),
+    safe(act(), 'account_status,disable_reason,spend_cap,amount_spent,funding_source_details'),
+  ])
+  const lines: string[] = []
+  const st = (x: any) => x?.error ? `error: ${x.error}` : `${x?.effective_status ?? '?'}${x?.configured_status && x.configured_status !== x.effective_status ? ` (set to ${x.configured_status})` : ''}`
+  lines.push(`Ad: ${st(ad)}`, `Ad set: ${st(adset)}`, `Campaign: ${st(camp)}`)
+  const fb = (ad as any)?.ad_review_feedback
+  if (fb) for (const [scope, reasons] of Object.entries(fb)) for (const [k, v] of Object.entries(reasons as Record<string, string>)) lines.push(`Review (${scope}) ${k}: ${v}`)
+  for (const [name, x] of [['Ad', ad], ['Ad set', adset], ['Campaign', camp]] as const) {
+    for (const i of ((x as any)?.issues_info ?? [])) lines.push(`${name} issue: ${i.error_summary ?? ''} ${i.error_message ?? ''}`.trim())
+  }
+  const ls = (adset as any)?.learning_stage_info
+  if (ls?.status) lines.push(`Learning phase: ${ls.status}${ls.conversions != null ? ` (${ls.conversions} results so far)` : ''}`)
+  const a = acct as any
+  if (a?.account_status && a.account_status !== 1) lines.push(`Ad account: ${ACCOUNT_STATUS[a.account_status] ?? a.account_status}${a.disable_reason ? ` (reason ${a.disable_reason})` : ''}`)
+  if (a?.funding_source_details?.display_string) lines.push(`Paying with: ${a.funding_source_details.display_string}`)
+  return { lines, raw: { ad, adset, camp, account: acct } }
+}
+
 /** Ends promotions whose end date has passed (kept tidy by the nightly sync). */
 export async function closeFinished() {
   const now = new Date().toISOString()

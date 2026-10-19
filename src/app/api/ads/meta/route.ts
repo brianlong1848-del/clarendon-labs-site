@@ -3,7 +3,7 @@ import { consoleAuthed } from '@/lib/console'
 import { getPost } from '@/lib/publish/store'
 import {
   adsStatus, checkPromote, DEFAULT_AUDIENCE, estimateReach, GOALS, listPromotions, promote, promotionResults,
-  STORE_LINKS, searchInterests, searchPlaces, setPromotionStatus, clearPromotion, clearFailed, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
+  STORE_LINKS, diagnosePromotion, searchInterests, searchPlaces, setPromotionStatus, clearPromotion, clearFailed, savedPresets, savePreset, deletePreset, type Audience, type PromoteInput,
 } from '@/lib/ads/meta'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
@@ -14,6 +14,7 @@ import { PUBLISH_APPS } from '@/lib/publish/platforms'
 //
 //   GET                              → { status, goals, defaults, promotions[] (with live results) }
 //   GET ?search=places|interests&q=  → { results } for the audience picker
+//   GET ?diagnose=<promotion id>      → { lines } why it is / isn't delivering
 //   POST { action: 'estimate', audience, platform } → { reach: { low, high } | null }
 //   POST { postId, platform, goal, dailyBudgetCents, startAt, endAt, audience }
 //        → creates campaign + ad set + ad on the shared ad account; spends money.
@@ -34,6 +35,8 @@ export async function GET(req: Request) {
   const u = new URL(req.url)
   const search = u.searchParams.get('search'), q = (u.searchParams.get('q') ?? '').trim()
   try {
+    const diag = u.searchParams.get('diagnose')
+    if (diag) return NextResponse.json(await diagnosePromotion(diag))
     if (search) {
       if (q.length < 2) return NextResponse.json({ results: [] })
       return NextResponse.json({ results: search === 'interests' ? await searchInterests(q) : await searchPlaces(q) })

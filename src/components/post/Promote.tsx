@@ -272,6 +272,13 @@ const PSTATUS: Record<string, { text: string; color: string }> = {
 export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: PublishApp[]; onChange: () => void }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [diag, setDiag] = useState<Record<string, string[] | 'loading'>>({})
+  const diagnose = async (id: string) => {
+    if (diag[id] && diag[id] !== 'loading') { const n = { ...diag }; delete n[id]; setDiag(n); return }
+    setDiag({ ...diag, [id]: 'loading' })
+    const r = await fetch(`/api/ads/meta?diagnose=${id}`).then((x) => x.json()).catch(() => ({ lines: ['Couldn’t reach Meta.'] }))
+    setDiag((d) => ({ ...d, [id]: r.lines ?? [r.error ?? 'No details.'] }))
+  }
   if (!ads.promotions.length) return null
   const clear = async (id?: string) => {
     setBusy(id ?? 'all'); setError(null)
@@ -323,6 +330,8 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
               {r && <span style={{ fontSize: 13 }}><b>{usd(r.spend_cents)}</b> spent · {big(r.reach)} reached · {big(r.impressions)} views · {r.engagements || r.clicks} {r.engagements ? 'engagements' : 'clicks'}{r.delivery && r.delivery !== 'ACTIVE' && p.status === 'active' ? ` · Meta: ${r.delivery.toLowerCase().replace(/_/g, ' ')}` : ''}</span>}
               {p.error && <span style={{ fontSize: 12, color: C.red }}>{p.error}</span>}
               {r?.review && <span style={{ fontSize: 12, color: C.red }}>Meta: {r.review}</span>}
+              {p.campaign_id && <button onClick={() => diagnose(p.id)} style={{ justifySelf: 'start', border: 0, background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: C.ink2, textDecoration: 'underline' }}>{diag[p.id] && diag[p.id] !== 'loading' ? 'Hide details' : diag[p.id] === 'loading' ? 'Asking Meta…' : 'What does Meta say?'}</button>}
+              {Array.isArray(diag[p.id]) && <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: C.ink2, display: 'grid', gap: 2 }}>{(diag[p.id] as string[]).map((l, i) => <li key={i}>{l}</li>)}</ul>}
               {p.status === 'active' && d === 'PENDING_REVIEW' && <span style={{ fontSize: 12, color: C.ink2 }}>Meta reviews new ads before showing them, usually within a few hours. The Download button only appears on the Sponsored copy, not the regular post.</span>}
             </div>
             <div style={{ display: 'grid', gap: 8 }}>

@@ -28,6 +28,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   const [ads, setAds] = useState<AdsData | null>(null)
   const [promoting, setPromoting] = useState<QueuedPost | null>(null)
   const [viewing, setViewing] = useState<{ media: QueuedPost['media']; index: number } | null>(null)
+  const [appFilter, setAppFilter] = useState<string>('all')
 
   const loadAds = useCallback(async () => {
     const r = await fetch('/api/ads/meta').then((x) => (x.ok ? x.json() : null)).catch(() => null)
@@ -71,15 +72,46 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   if (error && !posts) return <p style={{ color: C.red }}>{error}</p>
   if (!posts) return <p style={{ color: C.soft }}>Loading the queue…</p>
 
-  const scheduled = posts.filter((p) => p.status === 'scheduled').sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
-  const rest = posts.filter((p) => p.status !== 'scheduled')
+  const inApp = <T extends { app_id: string }>(x: T) => appFilter === 'all' || x.app_id === appFilter
+  const scheduled = posts.filter((p) => p.status === 'scheduled' && inApp(p)).sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
+  const rest = posts.filter((p) => p.status !== 'scheduled' && inApp(p))
+  const shownSeries = series.filter(inApp)
+  const shownAds = ads ? { ...ads, promotions: ads.promotions.filter(inApp) } : null
+  // Apps that have anything in the queue, in the sidebar's order, with what's coming up.
+  const appIds = apps.map((a) => a.id).filter((id) => posts.some((p) => p.app_id === id) || series.some((r) => r.app_id === id))
+  const upcoming = (id: string) => posts.filter((p) => p.status === 'scheduled' && p.app_id === id).length
+  const chip = (id: string, text: React.ReactNode, n: number) => {
+    const on = appFilter === id
+    return (
+      <button key={id} onClick={() => setAppFilter(id)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 99, padding: '6px 13px', fontSize: 13, fontWeight: 650, cursor: 'pointer',
+                 border: `1px solid ${on ? C.ink : C.rule2}`, background: on ? C.ink : C.card, color: on ? '#fff' : C.ink }}>
+        {text}{n > 0 && <span style={{ fontSize: 11.5, opacity: 0.7 }}>{n}</span>}
+      </button>
+    )
+  }
+
+  const groupByApp = (list: QueuedPost[]): [string, QueuedPost[]][] => {
+    if (appFilter !== 'all') return [[appFilter, list]]
+    const order = apps.map((a) => a.id)
+    const m = new Map<string, QueuedPost[]>()
+    for (const p of list) m.set(p.app_id, [...(m.get(p.app_id) ?? []), p])
+    return Array.from(m.entries()).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+  }
 
   const section = (title: string, list: QueuedPost[], empty: string) => (
     <section style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={label}>{title}</span><span style={{ flex: 1, height: 1, background: C.rule }} />
       </div>
-      {list.length === 0 ? <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{empty}</p> : list.map((p) => {
+      {list.length === 0 ? <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{empty}</p> : groupByApp(list).map(([appId, group]) => (
+        <div key={appId} style={{ display: 'grid', gap: 10 }}>
+          {appFilter === 'all' && (() => { const a = apps.find((x) => x.id === appId); return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              {a && <img src={a.icon} alt="" width={18} height={18} style={{ borderRadius: 5 }} />}
+              <b style={{ fontSize: 13.5 }}>{a?.name ?? appId}</b><span style={{ fontSize: 12.5, color: C.soft }}>{group.length}</span>
+            </div>) })()}
+          {group.map((p) => {
         const app = apps.find((a) => a.id === p.app_id)
         const s = STATUS[p.status] ?? STATUS.scheduled
         const first = p.media[0]
@@ -128,18 +160,26 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
           </article>
         )
       })}
+        </div>
+      ))}
     </section>
   )
 
   return (
     <div style={{ display: 'grid', gap: 28 }}>
       {error && <p style={{ color: C.red, margin: 0 }}>{error}</p>}
-      {series.length > 0 && (
+      {appIds.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {chip('all', 'All apps', posts.filter((p) => p.status === 'scheduled').length)}
+          {appIds.map((id) => { const a = apps.find((x) => x.id === id)!; return chip(id, <>{<img src={a.icon} alt="" width={16} height={16} style={{ borderRadius: 4 }} />}{a.name}</>, upcoming(id)) })}
+        </div>
+      )}
+      {shownSeries.length > 0 && (
         <section style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={label}>Repeating</span><span style={{ flex: 1, height: 1, background: C.rule }} />
           </div>
-          {series.map((r) => {
+          {shownSeries.map((r) => {
             const app = apps.find((a) => a.id === r.app_id)
             const first = r.media[0]
             const paused = r.status === 'paused'
@@ -173,7 +213,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
           })}
         </section>
       )}
-      {ads && <Promotions ads={ads} apps={apps} onChange={loadAds} />}
+      {shownAds && <Promotions ads={shownAds} apps={apps} onChange={loadAds} />}
       {viewing && <MediaViewer media={viewing.media} start={viewing.index} onClose={() => setViewing(null)} />}
       {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
       {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
