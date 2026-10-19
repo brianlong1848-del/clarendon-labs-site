@@ -10,22 +10,15 @@ a step says so.
 
 ## 1. Shared foundation (`src/components/AdminNav.tsx`)
 
-- Remove `C.grad` from `btn('mint')`: `mint` becomes the same as `solid`
-  (ink). Keep the name so the 22 call sites still compile, then rename call
-  sites to `btn('solid')` in the same commit. Drop the gradient hover glow
-  rule in `SHELL_CSS`.
-- Remove the radial colour blobs behind the page header (SHELL_CSS line with
-  `radial-gradient(...)`) and the gradient on the active sidebar item (use
-  `card` background + 3px teal left edge).
-- `C.serif` → Besley for page titles only (`AdminShell` h1). Load Besley 800
-  (it's already loaded for the logo).
-- Add `C.loss = '#B4532A'` and use it for every negative money figure.
-- Add a shared `AppTag` component: icon (20px, radius 5) + name inline,
-  optional `size`. Add `appAccent(id)` from `STUDIO_APPS`.
-- Add a shared `Label` (12px, 600, ink2, sentence case) and replace every
-  `fontFamily: C.mono … textTransform: 'uppercase'` label (28 places; grep
-  `textTransform: 'uppercase'`). Keep mono only for tabular figures.
-- Retire `TILE` (pastel KPI tints).
+Keep the approved look (aurora, gradient primary, tile tints, Geist, mono
+labels). Add only:
+- `C.loss = '#B4532A'` and use it for every negative money figure (some pages
+  use amber, some red today).
+- A shared `AppTag` component: icon (20px, radius 5) + name inline, optional
+  `size`, plus `appAccent(id)` from `STUDIO_APPS`. Use it everywhere an app is
+  named (Money table stacks the icon above the name today).
+- A shared `Label` component wrapping the existing mono-label style, so the 28
+  hand-written copies (grep `textTransform: 'uppercase'`) render identically.
 
 ## 2. Console (`src/app/admin/page.tsx`)
 
@@ -54,22 +47,18 @@ a step says so.
 
 ## 4. Analytics (`src/app/analytics/page.tsx`, `[app]/page.tsx`)
 
-- Top: two lone KPI cards ("Revenue · 30 days", "New installs · 30 days")
-  → one card with both figures + a 30-day sparkline each (data is already
-  daily from ASC).
-- Per-app sections: the four grey sub-cards (App Store / Instagram /
-  Facebook / TikTok) each repeat mono caps labels; make them one row of four
-  columns separated by hairlines inside the app card, with the AppTag + 4px
-  accent edge on the app card.
+- Top: the two KPI cards become tiles (teal, indigo) with a 30-day sparkline
+  each (data is already daily from ASC).
+- Per-app sections: add the AppTag + 4px accent edge to each app card so the
+  long page reads by app at a glance.
 - TikTok "Not connected yet — needs a TikTok ad account + access token":
   after Wednesday's token work this fills in; until then show it as a muted
   single line, not a full column.
-- App detail page: KPI row of four separate cards → one card, four columns.
+- App detail page: KPI row → the four `TILE` tints, like Money.
 
 ## 5. Money (`src/app/admin/money/*`)
 
-- Overview: the four pastel tiles (Revenue / Costs / Ad spend / Profit) →
-  one neutral card, four columns; Profit uses `C.loss` when negative.
+- Overview: keep the four tiles; Profit figure uses `C.loss` when negative.
   All-time P/L stays the hero of the page (it's the number Brian asked for).
 - "LLC owes Brian $4,455" floating chip → a line in the All-time card.
 - App table: icon stacked above the name → AppTag inline; figures tabular;
@@ -82,7 +71,7 @@ a step says so.
   Two columns: forms left (Quick add, Upload receipt), right column
   "LLC owes Brian" + Member loans + last 5 quick adds.
 - Subscriptions: every row has a gradient "Moved to business" button →
-  secondary buttons; one primary ("Add subscription") on the page.
+  secondary buttons; the one gradient on the page is "Add subscription".
 - Triage empty state: fine; add a "Sync now" button under the text.
 
 ## 6. Post (`src/components/post/*`)
@@ -97,7 +86,7 @@ a step says so.
   visible ("Nothing scheduled · Compose").
 - Accounts tab: green "Ready" tiles are fine; "Not yet" tiles lead with the
   button, reason below in ink2.
-- Remove "→" from "Open", "Map & details", "Analytics" buttons.
+- Keep button labels short and literal ("Open", "Map & details").
 
 ## 7. Security
 
@@ -114,6 +103,4 @@ replaces.
 
 ## Studio iPhone app
 
-Apply the same rules to `studio-ios` once the web pass lands (AppTag →
-`AppChip` SwiftUI view, no gradient buttons, sentence-case labels). Ask Brian
-for screenshots of each tab first.
+See `studio-ios/HANDOFF-design-flow.md`.
