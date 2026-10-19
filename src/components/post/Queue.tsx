@@ -7,7 +7,7 @@ import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { describeRule } from '@/lib/publish/recur'
 import { PromoteSheet, Promotions, promotable, type AdsData } from './Promote'
-import { isMarket, MARKETS } from '@/lib/publish/markets'
+import { APP_MARKETS, isMarket, MARKETS, type Market } from '@/lib/publish/markets'
 
 // Repeating posts (pause / resume / stop), then everything scheduled, in
 // flight, and recently sent — with the per-platform
@@ -19,6 +19,21 @@ const STATUS: Record<string, { text: string; color: string; bg: string }> = {
   done: { text: 'Posted', color: C.mint, bg: C.mintTint },
   partial: { text: 'Partly posted', color: C.amber, bg: '#FBF0DD' },
   failed: { text: 'Failed', color: C.red, bg: '#FBE7E5' },
+}
+
+/** Which country a post is for. Only apps that post to more than one country
+ *  show it; a post without a market is the app's home edition. */
+function marketOf(p: { app_id: string; market?: string | null }): Market | null {
+  const list = APP_MARKETS[p.app_id] ?? ['us']
+  if (list.length < 2) return null
+  return MARKETS[isMarket(p.market) ? p.market : list[0]]
+}
+function CountryTag({ m, size = 12 }: { m: Market; size?: number }) {
+  return (
+    <span title={`${m.name} · ${m.langName}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: size, fontWeight: 700, color: C.ink, background: C.card2, borderRadius: 99, padding: '2px 8px 2px 6px', whiteSpace: 'nowrap' }}>
+      <span aria-hidden style={{ fontSize: size + 1 }}>{m.flag}</span>{m.name}
+    </span>
+  )
 }
 
 export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: PublishApp[]; refreshKey: number; onCount: (n: number) => void }) {
@@ -129,10 +144,11 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
                 <b style={{ fontSize: 14 }}>{app?.name ?? p.app_id}</b>
                 <span style={{ fontSize: 12.5, color: C.soft }}>{p.scheduled_at ? when(p.scheduled_at) : when(p.created_at)}</span>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 99, padding: '2px 9px' }}>{s.text}</span>
+                {(() => { const m = marketOf(p); return m ? <CountryTag m={m} size={11.5} /> : null })()}
                 {p.series_id && <span title="A copy of a repeating post" style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2, border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '1px 8px' }}>↻ #{p.occurrence ?? '?'}</span>}
                 {p.caption_by === 'ai' && <span title="Caption written by Claude" style={{ fontSize: 11.5, fontWeight: 700, color: C.mint }}>✦ AI caption</span>}
               </div>
-              <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMarket(p.market) && <b title={`${MARKETS[p.market].name} edition · ${MARKETS[p.market].langName}`} style={{ color: C.ink }}>{MARKETS[p.market].flag} {MARKETS[p.market].short} · </b>}{p.caption || <i>No caption</i>}</p>
+              <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.caption || <i>No caption</i>}</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {p.targets.map((t) => {
                   const name = PLATFORMS.find((x) => x.id === t.platform)?.name
@@ -174,7 +190,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   const small: React.CSSProperties = { ...btn('ghost'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }
   const row = (p: QueuedPost, tone?: 'bad') => {
     const at = p.scheduled_at ?? p.created_at
-    const mk = isMarket(p.market) ? MARKETS[p.market] : null
+    const mk = marketOf(p)
     return (
       <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '58px 40px minmax(0,1fr) auto', gap: 12, alignItems: 'center', padding: '10px 0', borderTop: `1px solid ${C.rule}` }}>
         <div style={{ lineHeight: 1.25 }}>
@@ -186,9 +202,10 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
         </div>
         <div style={{ minWidth: 0, display: 'grid', gap: 3 }}>
           <span style={{ fontSize: 13, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {mk && <b style={{ color: C.ink }}>{mk.flag} {mk.short} · </b>}{p.caption || <i>No caption</i>}
+            {p.caption || <i>No caption</i>}
           </span>
-          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+            {mk && <CountryTag m={mk} size={11} />}
             {p.targets.map((t) => <PlatformGlyph key={t.platform} platform={t.platform} size={13} color={t.status === 'failed' ? C.red : t.status === 'published' ? C.mint : C.soft} />)}
             {p.series_id && <span style={{ fontSize: 11, color: C.soft }}>↻ #{p.occurrence ?? '?'}</span>}
             {p.caption_by === 'ai' && <span style={{ fontSize: 11, fontWeight: 700, color: C.mint }}>✦ AI</span>}
@@ -223,6 +240,15 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
               {reps > 0 && <span>↻ {reps} repeating</span>}
               {boosts > 0 && <span style={{ color: C.mint, fontWeight: 700 }}>● {boosts} boost{boosts === 1 ? '' : 's'} running</span>}
             </div>
+            {(() => {
+              const counts = new Map<string, { m: Market; n: number }>()
+              for (const p of next) { const m = marketOf(p); if (m) counts.set(m.id, { m, n: (counts.get(m.id)?.n ?? 0) + 1 }) }
+              return counts.size > 1 ? (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {Array.from(counts.values()).map(({ m, n }) => <span key={m.id} title={m.name} style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2, background: C.card2, borderRadius: 99, padding: '2px 8px' }}>{m.flag} {m.short} {n}</span>)}
+                </div>
+              ) : null
+            })()}
           </div>
           <button style={small} onClick={() => setAppFilter(id)}>Open →</button>
         </div>
