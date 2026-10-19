@@ -11,6 +11,8 @@ import { PlatformGlyph, type PublishApp } from '@/components/post/shared'
 // Compose on the left, queue on the second tab. The Studio iOS app has the
 // same composer on its Grow tab; both talk to /api/publish.
 
+const ACCOUNTS_KEY = 'clarendon:post-accounts'
+
 export default function PostPage() {
   const [pw, setPw] = useState<string | null>(null)
   const [entry, setEntry] = useState('')
@@ -35,14 +37,24 @@ export default function PostPage() {
     window.history.replaceState(null, '', '/post')
   }, [])
 
-  const load = useCallback(async (password: string) => {
-    setError(null)
-    const res = await fetch('/api/publish/accounts', { headers: {} }).catch(() => null)
+  // Opens instantly from the last account check (kept in this browser), then
+  // swaps in the live one when it lands; first visit shows a skeleton.
+  const [checking, setChecking] = useState(false)
+  const load = useCallback(async (_password: string, fresh = false) => {
+    setError(null); setChecking(true)
+    const res = await fetch(`/api/publish/accounts${fresh ? '?fresh=1' : ''}`, { headers: {} }).catch(() => null)
+    setChecking(false)
     if (!res) { setError('Could not reach clarendon.dev.'); return }
     if (res.status === 401) { (window.location.href = '/login'); setPw(''); setError('Wrong password.'); return }
-    setApps((await res.json()).apps ?? [])
+    const live = (await res.json()).apps ?? []
+    setApps(live)
+    try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(live)) } catch { /* private mode */ }
   }, [])
-  useEffect(() => { if (pw) load(pw) }, [pw, load])
+  useEffect(() => {
+    try { const c = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) ?? 'null'); if (Array.isArray(c) && c.length) setApps((a) => a ?? c) } catch { /* ignore */ }
+  }, [])
+  // Back from a Threads/TikTok sign-in → skip the server's cache.
+  useEffect(() => { if (pw) load(pw, /[?&](tiktok|threads)=/.test(window.location.search)) }, [pw, load])
 
   const onCount = useCallback((n: number) => setQueued(n), [])
 
@@ -88,18 +100,36 @@ export default function PostPage() {
           <button onClick={() => setNotice(null)} aria-label="Dismiss" style={{ all: 'unset', cursor: 'pointer', fontSize: 18 }}>×</button>
         </div>
       )}
-      {!apps ? <p style={{ color: C.soft }}>Checking which accounts are connected…</p> : (
+      {checking && apps && <span role="status" style={{ position: 'fixed', bottom: 18, right: 18, zIndex: 20, fontSize: 12, fontWeight: 700, color: C.ink2, background: C.card, border: `1px solid ${C.rule}`, borderRadius: 99, padding: '6px 12px', boxShadow: '0 4px 14px rgba(0,0,0,.08)' }}>Checking accounts…</span>}
+      {!apps ? <Skeleton /> : (
         <>
           <div style={{ display: tab === 'compose' ? 'block' : 'none' }}>
             <Composer pw={pw} apps={apps} onPosted={() => setRefreshKey((k) => k + 1)} />
           </div>
-          {tab === 'accounts' && <Accounts apps={apps} onRefresh={() => pw && load(pw)} />}
+          {tab === 'accounts' && <Accounts apps={apps} onRefresh={() => pw && load(pw, true)} />}
           <div style={{ display: tab === 'queue' ? 'block' : 'none' }}>
             <Queue pw={pw} apps={apps} refreshKey={refreshKey} onCount={onCount} />
           </div>
         </>
       )}
     </AdminShell>
+  )
+}
+
+// First-ever visit: the composer's shape while the account check runs.
+function Skeleton() {
+  const bar = (w: string | number, h = 14): React.CSSProperties => ({ width: w, height: h, borderRadius: 8, background: C.card2 })
+  const box: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22, display: 'grid', gap: 14 }
+  return (
+    <div aria-busy="true" aria-label="Loading the composer" className="post-skel" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 400px', gap: 26, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gap: 18 }}>
+        <div style={box}><div style={bar(150, 18)} /><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>{[0, 1, 2, 3, 4].map((i) => <div key={i} style={bar('100%', 60)} />)}</div></div>
+        <div style={box}><div style={bar(170, 18)} /><div style={bar('100%', 200)} /></div>
+        <div style={box}><div style={bar(110, 18)} /><div style={bar('100%', 120)} /></div>
+      </div>
+      <div style={{ ...box, minHeight: 460 }}><div style={bar(90)} /><div style={bar('100%', 380)} /></div>
+      <style>{`.post-skel > div > div > div, .post-skel > div > div { animation: skel 1.4s ease-in-out infinite } @keyframes skel { 50% { opacity: .55 } } @media (max-width: 1100px){ .post-skel{ grid-template-columns: 1fr !important } }`}</style>
+    </div>
   )
 }
 

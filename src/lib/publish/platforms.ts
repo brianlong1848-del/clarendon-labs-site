@@ -99,14 +99,37 @@ export async function grantedPermissions(): Promise<Set<string>> {
 
 export type Account = { platform: Platform; ready: boolean; handle?: string; avatar?: string; reason?: string; connect?: 'threads' | 'tiktok' }
 
-export async function accounts() {
-  const perms = await grantedPermissions()
+// The account check talks to Meta, Threads and TikTok for every app, so it's
+// cached for a few minutes on a warm server ("Check again" and a fresh
+// sign-in bypass it), every platform is checked at the same time, and a
+// platform that doesn't answer within 8s is reported rather than holding up
+// the page.
+let accountsCache: { at: number; data: Awaited<ReturnType<typeof checkAccounts>> } | null = null
+export async function accounts(fresh = false) {
+  if (!fresh && accountsCache && Date.now() - accountsCache.at < 180_000) return accountsCache.data
+  const data = await checkAccounts()
+  accountsCache = { at: Date.now(), data }
+  return data
+}
+
+const PNAME: Record<string, string> = { instagram: 'Instagram', facebook: 'Facebook', threads: 'Threads', tiktok: 'TikTok' }
+async function within(list: Account[], platform: Account['platform'], fn: () => Promise<void>) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), 8000) })
+  const r = await Promise.race([fn().then(() => 'ok' as const), late])
+  clearTimeout(timer)
+  if (r === 'late' && !list.length) list.push({ platform, ready: false, reason: `${PNAME[platform]} didn’t answer in time — press Check again on the Accounts tab.` })
+}
+
+async function checkAccounts() {
+  const [perms] = await Promise.all([grantedPermissions(), pages()])
   const threadsConfigured = !!(process.env.THREADS_APP_ID && process.env.THREADS_APP_SECRET)
   return Promise.all(PUBLISH_APPS.map(async (app) => {
     const out: Account[] = []
     const page = await pageFor(app.id)
     const ig = await igFor(app.id)
-
+    const igA: Account[] = [], fbA: Account[] = [], thA: Account[] = [], tkA: Account[] = []
+    await Promise.all([within(igA, 'instagram', async () => { const out = igA
     // Instagram
     if (!metaToken()) out.push({ platform: 'instagram', ready: false, reason: 'META_ACCESS_TOKEN isn’t set on this deployment.' })
     else if (!ig) out.push({ platform: 'instagram', ready: false, reason: page ? `Link ${app.name}’s Instagram to the “${page.name}” Facebook Page (Meta Business Suite → Settings → Instagram).` : `No Facebook Page or Instagram found for ${app.name}. Create its Page, add it to the Clarendon business, and assign it to the Analytics API system user.` })
@@ -123,12 +146,14 @@ export async function accounts() {
       }
     }
 
+    }), within(fbA, 'facebook', async () => { const out = fbA
     // Facebook
     if (!page) out.push({ platform: 'facebook', ready: false, reason: `The token can’t see a ${app.name} Facebook Page. In Business settings → System users → Analytics API → Assign assets, add the Page with full control.` })
     else if (perms.size > 0 && !perms.has('pages_manage_posts')) out.push({ platform: 'facebook', ready: false, handle: page.name, reason: 'Needs pages_manage_posts — add the “Manage everything on your Page” use case to the Meta app, then regenerate the token.' })
     else if (!page.access_token) out.push({ platform: 'facebook', ready: false, handle: page.name, reason: 'The system user can see this Page but can’t post to it — give it full control of the Page.' })
     else out.push({ platform: 'facebook', ready: true, handle: page.name })
 
+    }), within(thA, 'threads', async () => { const out = thA
     // Threads
     const tt = await threadsToken(app.id)
     if (!tt) out.push(threadsConfigured
@@ -143,6 +168,7 @@ export async function accounts() {
       }
     }
 
+    }), within(tkA, 'tiktok', async () => { const out = tkA
     // TikTok
     if (!tiktokConfigured()) out.push({ platform: 'tiktok', ready: false, reason: 'TikTok needs a one-time setup: save TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET from the developer app.' })
     else {
@@ -161,6 +187,8 @@ export async function accounts() {
         out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `Connect ${app.name}’s TikTok account — TikTok lets you pick the account when you sign in.` })
       }
     }
+    })])
+    out.push(...igA, ...fbA, ...thA, ...tkA)
     return { id: app.id, name: app.name, accent: app.accent, icon: `/icons/${app.id}.png`, accounts: out }
   }))
 }

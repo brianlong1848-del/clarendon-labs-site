@@ -8,5 +8,5 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
-  return NextResponse.json({ apps: await accounts() })
+  return NextResponse.json({ apps: await accounts(new URL(req.url).searchParams.has('fresh')) })
 }
