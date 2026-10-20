@@ -67,7 +67,22 @@ export type AppStoreMetrics = {
   countries: { code: string; installs: number; proceeds: number }[]
   /** One point per published day in the window, oldest first — for charts. */
   series: { date: string; installs: number; proceeds: number }[]
+  /** Longer view, from Apple's monthly reports plus this month's daily ones. */
+  history?: AppStoreHistory
 } | null
+
+export type Tally = { installs: number; proceeds: number }
+export type AppStoreHistory = {
+  /** Jan 1 of this year through the latest published day. */
+  ytd: Tally & { from: string; to: string }
+  /** The same stretch of last year (this month's share estimated from last
+   *  year's whole month, by days elapsed). */
+  prevYtd: Tally & { from: string; to: string }
+  /** Every month of last year and this year, oldest first ('2026-07'). */
+  months: (Tally & { month: string })[]
+  /** Since the app's first sale or install in the data we have. */
+  allTime: Tally
+}
 
 export function signAppStoreJWT(): string | null {
   const keyId = process.env.ASC_KEY_ID
@@ -122,7 +137,14 @@ async function fetchDay(date: string, jwt: string, vendor: string): Promise<DayR
     if (res.status === 404) return 'missing' // not published yet, or no sales at all that day
     if (!res.ok) return 'error'
 
-    const tsv = gunzipSync(Buffer.from(await res.arrayBuffer())).toString('utf-8')
+    return parseReport(gunzipSync(Buffer.from(await res.arrayBuffer())).toString('utf-8'))
+  } catch {
+    return 'error'
+  }
+}
+
+function parseReport(tsv: string): DayResult {
+  {
     const [headerLine, ...lines] = tsv.trim().split('\n')
     const cols = headerLine.split('\t').map((c) => c.trim())
     const at = (name: string) => cols.indexOf(name)
@@ -143,8 +165,6 @@ async function fetchDay(date: string, jwt: string, vendor: string): Promise<DayR
         country: iCountry === -1 ? '' : (c[iCountry] ?? '').trim().toUpperCase(),
       }
     })
-  } catch {
-    return 'error'
   }
 }
 
@@ -184,6 +204,36 @@ export function getSku(appleAppId: string, jwt: string): Promise<string | null> 
   // Don't cache a failed lookup forever.
   value.then((sku) => { if (!sku) skuCache.delete(appleAppId) })
   return value
+}
+
+// Monthly summary reports: one per completed month, published ~5 days after
+// the month ends, never changing after that — so they're cached for the life
+// of the instance (and shared across apps).
+const monthCache = new Map<string, { at: number; value: Promise<DayResult> }>()
+
+async function fetchMonth(ym: string, jwt: string, vendor: string): Promise<DayResult> {
+  const params = new URLSearchParams({
+    'filter[frequency]': 'MONTHLY', 'filter[reportDate]': ym, 'filter[reportType]': 'SALES',
+    'filter[reportSubType]': 'SUMMARY', 'filter[vendorNumber]': vendor, 'filter[version]': '1_0',
+  })
+  try {
+    const res = await fetch(`${API}/v1/salesReports?${params}`, {
+      headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/a-gzip' }, cache: 'no-store', signal: AbortSignal.timeout(10000),
+    })
+    if (res.status === 404) return 'missing'
+    if (!res.ok) return 'error'
+    return parseReport(gunzipSync(Buffer.from(await res.arrayBuffer())).toString('utf-8'))
+  } catch { return 'error' }
+}
+
+function getMonth(ym: string, jwt: string, vendor: string): Promise<DayResult> {
+  const hit = monthCache.get(ym)
+  if (hit) {
+    const stale = hit.value.then((v) => v === 'error' || (v === 'missing' && Date.now() - hit.at > MISSING_TTL_MS))
+    return stale.then((isStale) => (isStale ? load() : hit.value))
+  }
+  return load()
+  function load() { const value = fetchMonth(ym, jwt, vendor); monthCache.set(ym, { at: Date.now(), value }); return value }
 }
 
 // ─── Tally ───────────────────────────────────────────────────────────────────
@@ -260,7 +310,10 @@ export async function fetchAppStore(appleAppId: string): Promise<AppStoreMetrics
   })
   series.reverse()
 
+  const history = await appHistory(appleAppId, sku, jwt, vendor, window as DayResult[], dates.slice(firstPublished, firstPublished + window.length)).catch(() => undefined)
+
   return {
+    history,
     reportDate: dates[firstPublished],
     day: { ...latest, proceeds: round2(latest.proceeds) },
     last30: { ...sum, proceeds: round2(sum.proceeds), days: window.length },
@@ -269,5 +322,70 @@ export async function fetchAppStore(appleAppId: string): Promise<AppStoreMetrics
     countries: Array.from(byCountry, ([code, v]) => ({ code, installs: v.installs, proceeds: round2(v.proceeds) }))
       .filter((c) => c.installs > 0 || c.proceeds > 0)
       .sort((a, b) => b.installs - a.installs || b.proceeds - a.proceeds),
+  }
+}
+
+// ─── Year to date / year over year ──────────────────────────────────────────
+//
+// Completed months come from Apple's MONTHLY reports; the current month (and
+// last month, until its monthly report is published) is summed from the daily
+// reports already fetched for the 30-day window. Months with no report (before
+// launch, or no sales) count as zero.
+
+const ym = (d: Date) => d.toISOString().slice(0, 7)
+const daysIn = (y: number, m0: number) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate()
+
+async function appHistory(appleAppId: string, sku: string | null, jwt: string, vendor: string,
+                          window: DayResult[], windowDates: string[]): Promise<AppStoreHistory> {
+  const latest = windowDates[0]                       // newest published day, 'YYYY-MM-DD'
+  const now = new Date(`${latest}T12:00:00Z`)
+  const year = now.getUTCFullYear(), m0 = now.getUTCMonth()
+  const other = new Set<string>()
+  const t = (rows: DayResult) => Array.isArray(rows) ? tally(rows, appleAppId, sku, other) : { installs: 0, proceeds: 0 }
+
+  // Daily totals by month, from the window.
+  const dailyByMonth = new Map<string, Tally & { days: Set<string> }>()
+  window.forEach((d, i) => {
+    const key = windowDates[i].slice(0, 7)
+    const x = dailyByMonth.get(key) ?? { installs: 0, proceeds: 0, days: new Set<string>() }
+    const v = t(d); x.installs += v.installs; x.proceeds += v.proceeds; x.days.add(windowDates[i])
+    dailyByMonth.set(key, x)
+  })
+
+  const keys: string[] = []
+  for (let y = year - 1; y <= year; y++) for (let m = 0; m < 12; m++) {
+    if (y === year && m > m0) break
+    keys.push(`${y}-${String(m + 1).padStart(2, '0')}`)
+  }
+  const current = ym(now)
+  const months = await Promise.all(keys.map(async (key) => {
+    if (key === current) { const d = dailyByMonth.get(key); return { month: key, installs: d?.installs ?? 0, proceeds: d?.proceeds ?? 0 } }
+    const r = await getMonth(key, jwt, vendor)
+    if (Array.isArray(r)) { const v = t(r); return { month: key, ...v } }
+    // Last month before Apple publishes its monthly report: use the dailies we have.
+    const d = dailyByMonth.get(key)
+    if (d && d.days.size >= daysIn(Number(key.slice(0, 4)), Number(key.slice(5)) - 1) - 1) return { month: key, installs: d.installs, proceeds: d.proceeds }
+    return { month: key, installs: 0, proceeds: 0 }
+  }))
+
+  const sum = (list: Tally[]) => list.reduce((a, b) => ({ installs: a.installs + b.installs, proceeds: a.proceeds + b.proceeds }), { installs: 0, proceeds: 0 })
+  const thisYear = months.filter((x) => x.month.startsWith(`${year}-`))
+  const lastYearFull = months.filter((x) => x.month.startsWith(`${year - 1}-`))
+  const lastYearBefore = lastYearFull.filter((x) => Number(x.month.slice(5)) - 1 < m0)
+  const lastYearSame = lastYearFull.find((x) => Number(x.month.slice(5)) - 1 === m0)
+  const share = now.getUTCDate() / daysIn(year - 1, m0)
+  const prev = sum(lastYearBefore)
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const ytd = sum(thisYear)
+  const all = sum(months)
+  return {
+    ytd: { installs: ytd.installs, proceeds: r2(ytd.proceeds), from: `${year}-01-01`, to: latest },
+    prevYtd: {
+      installs: Math.round(prev.installs + (lastYearSame?.installs ?? 0) * share),
+      proceeds: r2(prev.proceeds + (lastYearSame?.proceeds ?? 0) * share),
+      from: `${year - 1}-01-01`, to: `${year - 1}${latest.slice(4)}`,
+    },
+    months: months.map((x) => ({ ...x, proceeds: r2(x.proceeds) })),
+    allTime: { installs: all.installs, proceeds: r2(all.proceeds) },
   }
 }

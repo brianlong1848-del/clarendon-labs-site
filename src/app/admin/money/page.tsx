@@ -30,7 +30,24 @@ export default function MoneyOverview() {
   }, [])
 
   const months = useMemo(() => (d ? Array.from(new Set(d.pnl.map((x) => x.month))).sort().reverse() : []), [d])
-  const rows = useMemo(() => (d && month ? d.pnl.filter((x) => x.month === month) : []), [d, month])
+  // A month, or "ytd" / "all": those roll every month in the period up per app.
+  const rows = useMemo(() => {
+    if (!d || !month) return []
+    if (month !== 'ytd' && month !== 'all') return d.pnl.filter((x) => x.month === month)
+    const year = String(new Date().getFullYear())
+    const pick = d.pnl.filter((x) => month === 'all' || x.month.startsWith(year))
+    const by = new Map<string, Row>()
+    for (const r of [...pick].sort((a, b) => a.month.localeCompare(b.month))) {
+      const x = by.get(r.app_slug)
+      by.set(r.app_slug, x ? {
+        ...x, month: r.month, revenue_cents: x.revenue_cents + r.revenue_cents, direct_cost_cents: x.direct_cost_cents + r.direct_cost_cents,
+        allocated_cost_cents: x.allocated_cost_cents + r.allocated_cost_cents, ad_spend_cents: x.ad_spend_cents + r.ad_spend_cents,
+        profit_cents: x.profit_cents + r.profit_cents, cumulative_profit_cents: r.cumulative_profit_cents,
+      } : { ...r })
+    }
+    return Array.from(by.values())
+  }, [d, month])
+  const periodLabel = (m: string | null) => m === 'ytd' ? `Year to date (${new Date().getFullYear()})` : m === 'all' ? 'All time' : m ? monthLabel(m) : 'This month'
   const name = (slug: string) => d?.apps.find((a) => a.slug === slug)?.name.replace(/\s*\(.*\)/, '') ?? slug
   const tot = rows.reduce((t, r) => ({
     revenue: t.revenue + r.revenue_cents, cost: t.cost + r.direct_cost_cents + r.allocated_cost_cents,
@@ -53,6 +70,8 @@ export default function MoneyOverview() {
       actions={months.length > 0 ? (
         <select value={month ?? ''} onChange={(e) => setMonth(e.target.value)}
           style={{ padding: '8px 12px', borderRadius: 10, border: `1px solid ${C.rule2}`, fontSize: 14, background: C.card }}>
+          <option value="ytd">{periodLabel('ytd')}</option>
+          <option value="all">All time</option>
           {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
         </select>
       ) : undefined}>
@@ -77,9 +96,26 @@ export default function MoneyOverview() {
                 </span>
               ))}
             </div>
+            {/* Where the all-time revenue came from, so the total never needs guessing. */}
+            {all.revenue > 0 && (() => {
+              const by = new Map<string, number>()
+              for (const r of d.pnl) if (r.revenue_cents) by.set(r.app_slug, (by.get(r.app_slug) ?? 0) + r.revenue_cents)
+              return (
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: C.ink2 }}>
+                  <span style={{ color: C.soft }}>Revenue by app</span>
+                  {Array.from(by).sort((a, b) => b[1] - a[1]).map(([slug, cents]) => (
+                    <span key={slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={iconFor(slug)} alt="" width={16} height={16} style={{ borderRadius: 4 }} />
+                      {name(slug)} <b style={{ color: C.ink, fontVariantNumeric: 'tabular-nums' }}>{(cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</b>
+                    </span>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
 
-          <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{month ? monthLabel(month) : 'This month'}</div>
+          <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{periodLabel(month)}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
             {[
               ['Revenue', usd(tot.revenue), C.ink],

@@ -25,7 +25,24 @@ type AppStoreMetrics = {
   otherCurrencies: string[]
   series: { date: string; installs: number; proceeds: number }[]
   countries?: { code: string; installs: number; proceeds: number }[]
+  history?: {
+    ytd: { installs: number; proceeds: number; from: string; to: string }
+    prevYtd: { installs: number; proceeds: number; from: string; to: string }
+    months: { month: string; installs: number; proceeds: number }[]
+    allTime: { installs: number; proceeds: number }
+  }
 } | null
+
+type Range = '30d' | 'ytd' | 'yoy'
+const RANGE_LABEL: Record<Range, string> = { '30d': '30 days', ytd: 'Year to date', yoy: 'Year over year' }
+/** Installs + proceeds for the chosen range; `prev` is last year's same stretch (YoY only). */
+function pick(s: AppStoreMetrics, r: Range): { installs: number; proceeds: number; prev?: { installs: number; proceeds: number } } | null {
+  if (!s) return null
+  if (r === '30d' || !s.history) return { installs: s.last30.installs, proceeds: s.last30.proceeds }
+  return r === 'ytd' ? s.history.ytd : { ...s.history.ytd, prev: s.history.prevYtd }
+}
+const change = (now: number, before: number) =>
+  before > 0 ? `${now >= before ? '+' : '−'}${Math.round(Math.abs(now - before) / before * 100)}% vs last year` : now > 0 ? 'new this year' : 'no sales either year'
 type InstagramMetrics = { followers: number; posts: number; reach30d: number | null } | null
 type FacebookMetrics = { name: string; followers: number; posts30d: number | null } | null
 type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
@@ -43,6 +60,7 @@ export default function AnalyticsPage() {
   const [entry, setEntry] = useState('')
   const [apps, setApps] = useState<AppRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [range, setRange] = useState<Range>('30d')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -99,12 +117,14 @@ export default function AnalyticsPage() {
   // connected, so a source nobody's wired up yet doesn't read as zero.
   const totals = apps.reduce(
     (acc, a) => ({
-      proceeds: acc.proceeds + (a.appStore?.last30.proceeds ?? 0),
-      installs: acc.installs + (a.appStore?.last30.installs ?? 0),
+      proceeds: acc.proceeds + (pick(a.appStore, range)?.proceeds ?? 0),
+      installs: acc.installs + (pick(a.appStore, range)?.installs ?? 0),
+      prevProceeds: acc.prevProceeds + (pick(a.appStore, range)?.prev?.proceeds ?? 0),
+      prevInstalls: acc.prevInstalls + (pick(a.appStore, range)?.prev?.installs ?? 0),
       spend: acc.spend + (a.tiktok?.spend ?? 0),
       impressions: acc.impressions + (a.tiktok?.impressions ?? 0),
     }),
-    { proceeds: 0, installs: 0, spend: 0, impressions: 0 },
+    { proceeds: 0, installs: 0, prevProceeds: 0, prevInstalls: 0, spend: 0, impressions: 0 },
   )
   const anyAppStore = apps.some((a) => a.appStore)
   const anyTikTok = apps.some((a) => a.tiktok)
@@ -148,17 +168,41 @@ export default function AnalyticsPage() {
 
         {/* Totals first — the number a business owner checks before any single
             app's breakdown. Shown only once at least one source is connected. */}
+        {anyAppStore && (
+          <div role="radiogroup" aria-label="Time range" style={{ display: 'inline-flex', justifySelf: 'start', background: C.card2, borderRadius: 10, padding: 3 }}>
+            {(['30d', 'ytd', 'yoy'] as Range[]).map((r) => (
+              <button key={r} role="radio" aria-checked={range === r} onClick={() => setRange(r)}
+                style={{ border: 0, borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, fontFamily: C.sans, cursor: 'pointer',
+                         background: range === r ? C.card : 'transparent', color: range === r ? C.ink : C.soft, boxShadow: range === r ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>
+                {RANGE_LABEL[r]}
+              </button>
+            ))}
+          </div>
+        )}
         {(anyAppStore || anyTikTok) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
             {anyAppStore && (
               <>
                 <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>Revenue · 30 days</div>
+                  <div style={label}>Revenue · {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
                   <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{money(totals.proceeds)}</div>
+                  {range === 'yoy' && <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 4 }}>{money(totals.prevProceeds)} same time last year · {change(totals.proceeds, totals.prevProceeds)}</div>}
+                  {/* Which app it came from — so a studio total never needs guessing. */}
+                  <div style={{ display: 'grid', gap: 4, marginTop: 12 }}>
+                    {apps.filter((a) => (pick(a.appStore, range)?.proceeds ?? 0) > 0).sort((a, b) => (pick(b.appStore, range)!.proceeds) - (pick(a.appStore, range)!.proceeds)).map((a) => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/icons/${a.id}.png`} alt="" width={16} height={16} style={{ borderRadius: 4 }} />
+                        <span style={{ flex: 1 }}>{a.name}</span>
+                        <b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(pick(a.appStore, range)!.proceeds)}</b>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>New installs · 30 days</div>
+                  <div style={label}>New installs · {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
                   <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.installs)}</div>
+                  {range === 'yoy' && <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 4 }}>{num(totals.prevInstalls)} same time last year · {change(totals.installs, totals.prevInstalls)}</div>}
                 </div>
               </>
             )}
@@ -204,8 +248,11 @@ export default function AnalyticsPage() {
                   <div style={label}>App Store</div>
                   {app.appStore ? (
                     <div style={{ display: 'flex', gap: 24, marginTop: 10 }}>
-                      {stat(num(app.appStore.last30.installs), 'installs · 30d')}
-                      {stat(money(app.appStore.last30.proceeds), 'proceeds · 30d')}
+                      {(() => { const v = pick(app.appStore, range)!; const tag = range === '30d' ? '30d' : 'ytd'; return <>
+                        {stat(num(v.installs), `installs · ${tag}`)}
+                        {stat(money(v.proceeds), `proceeds · ${tag}`)}
+                        {v.prev && stat(change(v.proceeds, v.prev.proceeds), `vs ${Number(app.appStore.history!.prevYtd.from.slice(0, 4))}`)}
+                      </> })()}
                     </div>
                   ) : (
                     <div style={{ marginTop: 10 }}>{notConnected('an App Store Connect API key')}</div>
