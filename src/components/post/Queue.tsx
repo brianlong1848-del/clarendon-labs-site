@@ -248,7 +248,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
         <div style={{ lineHeight: 1.25 }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, color: tone ? C.red : C.ink }}>{local ? local.day : dayFmt(at)}</div>
           <div style={{ fontSize: 11.5, color: C.soft }}>{local ? local.time : timeFmt(at)}</div>
-          {local && <div title="Your time" style={{ fontSize: 10.5, color: C.faint }}>{timeFmt(at)} yours</div>}
+          {local && local.time !== timeFmt(at) && <div title="Your time (Chicago)" style={{ fontSize: 10.5, color: C.faint, whiteSpace: 'nowrap' }}>{timeFmt(at)} yours</div>}
         </div>
         {!o.nested && (
           <div style={{ width: 40, height: 40, borderRadius: 8, overflow: 'hidden', background: C.card2 }}>
@@ -313,8 +313,8 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
 
   // By country: one lane per country that has anything scheduled, times in
   // that country's own clock; rows carry their app (tag + accent bar).
-  const countryLane = (m: Market, list: QueuedPost[], trouble: QueuedPost[]) => {
-    const SHOW = 4
+  const countryLane = (m: Market, list: QueuedPost[], trouble: QueuedPost[], wide = false) => {
+    const SHOW = wide ? 8 : 4
     const nowThere = new Date().toLocaleTimeString('en-US', { timeZone: m.tz, hour: 'numeric', minute: '2-digit' })
     const appsHere = Array.from(new Set(list.map((p) => p.app_id)))
     return (
@@ -327,7 +327,8 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
           </div>
           <span style={{ display: 'flex', gap: 4 }}>{appsHere.map((a) => <AppTag key={a} id={a} name="" size={18} />)}</span>
         </div>
-        <div style={{ padding: '4px 18px 8px' }}>
+        {/* A lone country gets the full width, its rows in two columns. */}
+        <div style={{ padding: '4px 18px 8px', ...(wide ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 380px), 1fr))', columnGap: 28 } : {}) }}>
           {trouble.map((p) => row(p, { tone: 'bad', app: true, tz: m.tz }))}
           {list.slice(0, SHOW).map((p) => row(p, { app: true, tz: m.tz }))}
           {list.length > SHOW && <p style={{ margin: '8px 0 4px', fontSize: 12, color: C.soft }}>+{list.length - SHOW} more — pick an app above to see them all</p>}
@@ -455,7 +456,9 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
           </div>
           {/* Masonry: lanes of different heights pack without holes. */}
           <div style={{ columnWidth: 420, columnGap: 14 }}>
-            {view === 'app' ? appIds.map(lane) : (() => {
+            {view === 'app' ? appIds.map(lane) : null}
+          </div>
+          {view === 'country' && (() => {
               const order = Object.keys(MARKETS) as MarketId[]
               const by = new Map<MarketId, { list: QueuedPost[]; trouble: QueuedPost[] }>()
               for (const p of posts) {
@@ -466,13 +469,19 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
                 if (failed) { if (x.trouble.length < 2) x.trouble.push(p) } else x.list.push(p)
                 by.set(m, x)
               }
-              return order.filter((id) => by.has(id)).map((id) => {
+              const ids = order.filter((id) => by.has(id))
+              const lanes = ids.map((id) => {
                 const x = by.get(id)!
                 x.list.sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
-                return countryLane(MARKETS[id], x.list, x.trouble)
+                return countryLane(MARKETS[id], x.list, x.trouble, ids.length === 1)
               })
+              return (
+                <>
+                  <div style={{ columnWidth: ids.length === 1 ? undefined : 420, columnGap: 14 }}>{lanes}</div>
+                  {ids.length === 1 && <p style={{ margin: 0, fontSize: 12.5, color: C.soft }}>Everything scheduled is for {MARKETS[ids[0]].name}. Pick more countries in Compose to post editions elsewhere.</p>}
+                </>
+              )
             })()}
-          </div>
           {idleIds.length > 0 && (
             <div style={{ ...card, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12.5, color: C.soft }}>Nothing scheduled</span>
