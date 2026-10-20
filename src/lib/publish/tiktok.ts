@@ -16,6 +16,7 @@
 //
 // Docs: developers.tiktok.com/doc/content-posting-api-reference-direct-post
 
+import { handleFits, wrongAccount } from './ownership'
 import { getToken, saveToken, signState, type StoredToken } from './tokens'
 import type { TikTokPrivacy, TikTokSettings } from './rules'
 
@@ -82,6 +83,7 @@ export async function connectFromCode(appId: string, code: string) {
   try { name = (await creatorInfo(t.access_token)).creator_username } catch {
     try { name = (await api(t.access_token, 'GET', '/user/info/?fields=open_id,display_name')).user?.display_name ?? null } catch { /* optional */ }
   }
+  if (!handleFits(appId, name)) throw new Error(wrongAccount(appId, name!, 'TikTok'))
   await saveToken(rowFrom(appId, t, name))
   return name
 }

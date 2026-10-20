@@ -22,6 +22,7 @@ import type { MediaItem, Platform } from './rules'
 import { captionFor } from './rules'
 import type { Post, TargetState } from './store'
 import { clearTokenCache, connectedElsewhere, getToken } from './tokens'
+import { handleFits, wrongAccount } from './ownership'
 import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken } from './tiktok'
 
 const G = 'https://graph.facebook.com/v21.0'
@@ -171,7 +172,9 @@ async function checkAccounts() {
         const shared = await connectedElsewhere('threads', me.id ?? null, app.id)
         const other = shared && !owns(app.id, app.name, String(me.username ?? '')) ? shared : undefined
         const otherName = other && PUBLISH_APPS.find((a) => a.id === other.app_id)?.name
-        out.push(other
+        out.push(!handleFits(app.id, me.username)
+          ? { platform: 'threads', ready: false, connect: 'threads', handle: me.username, reason: wrongAccount(app.id, me.username, 'Threads') }
+          : other
           ? { platform: 'threads', ready: false, connect: 'threads', handle: me.username, reason: `Connected to @${me.username}, which is ${otherName}’s account. On threads.net switch to ${app.name}’s account, then press Connect.` }
           : { platform: 'threads', ready: true, handle: me.username, avatar: me.threads_profile_picture_url })
       } catch (e) {
@@ -190,7 +193,9 @@ async function checkAccounts() {
       if (row) {
         try {
           const c = await creatorInfo(row.token)
-          out.push({ platform: 'tiktok', ready: true, handle: c.creator_username, avatar: c.creator_avatar_url })
+          out.push(handleFits(app.id, c.creator_username)
+            ? { platform: 'tiktok', ready: true, handle: c.creator_username, avatar: c.creator_avatar_url }
+            : { platform: 'tiktok', ready: false, connect: 'tiktok', handle: c.creator_username, reason: wrongAccount(app.id, c.creator_username, 'TikTok') })
         } catch (e) {
           out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `TikTok sign-in expired (${(e as Error).message}). Reconnect it.` })
         }
@@ -292,6 +297,8 @@ async function facebook(p: Post, t: TargetState): Promise<Step> {
 async function threads(p: Post, t: TargetState): Promise<Step> {
   const token = await threadsToken(p.app_id)
   if (!token) return { status: 'failed', error: 'Threads isn’t connected for this app.' }
+  const stored = await getToken('threads', p.app_id)
+  if (stored && !handleFits(p.app_id, stored.username)) return { status: 'failed', error: wrongAccount(p.app_id, stored.username!, 'Threads') }
   const text = captionFor('threads', p.caption, p.overrides)
   if (!t.containerId) {
     const one = (m: MediaItem, extra: Record<string, string>) => post(`${T}/me/threads`, {
@@ -319,6 +326,8 @@ async function threads(p: Post, t: TargetState): Promise<Step> {
 async function tiktok(p: Post, t: TargetState): Promise<Step> {
   const row = await tiktokToken(p.app_id)
   if (!row) return { status: 'failed', error: 'TikTok isn’t connected for this app.' }
+  // Never post an app's video to someone else's account (e.g. Brian's personal TikTok).
+  if (!handleFits(p.app_id, row.username)) return { status: 'failed', error: wrongAccount(p.app_id, row.username!, 'TikTok') }
   const settings = t.tiktok ?? { mode: 'draft' as const }
   const video = p.media.find((m) => m.kind === 'video')
   if (!video) return { status: 'failed', error: 'TikTok here posts one video.' }

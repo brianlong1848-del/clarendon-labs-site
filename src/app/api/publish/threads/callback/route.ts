@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { connectedElsewhere, readState, saveToken, threadsRedirect } from '@/lib/publish/tokens'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
+import { handleFits, wrongAccount } from '@/lib/publish/ownership'
 
 // Threads sends the browser back here after sign-in. The signed state says
 // which app is being connected (so this needs no console password); we swap
@@ -30,6 +31,7 @@ export async function GET(req: Request) {
 
     // Refuse to give one Threads account to two apps (it's always the
     // threads.net session that decides which account comes back).
+    if (!handleFits(appId, me.username)) return back(wrongAccount(appId, me.username, 'Threads'))
     const clash = await connectedElsewhere('threads', me.id ?? null, appId)
     if (clash) {
       const name = (id: string) => PUBLISH_APPS.find((a) => a.id === id)?.name ?? id
