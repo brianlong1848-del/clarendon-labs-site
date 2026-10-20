@@ -32,13 +32,16 @@ export default function Security() {
     setBusy(false); setMsg('Passkey removed.'); await load()
   }
 
-  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: 22, maxWidth: 640 }
+  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22, maxWidth: 1180 }
   return (
     <AdminShell title="Security" subtitle="How you sign in to this console">
       <div style={card}>
         <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 6px' }}>Passkeys</h2>
         <p style={{ color: C.ink2, fontSize: 14, lineHeight: 1.5, margin: '0 0 14px' }}>
           A passkey signs you in with Touch ID or Face ID instead of a typed password. Add one on each device you use, your Mac and your iPhone.
+        </p>
+        <p style={{ color: C.ink2, fontSize: 14, lineHeight: 1.5, margin: '0 0 14px' }}>
+          It replaces typing your email and password. The 6-digit code from your authenticator app is still asked for after it.
         </p>
         <button style={btn('mint')} disabled={busy} onClick={add}>Add a passkey on this device</button>
         {msg && <p style={{ color: C.mint, fontSize: 13.5 }}>{msg}</p>}
