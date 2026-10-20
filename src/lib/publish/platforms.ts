@@ -21,7 +21,7 @@
 import type { MediaItem, Platform } from './rules'
 import { captionFor } from './rules'
 import type { Post, TargetState } from './store'
-import { getToken } from './tokens'
+import { connectedElsewhere, getToken } from './tokens'
 import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken } from './tiktok'
 
 const G = 'https://graph.facebook.com/v21.0'
@@ -161,8 +161,18 @@ async function checkAccounts() {
       : { platform: 'threads', ready: false, reason: 'Threads needs a one-time setup: add the Threads use case to the Meta app and save THREADS_APP_ID + THREADS_APP_SECRET.' })
     else {
       try {
-        const me = await call(`${T}/me?fields=username,threads_profile_picture_url&access_token=${tt}`)
-        out.push({ platform: 'threads', ready: true, handle: me.username, avatar: me.threads_profile_picture_url })
+        const me = await call(`${T}/me?fields=id,username,threads_profile_picture_url&access_token=${tt}`)
+        // Same Threads account as another app (connected while threads.net was
+        // signed in as that app): not ready, so nothing posts as the wrong brand.
+        // When two apps share one account, the app whose name is in the handle
+        // keeps it (@gagordergame belongs to Gag Order, not Rolligan).
+        const owns = (id: string, name: string, handle: string) => [id, name].some((x) => handle.toLowerCase().includes(x.toLowerCase().replace(/[^a-z0-9]/g, '')))
+        const shared = await connectedElsewhere('threads', me.id ?? null, app.id)
+        const other = shared && !owns(app.id, app.name, String(me.username ?? '')) ? shared : undefined
+        const otherName = other && PUBLISH_APPS.find((a) => a.id === other.app_id)?.name
+        out.push(other
+          ? { platform: 'threads', ready: false, connect: 'threads', handle: me.username, reason: `Connected to @${me.username}, which is ${otherName}’s account. On threads.net switch to ${app.name}’s account, then press Connect.` }
+          : { platform: 'threads', ready: true, handle: me.username, avatar: me.threads_profile_picture_url })
       } catch (e) {
         out.push({ platform: 'threads', ready: false, connect: threadsConfigured ? 'threads' : undefined, reason: `Threads sign-in expired (${(e as Error).message}). Reconnect it.` })
       }
