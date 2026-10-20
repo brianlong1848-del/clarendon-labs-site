@@ -29,6 +29,10 @@ async function all(): Promise<StoredToken[]> {
   return cache.rows
 }
 
+/** Drop the 30-second token cache (a fresh account check must see a sign-in
+ *  that just landed on another server instance). */
+export function clearTokenCache() { cache = null }
+
 export async function getToken(platform: string, appId: string) {
   return (await all()).find((t) => t.platform === platform && t.app_id === appId)
 }

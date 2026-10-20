@@ -21,7 +21,7 @@
 import type { MediaItem, Platform } from './rules'
 import { captionFor } from './rules'
 import type { Post, TargetState } from './store'
-import { connectedElsewhere, getToken } from './tokens'
+import { clearTokenCache, connectedElsewhere, getToken } from './tokens'
 import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken } from './tiktok'
 
 const G = 'https://graph.facebook.com/v21.0'
@@ -107,6 +107,7 @@ export type Account = { platform: Platform; ready: boolean; handle?: string; ava
 let accountsCache: { at: number; data: Awaited<ReturnType<typeof checkAccounts>> } | null = null
 export async function accounts(fresh = false) {
   if (!fresh && accountsCache && Date.now() - accountsCache.at < 180_000) return accountsCache.data
+  if (fresh) clearTokenCache()
   const data = await checkAccounts()
   accountsCache = { at: Date.now(), data }
   return data
