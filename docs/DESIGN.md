@@ -102,3 +102,30 @@ tile reveals). Everything stops under `prefers-reduced-motion` / Reduce Motion.
 
 Works at 390px wide (sidebar becomes a top bar), visible keyboard focus
 (2px teal ring), contrast AA for all text, tap targets ≥ 40px on touch.
+
+## Pattern: country editions in the queue (added 2026-10-20)
+
+Apps that post to more than one country (Rolligan, Borea, YulePick) get
+three extra pieces. Gag Order and Jinglewire never show any of them.
+
+| Piece | What it is | Rule |
+|---|---|---|
+| `CountryTag` | flag + country name chip | Only where countries are mixed. A lane whose posts are all one country says it once, in the lane header — never "United States" on every row. |
+| `FlagStack` | up to 4 overlapping flags, then "+N" | Marks one multi-country post. |
+| Edition row | one row per `edition_group` | A multi-country post is one idea, so it's one row: first edition's thumbnail and caption, FlagStack, "N countries · same local time". "Editions" opens the per-country rows (country, that country's local time, Cancel each). |
+
+**Group the queue by:** a small "Apps · Countries" switch on the All-apps
+view (remembered per browser).
+
+- **Apps** (default): one lane per app, AppTag + accent top edge.
+- **Countries:** one lane per country with anything scheduled, in the
+  `MARKETS` order (US first). Header: big flag, country, language, how many
+  scheduled, the time there now, and the apps present. Rows show times in
+  that country's clock with Brian's own time underneath, and carry their app
+  as an AppTag plus a 3px accent bar on the left (the app is the
+  secondary dimension here).
+
+Lanes pack as masonry (CSS columns, `break-inside: avoid`) so a short lane
+never leaves a hole. Apps with nothing scheduled share one strip at the
+bottom ("Nothing scheduled: YulePick · Borea — Compose") instead of a lane
+each. The iPhone app mirrors this (`AppChip`, `CountryTag`).
