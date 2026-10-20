@@ -1,3 +1,5 @@
+// KEEP IN SYNC: hand-copied in studio-ios/Studio/Core/AudiencePresets.swift (Studio iPhone app). Any change here
+// needs the same change there, and the reverse.
 // ─── Promote audience presets ────────────────────────────────────────────────
 //
 // Client-safe (no secrets): one-click audiences for the Promote sheet. Built-in

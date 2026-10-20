@@ -1,3 +1,5 @@
+// KEEP IN SYNC: hand-copied in studio-ios/Studio/Core/Markets.swift (Studio iPhone app). Any change here
+// needs the same change there, and the reverse.
 // ─── Markets: one post, a local edition per country & language ──────────────
 //
 // Client-safe (no secrets). Some apps ship in several languages (Rolligan:
