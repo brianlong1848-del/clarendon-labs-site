@@ -22,7 +22,10 @@ const APPS: Record<string, { name: string; icon: string }> = {
   gagorder: { name: 'Gag Order', icon: '/icons/gagorder.png' },
   yulepick: { name: 'YulePick', icon: '/icons/yulepick.png' },
   borea: { name: 'Borea', icon: '/icons/borea.png' },
+  jinglewire: { name: 'Jinglewire', icon: '/icons/jinglewire.png' },
 }
+// Last good /api/inbox result, so the page opens instantly and refreshes behind it.
+const CACHE_KEY = 'clarendon:inbox-cache'
 const SOURCE_NAME: Record<string, string> = {
   instagram_dm: 'Instagram DM', instagram_comment: 'Instagram comment', facebook_message: 'Messenger',
   facebook_comment: 'Facebook comment', appstore_review: 'App Store review', app_admin: 'In-app', app_feedback: 'In-app feedback',
@@ -80,7 +83,14 @@ export default function InboxPage() {
     if (res.status === 401) { (window.location.href = '/login'); setPw(''); return }
     const body = await res.json()
     setItems(body.items); setSources(body.sources); setFetchedAt(body.fetchedAt); setError(null)
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ items: body.items, sources: body.sources, fetchedAt: body.fetchedAt })) } catch { /* private mode / full */ }
   }, [pw])
+  useEffect(() => {
+    try {
+      const c = JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null')
+      if (c && Array.isArray(c.items)) { setItems((x) => x ?? c.items); setSources((x) => x.length ? x : c.sources ?? []); setFetchedAt((x) => x ?? c.fetchedAt ?? null) }
+    } catch { /* ignore */ }
+  }, [])
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(() => load(), 60_000); return () => clearInterval(t) }, [load])
 
@@ -152,7 +162,7 @@ export default function InboxPage() {
     <button onClick={onClick} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', borderRadius: 9,
       fontSize: 13.5, fontWeight: active ? 800 : 600, color: active ? C.ink : C.ink2, background: active ? C.mintTint : 'transparent' }}>
       <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 9 }}>{children}</span>
-      {n ? <span style={{ fontSize: 11.5, fontWeight: 800, color: active ? C.mint : C.soft }}>{n}</span> : null}
+      {n ? <span style={{ fontSize: 12, fontWeight: 700, color: active ? C.mint : C.soft, fontVariantNumeric: 'tabular-nums', textAlign: 'right', minWidth: 24 }}>{n}</span> : null}
     </button>
   )
   const railLabel = (t: string) => <div style={{ ...labelStyle, color: C.faint, margin: '14px 10px 4px' }}>{t}</div>
@@ -162,7 +172,9 @@ export default function InboxPage() {
       title="Inbox"
       subtitle="Messages, comments, reviews and suggestions from every app and platform."
       actions={<>
-        <span style={{ fontSize: 12, color: C.soft }}>{loading ? 'Refreshing…' : fetchedAt ? `Updated ${ago(fetchedAt)} ago` : ''}</span>
+        {loading && items
+          ? <span role="status" style={{ fontSize: 12, fontWeight: 600, color: C.tealHover, background: C.mintTint, borderRadius: 99, padding: '4px 10px' }}>Updating…</span>
+          : <span style={{ fontSize: 12, color: C.soft }}>{fetchedAt ? `Updated ${ago(fetchedAt)} ago` : ''}</span>}
         <button style={btn('ghost')} onClick={() => setShowSources(true)}>
           Sources{missing.length ? <span style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 800, color: C.amber }}>{missing.length} to set up</span> : null}
         </button>
@@ -186,13 +198,25 @@ export default function InboxPage() {
         </nav>
 
         {/* List */}
-        <section style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, overflow: 'hidden' }}>
-          {!items ? <p style={{ padding: 20, color: C.soft }}>Gathering everything…</p>
+        <section style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, overflow: 'hidden', alignSelf: 'stretch', display: 'flex', flexDirection: 'column' }}>
+          {!items ? [0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} aria-hidden style={{ display: 'grid', gridTemplateColumns: '38px 1fr', gap: 11, padding: '13px 14px', borderBottom: `1px solid ${C.rule}` }}>
+                <div style={{ width: 38, height: 38, borderRadius: 99, background: C.card2 }} />
+                <div style={{ display: 'grid', gap: 7, alignContent: 'center' }}>
+                  <div style={{ height: 11, width: '45%', borderRadius: 6, background: C.card2 }} />
+                  <div style={{ height: 10, width: '85%', borderRadius: 6, background: C.card2 }} />
+                </div>
+              </div>
+            ))
             : list.length === 0 ? (
-              <div style={{ padding: '40px 22px', textAlign: 'center', color: C.soft, display: 'grid', gap: 8 }}>
-                <div style={{ fontSize: 30 }}>✓</div>
-                <b style={{ color: C.ink }}>{view === 'needs' ? 'Nothing waiting on you.' : 'Nothing here.'}</b>
-                {missing.length > 0 && <button onClick={() => setShowSources(true)} style={{ all: 'unset', cursor: 'pointer', color: C.mint, fontWeight: 700, fontSize: 13 }}>{missing.length} sources still to connect →</button>}
+              <div style={{ flex: 1, padding: '48px 24px', display: 'grid', placeContent: 'center', justifyItems: 'center', textAlign: 'center', gap: 10, color: C.ink2, fontSize: 14 }}>
+                {missing.length > 0 ? (<>
+                  <button style={btn('mint')} onClick={() => setShowSources(true)}>Connect {missing.length} more source{missing.length === 1 ? '' : 's'}</button>
+                  <span>{view === 'needs' ? 'Nothing waiting on you from the sources already connected.' : 'Nothing here yet.'}</span>
+                </>) : (<>
+                  <b style={{ color: C.ink, fontSize: 15 }}>{view === 'needs' ? 'Nothing waiting on you.' : 'Nothing here.'}</b>
+                  <span>New messages, comments and reviews land here as they arrive.</span>
+                </>)}
               </div>
             ) : list.map((x) => {
               const active = x.id === selected
