@@ -26,7 +26,8 @@ export type Target = { platform: Platform; format: Format; tiktok?: TikTokSettin
 export const TIKTOK_PRIVACY_LABEL: Record<TikTokPrivacy, string> = {
   PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me',
 }
-export type Issue = { platform: Platform; level: 'error' | 'warn'; text: string }
+/** `todo`: something not added yet (no media, no caption, a choice not made), not a conflict. Still blocks sending. */
+export type Issue = { platform: Platform; level: 'error' | 'warn'; text: string; todo?: boolean }
 
 export const PLATFORMS: { id: Platform; name: string; formats: Format[]; captionMax: number }[] = [
   { id: 'instagram', name: 'Instagram', formats: ['feed', 'reel', 'story'], captionMax: 2200 },
@@ -63,7 +64,7 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
   const issues: Issue[] = []
   const images = media.filter((m) => m.kind === 'image')
   const videos = media.filter((m) => m.kind === 'video')
-  const add = (platform: Platform, level: Issue['level'], text: string) => issues.push({ platform, level, text })
+  const add = (platform: Platform, level: Issue['level'], text: string, todo = false) => issues.push(todo ? { platform, level, text, todo } : { platform, level, text })
 
   if (targets.length === 0) return issues
   for (const t of targets) {
@@ -80,11 +81,11 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
     }
 
     if (t.platform === 'instagram') {
-      if (media.length === 0) add(t.platform, 'error', 'Instagram needs a photo or video.')
+      if (media.length === 0) add(t.platform, 'error', 'Instagram needs a photo or video.', true)
       if (count(/(^|\s)#\w/g, text) > 30) add(t.platform, 'error', 'Instagram allows 30 hashtags at most.')
       if (count(/(^|\s)@\w/g, text) > 20) add(t.platform, 'error', 'Instagram allows 20 @mentions at most.')
-      if (t.format === 'reel' && (media.length !== 1 || videos.length !== 1)) add(t.platform, 'error', 'A Reel is exactly one video.')
-      if (t.format === 'story' && media.length !== 1) add(t.platform, 'error', 'A Story is one photo or one video — the first item will not be chosen for you.')
+      if (t.format === 'reel' && (media.length !== 1 || videos.length !== 1)) add(t.platform, 'error', 'A Reel is exactly one video.', media.length === 0)
+      if (t.format === 'story' && media.length !== 1) add(t.platform, 'error', 'A Story is one photo or one video — the first item will not be chosen for you.', media.length === 0)
       if (t.format === 'feed' && media.length > 10) add(t.platform, 'error', 'Instagram carousels hold up to 10 items.')
       if (t.format === 'feed' && media.length === 1 && videos.length === 1) add(t.platform, 'warn', 'A single video is published as a Reel.')
       for (const m of images) {
@@ -103,10 +104,10 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
     }
 
     if (t.platform === 'facebook') {
-      if (media.length === 0 && !text.trim()) add(t.platform, 'error', 'Add a caption or media for Facebook.')
+      if (media.length === 0 && !text.trim()) add(t.platform, 'error', 'Add a caption or media for Facebook.', true)
       if (videos.length > 1 || (videos.length && images.length)) add(t.platform, 'error', 'Facebook posts take several photos or one video, not a mix.')
       if (t.format === 'reel') {
-        if (media.length !== 1 || videos.length !== 1) add(t.platform, 'error', 'A Facebook Reel is exactly one video.')
+        if (media.length !== 1 || videos.length !== 1) add(t.platform, 'error', 'A Facebook Reel is exactly one video.', media.length === 0)
         else {
           const d = videos[0].duration ?? 0
           if (d > 90) add(t.platform, 'error', `Facebook Reels can be up to 90 seconds (this one is ${Math.round(d)}s) — post it as a regular video instead.`)
@@ -117,18 +118,18 @@ export function validate(targets: Target[], media: MediaItem[], caption: string,
     }
 
     if (t.platform === 'threads') {
-      if (media.length === 0 && !text.trim()) add(t.platform, 'error', 'A Thread needs text or media.')
+      if (media.length === 0 && !text.trim()) add(t.platform, 'error', 'A Thread needs text or media.', true)
       if (media.length > 10) add(t.platform, 'error', 'Threads carousels hold up to 10 items.')
       for (const m of videos) if ((m.duration ?? 0) > 300) add(t.platform, 'error', 'Threads videos can be up to 5 minutes.')
     }
 
     if (t.platform === 'tiktok') {
       const s = t.tiktok
-      if (videos.length !== 1 || images.length) add(t.platform, 'error', 'TikTok here posts one video.')
+      if (videos.length !== 1 || images.length) add(t.platform, 'error', 'TikTok here posts one video.', media.length === 0)
       for (const m of videos) if (m.duration && m.duration < 3) add(t.platform, 'error', 'TikTok videos must be at least 3 seconds.')
-      if (!s) add(t.platform, 'error', 'Choose how to send it to TikTok.')
+      if (!s) add(t.platform, 'error', 'Choose how to send it to TikTok.', true)
       else if (s.mode === 'direct') {
-        if (!s.privacy) add(t.platform, 'error', 'Choose who can see it on TikTok.')
+        if (!s.privacy) add(t.platform, 'error', 'Choose who can see it on TikTok.', true)
         if (s.commercial && !s.yourBrand && !s.brandedContent) add(t.platform, 'error', 'You turned on commercial content — say whether it promotes your own brand, a paid partnership, or both.')
         if (s.brandedContent && s.privacy === 'SELF_ONLY') add(t.platform, 'error', 'Branded content can’t be private on TikTok — choose another audience.')
       }

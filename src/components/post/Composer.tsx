@@ -254,9 +254,9 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const issues = !multi ? validate(targets, media, caption, tailor ? overrides : {}) : mkts.flatMap((m) => {
     const a = assignment[m], e = eds[m] ?? BLANK
     const out = validate(targets, toMedia(itemsFor(m)), e.caption, tailor ? e.overrides : {}).map((i) => ({ ...i, text: tag(m) + i.text }))
-    if (items.length && a?.how === 'none') out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no photo or video for this edition — add one named for ${MARKETS[m].short}, or pick one.` })
+    if (items.length && a?.how === 'none') out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no photo or video for this edition — add one named for ${MARKETS[m].short}, or pick one.`, todo: true })
     if (a?.note) out.push({ platform: targets[0]?.platform ?? 'instagram', level: wrongLanguage(a) ? 'error' : 'warn', text: tag(m) + a.note })
-    if (!e.caption.trim() && targets.some((t) => t.format !== 'story')) out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no ${MARKETS[m].langName} caption yet — ✦ Write with AI does every edition at once.` })
+    if (!e.caption.trim() && targets.some((t) => t.format !== 'story')) out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no ${MARKETS[m].langName} caption yet — ✦ Write with AI does every edition at once.`, todo: true })
     return out
   })
   if (multi && mode === 'now' && targets.length) issues.push({ platform: targets[0].platform, level: 'warn', text: `All ${mkts.length} editions go to the same accounts at once. Schedule → “same local time” spreads them across time zones.` })
@@ -783,7 +783,8 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           <span style={label}>Checks</span>
           {targets.length === 0 ? <Check tone="muted" text="Pick at least one place to post." /> :
             issues.length === 0 ? <Check tone="ok" text={`Ready for ${targets.map((t) => pname(t.platform)).join(', ')}.`} /> :
-              issues.map((i, k) => <Check key={k} tone={i.level === 'error' ? 'bad' : 'warn'} platform={i.platform} text={i.text} />)}
+              // Red only for real conflicts; anything not added yet is a neutral To do.
+              [...issues].sort((a, b) => Number(!!a.todo) - Number(!!b.todo)).map((i, k) => <Check key={k} tone={i.todo ? 'todo' : i.level === 'error' ? 'bad' : 'warn'} platform={i.platform} text={i.text} />)}
           {uploading && <Check tone="muted" text="Uploading media…" />}
           {failedUploads && <Check tone="bad" text="Remove the media that failed to upload." />}
         </section>
@@ -846,7 +847,15 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   )
 }
 
-function Check({ tone, text, platform }: { tone: 'ok' | 'warn' | 'bad' | 'muted'; text: string; platform?: Platform }) {
+function Check({ tone, text, platform }: { tone: 'ok' | 'warn' | 'bad' | 'muted' | 'todo'; text: string; platform?: Platform }) {
+  if (tone === 'todo') return (
+    <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 13, lineHeight: 1.45, color: C.ink2 }}>
+      <span aria-label="To do" style={{ width: 18, height: 18, flexShrink: 0, display: 'grid', placeItems: 'center' }}>
+        <span style={{ width: 8, height: 8, borderRadius: 99, background: C.rule2 }} />
+      </span>
+      {platform && <span style={{ flexShrink: 0, paddingTop: 1 }}><PlatformGlyph platform={platform} size={15} color={C.soft} /></span>}<span>{text}</span>
+    </div>
+  )
   const color = tone === 'ok' ? C.mint : tone === 'warn' ? C.amber : tone === 'bad' ? C.red : C.soft
   const mark = tone === 'ok' ? '✓' : tone === 'warn' ? '!' : tone === 'bad' ? '×' : '·'
   return (

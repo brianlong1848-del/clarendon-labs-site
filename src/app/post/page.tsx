@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, AppTag, C, btn } from '@/components/AdminNav'
 import { Composer } from '@/components/post/Composer'
 import { Queue } from '@/components/post/Queue'
 import { PlatformGlyph, type PublishApp } from '@/components/post/shared'
@@ -108,7 +108,7 @@ export default function PostPage() {
           </div>
           {tab === 'accounts' && <Accounts apps={apps} onRefresh={() => pw && load(pw, true)} />}
           <div style={{ display: tab === 'queue' ? 'block' : 'none' }}>
-            <Queue pw={pw} apps={apps} refreshKey={refreshKey} onCount={onCount} />
+            <Queue pw={pw} apps={apps} refreshKey={refreshKey} onCount={onCount} onCompose={() => setTab('compose')} />
           </div>
         </>
       )}
@@ -147,12 +147,8 @@ function Accounts({ apps, onRefresh }: { apps: PublishApp[]; onRefresh: () => vo
         <button style={btn('ghost')} onClick={onRefresh}>Check again</button>
       </div>
       {apps.map((a) => (
-        <section key={a.id} style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: 18, display: 'grid', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={a.icon} alt="" width={30} height={30} style={{ borderRadius: 8 }} />
-            <b style={{ fontFamily: C.serif, fontSize: 18 }}>{a.name}</b>
-          </div>
+        <section key={a.id} style={{ background: C.card, border: `1px solid ${C.rule}`, borderTop: `4px solid ${a.accent}`, borderRadius: 18, padding: 18, display: 'grid', gap: 12 }}>
+          <AppTag id={a.id} name={a.name} size={30} style={{ fontFamily: C.serif, fontSize: 18, fontWeight: 700 }} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
             {a.accounts.map((x) => (
               <div key={x.platform} style={{ borderRadius: 12, padding: 12, background: x.ready ? C.mintTint : C.paper, border: `1px solid ${x.ready ? C.mint : C.rule}` }}>
@@ -161,10 +157,11 @@ function Accounts({ apps, onRefresh }: { apps: PublishApp[]; onRefresh: () => vo
                   <b style={{ fontSize: 13.5 }}>{NAMES[x.platform]}</b>
                   <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800, color: x.ready ? C.mint : C.soft }}>{x.ready ? 'Ready' : 'Not yet'}</span>
                 </div>
+                {/* Not yet: the fix first, the reason under it. */}
+                {!x.ready && x.connect && <ConnectButton appId={a.id} platform={x.connect} />}
                 <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 6, lineHeight: 1.45 }}>
                   {x.ready ? (x.handle ? (x.platform === 'facebook' ? x.handle : `@${x.handle}`) : 'Connected') : x.reason}
                 </div>
-                {!x.ready && x.connect && <ConnectButton appId={a.id} platform={x.connect} />}
               </div>
             ))}
           </div>

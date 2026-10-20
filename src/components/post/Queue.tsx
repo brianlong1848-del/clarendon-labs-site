@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { C, btn } from '@/components/AdminNav'
+import { AppTag, C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { describeRule } from '@/lib/publish/recur'
@@ -36,7 +36,7 @@ function CountryTag({ m, size = 12 }: { m: Market; size?: number }) {
   )
 }
 
-export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: PublishApp[]; refreshKey: number; onCount: (n: number) => void }) {
+export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string; apps: PublishApp[]; refreshKey: number; onCount: (n: number) => void; onCompose?: () => void }) {
   const [posts, setPosts] = useState<QueuedPost[] | null>(null)
   const [series, setSeries] = useState<QueuedSeries[]>([])
   const [busy, setBusy] = useState<string | null>(null)
@@ -95,6 +95,8 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
   const shownAds = ads ? { ...ads, promotions: ads.promotions.filter(inApp) } : null
   // Apps that have anything in the queue, in the sidebar's order, with what's coming up.
   const appIds = apps.map((a) => a.id).filter((id) => posts.some((p) => p.app_id === id) || series.some((r) => r.app_id === id))
+  // Apps with nothing at all still get a slim lane, so every app is visible.
+  const idleIds = apps.map((a) => a.id).filter((id) => !appIds.includes(id))
   const upcoming = (id: string) => posts.filter((p) => p.status === 'scheduled' && p.app_id === id).length
   const chip = (id: string, text: React.ReactNode, n: number) => {
     const on = appFilter === id
@@ -232,9 +234,8 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
       <article key={id} style={{ ...card, padding: 0, overflow: 'hidden', display: 'grid' }}>
         <div style={{ height: 4, background: a?.accent ?? C.mint }} />
         <div style={{ padding: '14px 18px 4px', display: 'flex', alignItems: 'center', gap: 11 }}>
-          {a && <img src={a.icon} alt="" width={32} height={32} style={{ borderRadius: 8 }} />}
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{a?.name ?? id}</div>
+            <AppTag id={id} name={a?.name} size={28} style={{ fontWeight: 800, fontSize: 15.5 }} />
             <div style={{ fontSize: 12, color: C.soft, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <span>{next.length ? `${next.length} scheduled · next ${when(next[0].scheduled_at!)}` : 'Nothing scheduled'}</span>
               {reps > 0 && <span>↻ {reps} repeating</span>}
@@ -250,7 +251,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
               ) : null
             })()}
           </div>
-          <button style={small} onClick={() => setAppFilter(id)}>Open →</button>
+          <button style={small} onClick={() => setAppFilter(id)}>Open</button>
         </div>
         <div style={{ padding: '4px 18px 6px' }}>
           {trouble.map((p) => row(p, 'bad'))}
@@ -273,7 +274,7 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
       {appIds.length > 1 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {chip('all', 'All apps', posts.filter((p) => p.status === 'scheduled').length)}
-          {appIds.map((id) => { const a = apps.find((x) => x.id === id)!; return chip(id, <>{<img src={a.icon} alt="" width={16} height={16} style={{ borderRadius: 4 }} />}{a.name}</>, upcoming(id)) })}
+          {appIds.map((id) => { const a = apps.find((x) => x.id === id)!; return chip(id, <AppTag id={a.id} name={a.name} size={16} />, upcoming(id)) })}
         </div>
       )}
       {shownSeries.length > 0 && (
@@ -326,6 +327,16 @@ export function Queue({ pw, apps, refreshKey, onCount }: { pw: string; apps: Pub
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 440px), 1fr))', gap: 14, alignItems: 'start' }}>
             {appIds.map(lane)}
           </div>
+          {idleIds.map((id) => {
+            const a = apps.find((x) => x.id === id)
+            return (
+              <article key={id} style={{ ...card, padding: '10px 16px', borderLeft: `4px solid ${a?.accent ?? C.mint}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <AppTag id={id} name={a?.name} style={{ fontWeight: 700, fontSize: 14 }} />
+                <span style={{ flex: 1, fontSize: 12.5, color: C.soft }}>Nothing scheduled</span>
+                {onCompose && <button style={small} onClick={onCompose}>Compose</button>}
+              </article>
+            )
+          })}
         </section>
       ) : (<>
         {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
