@@ -141,7 +141,7 @@ export default function MoneyOverview() {
 
           <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: '8px 10px', overflowX: 'auto' }}>
             {rows.length === 0 ? (
-              <p style={{ color: C.soft, padding: 16 }}>No numbers for this month yet. Revenue arrives nightly and costs appear once transactions are sorted in Triage.</p>
+              <p style={{ color: C.soft, padding: 16 }}>No numbers for this period yet. Revenue arrives nightly and costs appear once transactions are sorted in Triage.</p>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14.5 }}>
                 <thead>
