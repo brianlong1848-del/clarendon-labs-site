@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
+import { AdminShell, AppTag, C, appAccent, btn, labelStyle } from '@/components/AdminNav'
 
 // ─── /admin — the studio console ─────────────────────────────────────────────
 //
@@ -139,10 +139,9 @@ export default function ConsolePage() {
     load(pw)
   }
 
-  const tiles = useMemo(() => {
-    const all: (AppState | (Missing & { missing: true }))[] = [...apps, ...missing.map((m) => ({ ...m, missing: true as const }))]
-    return all.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id))
-  }, [apps, missing])
+  // Connected apps get a full card; the rest share one compact row.
+  const tiles = useMemo(() => [...apps].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)), [apps])
+  const notConnected = useMemo(() => [...missing].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)), [missing])
   const pending = apps.flatMap((a) => a.pending.map((s) => ({ app: a, s })))
   const live = apps.flatMap((a) => a.live.filter((c) => c.active !== false).map((c) => ({ app: a, c })))
     .filter(({ c }) => !query || c.text.toLowerCase().includes(query.toLowerCase()))
@@ -184,10 +183,9 @@ export default function ConsolePage() {
   return (
     <AdminShell
       title="Console"
-      subtitle="Each app’s live numbers and latest activity — and anything waiting on you."
+      subtitle={`Each app’s live numbers and anything waiting on you${loaded ? ` · ${apps.length} of ${apps.length + missing.length} apps connected` : ''}`}
       actions={<>
-        <span style={{ fontSize: 12.5, color: C.soft }}>{loading ? 'Refreshing…' : `${apps.length} of ${apps.length + missing.length} apps connected`}</span>
-        <button style={btn('ghost')} onClick={() => load(pw)}>Refresh</button>
+        <button style={btn('ghost')} disabled={loading} onClick={() => load(pw)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
         <button style={btn('ghost')} onClick={() => { fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' }) }}>Sign out</button>
       </>}
     >
@@ -202,74 +200,80 @@ export default function ConsolePage() {
       {error && <p style={{ color: C.red, margin: 0 }}>{error}</p>}
 
       {/* Apps at a glance */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(420px,1fr))', gap: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(420px,100%),1fr))', gap: 18 }}>
         {!loaded ? [0, 1].map((i) => <div key={i} style={{ height: 220, borderRadius: 18, background: C.card, border: `1px solid ${C.rule}` }} />)
-          : tiles.map((a) => {
-            const isMissing = 'missing' in a
-            const app = isMissing ? null : (a as AppState)
-            const stats: Stat[] = app?.stats ?? (app ? [
+          : tiles.map((app) => {
+            const stats: Stat[] = app.stats ?? [
               { label: 'Suggestions waiting', value: app.pending.length },
               { label: 'Live community cards', value: app.live.filter((c) => c.active !== false).length },
-            ] : [])
+            ]
             return (
-              <section key={a.id} style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 20, display: 'grid', gap: 16, alignContent: 'start' }}>
+              <section key={app.id} style={{ background: C.card, border: `1px solid ${C.rule}`, borderTop: `4px solid ${app.accent ?? appAccent(app.id)}`,
+                                             borderRadius: 18, padding: 20, display: 'grid', gap: 16, alignContent: 'start' }}>
                 <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <img src={`/icons/${a.id}.png`} alt="" width={44} height={44} style={{ borderRadius: 11, boxShadow: '0 4px 12px rgba(20,20,19,.14)' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: C.serif, fontSize: 20, fontWeight: 800 }}>{a.name}</div>
+                  <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 4 }}>
+                    <AppTag id={app.id} name={app.name} size={32} style={{ fontSize: 20, fontWeight: 700 }} />
                     <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, color: C.soft }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 99, background: isMissing ? C.faint : app!.ok ? C.mint : C.red }} />
-                      {isMissing ? 'Not connected' : app!.ok ? `Connected · ${app!.ms}ms` : app!.error}
+                      <span style={{ width: 7, height: 7, borderRadius: 99, background: app.ok ? C.mint : C.red }} />
+                      {app.ok ? `Connected · ${app.ms}ms` : app.error}
                     </div>
                   </div>
-                  <Link href={`/analytics/${a.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 12.5 }}>Analytics →</Link>
+                  <Link href={`/analytics/${app.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 12.5 }}>Analytics</Link>
                 </header>
 
-                {isMissing ? (
-                  <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, lineHeight: 1.5 }}>{NOTES[a.id]}</p>
-                ) : (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 10 }}>
-                      {stats.map((s) => (
-                        <div key={s.label} title={s.hint} style={{ background: C.card2, borderRadius: 12, padding: '12px 14px' }}>
-                          <div style={{ fontFamily: C.serif, fontSize: 24, fontWeight: 900, lineHeight: 1.1 }}>{fmtNum(s.value, s.format)}</div>
-                          <div style={{ ...label, fontSize: 9.5, marginTop: 5 }}>{s.label}</div>
-                          {s.delta && <div style={{ fontSize: 11.5, color: C.mint, fontWeight: 700, marginTop: 4 }}>{s.delta}</div>}
-                        </div>
-                      ))}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 10 }}>
+                  {stats.map((s) => (
+                    <div key={s.label} title={s.hint} style={{ background: C.card2, borderRadius: 12, padding: '12px 14px' }}>
+                      <div style={{ fontFamily: C.serif, fontSize: 24, fontWeight: 900, lineHeight: 1.1 }}>{fmtNum(s.value, s.format)}</div>
+                      <div style={{ ...label, marginTop: 5 }}>{s.label}</div>
+                      {s.delta && <div style={{ fontSize: 11.5, color: C.mint, fontWeight: 700, marginTop: 4 }}>{s.delta}</div>}
                     </div>
-                    {app!.recent && app!.recent.length > 0 && (
-                      <div style={{ display: 'grid', gap: 2 }}>
-                        <div style={{ ...label, marginBottom: 4 }}>Latest</div>
-                        {app!.recent.slice(0, 5).map((r, i) => (
-                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'baseline', fontSize: 13, padding: '5px 0', borderTop: i ? `1px solid ${C.rule}` : 'none' }}>
-                            <span aria-hidden style={{ color: C.soft }}>{ICON[r.icon ?? ''] ?? '•'}</span>
-                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              <b style={{ fontWeight: 650 }}>{r.title}</b>{r.detail && <span style={{ color: C.soft }}> · {r.detail}</span>}
-                            </span>
-                            <span style={{ fontSize: 11.5, color: C.faint, whiteSpace: 'nowrap' }}>{ago(r.at)}</span>
-                          </div>
-                        ))}
+                  ))}
+                </div>
+                {app.recent && app.recent.length > 0 && (
+                  <div style={{ display: 'grid', gap: 2 }}>
+                    <div style={{ ...label, marginBottom: 4 }}>Latest</div>
+                    {app.recent.slice(0, 5).map((r, i) => (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'baseline', fontSize: 13, padding: '5px 0', borderTop: i ? `1px solid ${C.rule}` : 'none' }}>
+                        <span aria-hidden style={{ color: C.soft }}>{ICON[r.icon ?? ''] ?? '•'}</span>
+                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <b style={{ fontWeight: 650 }}>{r.title}</b>{r.detail && <span style={{ color: C.soft }}> · {r.detail}</span>}
+                        </span>
+                        <span style={{ fontSize: 11.5, color: C.faint, whiteSpace: 'nowrap' }}>{ago(r.at)}</span>
                       </div>
-                    )}
-                    {app!.id === 'gagorder' && app!.pending.length > 0 && (
-                      <a href="#review" style={{ fontSize: 13, fontWeight: 700, color: C.mint, textDecoration: 'none' }}>Review {app!.pending.length} suggestion{app!.pending.length === 1 ? '' : 's'} ↓</a>
-                    )}
-                  </>
+                    ))}
+                  </div>
                 )}
+                {app.id === 'gagorder' && (app.pending.length > 0
+                  ? <a href="#review" style={{ fontSize: 13, fontWeight: 700, color: C.mint, textDecoration: 'none' }}>Review {app.pending.length} suggestion{app.pending.length === 1 ? '' : 's'}</a>
+                  : <p style={{ margin: 0, fontSize: 13, color: C.soft }}>No suggestions waiting</p>)}
               </section>
             )
           })}
       </div>
 
+      {/* Apps without an admin API yet: one row, how to connect each on hover / tap */}
+      {loaded && notConnected.length > 0 && (
+        <div data-card style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: '14px 18px',
+                                display: 'flex', alignItems: 'flex-start', gap: '10px 22px', flexWrap: 'wrap' }}>
+          <span style={{ ...label, paddingTop: 4 }}>Not connected</span>
+          {notConnected.map((m) => (
+            <details key={m.id} title={NOTES[m.id]} style={{ fontSize: 14, fontWeight: 600, maxWidth: 360 }}>
+              <summary style={{ cursor: 'pointer', listStyle: 'none', display: 'inline-flex' }}>
+                <AppTag id={m.id} name={m.name} />
+              </summary>
+              <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 400, color: C.ink2, lineHeight: 1.5 }}>{NOTES[m.id]}</p>
+            </details>
+          ))}
+        </div>
+      )}
+
       {/* Waiting on you */}
       {loaded && (
         <>
+          {pending.length > 0 && (<>
           <div id="review">{section('Card suggestions', <span style={{ fontSize: 12.5, color: C.soft }}>{pending.length} waiting</span>)}</div>
-          {pending.length === 0 ? (
-            <p style={{ margin: 0, color: C.soft, fontSize: 14 }}>Nothing waiting — new suggestions from players land here and in the Inbox.</p>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(460px,1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(460px,100%),1fr))', gap: 16 }}>
               {pending.map(({ app, s }) => {
                 const k = `${app.id}:${s.id}`
                 const d = drafts[k]
@@ -286,8 +290,8 @@ export default function ConsolePage() {
                 return (
                   <article key={k} style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 18, display: 'grid', gap: 14 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: C.soft }}>
-                      <img src={`/icons/${app.id}.png`} alt="" width={18} height={18} style={{ borderRadius: 4 }} />
-                      <b style={{ color: C.ink }}>{s.player_name || 'A player'}</b>
+                      <AppTag id={app.id} name={app.name} size={18} style={{ color: C.ink2 }} />
+                      <b style={{ color: C.ink }}>· {s.player_name || 'A player'}</b>
                       <span>· {s.platform ?? 'app'} · {ago(s.created_at)}</span>
                     </div>
                     {/* The card as players will see it */}
@@ -338,7 +342,7 @@ export default function ConsolePage() {
                 )
               })}
             </div>
-          )}
+          </>)}
 
           {live.length > 0 || query ? (
             <>
@@ -346,15 +350,13 @@ export default function ConsolePage() {
                 style={{ border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '7px 12px', fontSize: 13.5, width: 220, background: C.card }} />)}
               <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, overflow: 'hidden' }}>
                 {live.map(({ app, c }, i) => (
-                  <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 16, alignItems: 'center', padding: '12px 18px', borderTop: i ? `1px solid ${C.rule}` : 'none' }}>
+                  <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 16, alignItems: 'center', padding: '12px 18px', borderTop: i ? `1px solid ${C.rule}` : 'none' }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 14.5, fontWeight: 600 }}>{c.text}</div>
-                      <div style={{ fontSize: 11.5, color: C.soft, marginTop: 3 }}>{app.name} · {c.id}{c.credit_name ? ` · Suggested by ${c.credit_name}` : ''}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {[PACKS.find(([v]) => v === c.pack_id)?.[1] ?? c.pack_id, TIERS.find(([v]) => v === c.tier)?.[1] ?? c.tier, c.format].map((t) => (
-                        <span key={t} style={{ fontSize: 11, fontWeight: 700, color: C.ink2, background: C.card2, borderRadius: 99, padding: '3px 9px' }}>{t}</span>
-                      ))}
+                      <div style={{ fontSize: 13, color: C.ink2, marginTop: 3 }}>
+                        {[PACKS.find(([v]) => v === c.pack_id)?.[1] ?? c.pack_id, TIERS.find(([v]) => v === c.tier)?.[1] ?? c.tier, FORMATS.find(([v]) => v === c.format)?.[1] ?? c.format].join(' · ')}
+                      </div>
+                      <div title={c.id} style={{ fontSize: 11.5, color: C.soft, marginTop: 2 }}>{c.credit_name ? `Suggested by ${c.credit_name}` : app.name}</div>
                     </div>
                     <button style={{ ...btn('ghost'), fontSize: 12.5 }} disabled={busy === c.id}
                       onClick={() => { if (confirm('Retire this card for every player?')) act(app.id, c.id, { action: 'retire', cardId: c.id }) }}>
