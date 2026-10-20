@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
+import { AdminShell, C, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 
 // ─── /analytics/<app> — one app, mapped ──────────────────────────────────────
@@ -90,8 +90,8 @@ export default function AppAnalyticsPage() {
 
   const label = labelStyle
   const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: 22 }
-  const big = (v: string, cap: string, sub?: string) => (
-    <div style={{ ...card, padding: '18px 20px' }}>
+  const big = (i: number, v: string, cap: string, sub?: string) => (
+    <div data-card style={{ ...card, background: TILE[i].bg, border: `1px solid ${TILE[i].line}`, borderRadius: 14, padding: '18px 20px' }}>
       <div style={label}>{cap}</div>
       <div style={{ fontFamily: C.serif, fontSize: 28, fontWeight: 900, marginTop: 8 }}>{v}</div>
       {sub && <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>{sub}</div>}
@@ -107,15 +107,15 @@ export default function AppAnalyticsPage() {
     <AdminShell
       title={app?.name ?? 'App'}
       subtitle="Where people download, pay and follow — click a country to see its states and provinces."
-      actions={<Link href="/analytics" style={{ ...btn('ghost'), textDecoration: 'none' }}>← All apps</Link>}
+      actions={<Link href="/analytics" style={{ ...btn('ghost'), textDecoration: 'none' }}>All apps</Link>}
     >
       {error && error !== 'signin' && <p style={{ color: C.red, fontSize: 14, margin: 0 }}>{error}</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 14 }}>
-        {big(app?.appStore ? num(app.appStore.last30.installs) : '—', 'Downloads · 30d')}
-        {big(app?.appStore ? money(app.appStore.last30.proceeds) : '—', 'Money · 30d', 'Proceeds after Apple’s cut')}
-        {big(app?.instagram ? num(app.instagram.followers) : '—', 'Instagram followers', app?.instagram?.reach30d != null ? `${num(app.instagram.reach30d)} reached · 30d` : undefined)}
-        {big(app?.facebook ? num(app.facebook.followers) : '—', 'Facebook followers', app?.facebook?.posts30d != null ? `${app.facebook.posts30d} posts · 30d` : app?.facebook ? undefined : 'Page not linked yet')}
+        {big(0, app?.appStore ? num(app.appStore.last30.installs) : '—', 'Downloads, 30 days')}
+        {big(1, app?.appStore ? money(app.appStore.last30.proceeds) : '—', 'Money, 30 days', 'Proceeds after Apple’s cut')}
+        {big(2, app?.instagram ? num(app.instagram.followers) : '—', 'Instagram followers', app?.instagram?.reach30d != null ? `${num(app.instagram.reach30d)} reached · 30d` : undefined)}
+        {big(3, app?.facebook ? num(app.facebook.followers) : '—', 'Facebook followers', app?.facebook?.posts30d != null ? `${app.facebook.posts30d} posts · 30d` : app?.facebook ? undefined : 'Page not linked yet')}
       </div>
 
       {pw && <GeoExplorer pw={pw} app={appId} accent={accent} title="World" />}

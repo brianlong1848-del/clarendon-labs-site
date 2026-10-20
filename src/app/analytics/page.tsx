@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { AdminShell, C, Label, btn, labelStyle } from '@/components/AdminNav'
+import { AdminShell, AppTag, C, Label, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { GeoMap } from '@/components/GeoMap'
 
@@ -53,6 +53,20 @@ type AppRow = {
 
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const num = (n: number) => n.toLocaleString('en-US')
+
+/** Tiny trend line for a KPI tile: daily over 30 days, or this year's months for YTD / YoY. */
+function Spark({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null
+  const max = Math.max(...values, 1)
+  const w = 120, h = 32
+  const pts = values.map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - 2 - (v / max) * (h - 4)).toFixed(1)}`)
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden style={{ display: 'block', overflow: 'visible' }}>
+      <path d={`M0,${h} L${pts.join(' L')} L${w},${h} Z`} fill={color} opacity={0.12} />
+      <path d={`M${pts.join(' L')}`} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 export default function AnalyticsPage() {
   const [pw, setPw] = useState('')
@@ -126,6 +140,19 @@ export default function AnalyticsPage() {
   const anyAppStore = apps.some((a) => a.appStore)
   const anyTikTok = apps.some((a) => a.tiktok)
 
+  // Studio-wide trend for the two headline tiles, summed across apps.
+  const trend = (key: 'installs' | 'proceeds') => {
+    const by = new Map<string, number>()
+    if (range === '30d') {
+      for (const a of apps) for (const d of a.appStore?.series ?? []) by.set(d.date, (by.get(d.date) ?? 0) + d[key])
+    } else {
+      const year = String(new Date().getFullYear())
+      for (const a of apps) for (const m of a.appStore?.history?.months ?? []) if (m.month.startsWith(year)) by.set(m.month, (by.get(m.month) ?? 0) + m[key])
+    }
+    return Array.from(by).sort((x, y) => x[0].localeCompare(y[0])).map(([, v]) => v)
+  }
+  const tile = (i: number): React.CSSProperties => ({ background: TILE[i].bg, border: `1px solid ${TILE[i].line}`, borderRadius: 14, padding: '20px 22px' })
+
   if (!authed) {
     return (
       <main style={{ background: C.paper, minHeight: '100dvh', color: C.ink,
@@ -152,10 +179,7 @@ export default function AnalyticsPage() {
       title="Analytics"
       subtitle="Revenue and growth across every Clarendon Labs app, in one place."
       actions={<>
-        <span style={{ ...label }}>
-          {loading ? 'refreshing…' : `${apps.length} app${apps.length === 1 ? '' : 's'}`}
-        </span>
-        <button style={btn('ghost')} onClick={() => load(pw)}>Refresh</button>
+        <button style={btn('ghost')} disabled={loading} onClick={() => load(pw)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
         <button style={btn('ghost')} onClick={() => {
           fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' })
         }}>Sign out</button>
@@ -180,37 +204,41 @@ export default function AnalyticsPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
             {anyAppStore && (
               <>
-                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>Revenue · {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
-                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{money(totals.proceeds)}</div>
+                <div data-card style={tile(0)}>
+                  <div style={label}>Revenue, {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
+                    <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900 }}>{money(totals.proceeds)}</div>
+                    <Spark values={trend('proceeds')} color={C.teal} />
+                  </div>
                   {range === 'yoy' && <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 4 }}>{money(totals.prevProceeds)} same time last year · {change(totals.proceeds, totals.prevProceeds)}</div>}
                   {/* Which app it came from — so a studio total never needs guessing. */}
                   <div style={{ display: 'grid', gap: 4, marginTop: 12 }}>
                     {apps.filter((a) => (pick(a.appStore, range)?.proceeds ?? 0) > 0).sort((a, b) => (pick(b.appStore, range)!.proceeds) - (pick(a.appStore, range)!.proceeds)).map((a) => (
                       <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`/icons/${a.id}.png`} alt="" width={16} height={16} style={{ borderRadius: 4 }} />
-                        <span style={{ flex: 1 }}>{a.name}</span>
+                        <AppTag id={a.id} name={a.name} size={16} style={{ flex: 1 }} />
                         <b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(pick(a.appStore, range)!.proceeds)}</b>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>New installs · {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
-                  <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.installs)}</div>
+                <div data-card style={tile(1)}>
+                  <div style={label}>New installs, {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
+                    <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900 }}>{num(totals.installs)}</div>
+                    <Spark values={trend('installs')} color={C.indigo} />
+                  </div>
                   {range === 'yoy' && <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 4 }}>{num(totals.prevInstalls)} same time last year · {change(totals.installs, totals.prevInstalls)}</div>}
                 </div>
               </>
             )}
             {anyTikTok && (
               <>
-                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>Total ad spend</div>
+                <div data-card style={tile(2)}>
+                  <div style={label}>Ad spend, 30 days</div>
                   <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{money(totals.spend)}</div>
                 </div>
-                <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px' }}>
-                  <div style={label}>Total impressions</div>
+                <div data-card style={tile(3)}>
+                  <div style={label}>Ad impressions, 30 days</div>
                   <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900, marginTop: 8 }}>{num(totals.impressions)}</div>
                 </div>
               </>
@@ -227,15 +255,14 @@ export default function AnalyticsPage() {
 
         <div style={{ display: 'grid', gap: 20 }}>
           {apps.map((app) => (
-            <section key={app.id} style={{ background: C.card, border: `1px solid ${C.rule}`,
-                                            borderRadius: 16, padding: 24 }}>
+            <section key={app.id} style={{ background: C.card, border: `1px solid ${C.rule}`, borderTop: `4px solid ${app.accent}`,
+                                            borderRadius: 18, padding: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/icons/${app.id}.png`} alt="" width={44} height={44}
-                     style={{ borderRadius: 11, boxShadow: '0 4px 12px rgba(20,20,19,.14)', flexShrink: 0 }} />
-                <h2 style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 800 }}>{app.name}</h2>
+                <h2 style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 700, margin: 0, minWidth: 0 }}>
+                  <AppTag id={app.id} name={app.name} size={36} />
+                </h2>
                 <span style={{ flex: 1 }} />
-                <Link href={`/analytics/${app.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 13 }}>Map & details →</Link>
+                <Link href={`/analytics/${app.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 13 }}>Map & details</Link>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
@@ -300,20 +327,21 @@ export default function AnalyticsPage() {
                   )}
                 </div>
 
-                <div style={{ background: C.card2, border: `1px solid ${C.rule}`,
-                             borderRadius: 12, padding: 16 }}>
-                  <div style={label}>TikTok</div>
-                  {app.tiktok ? (
+                {app.tiktok && (
+                  <div style={{ background: C.card2, border: `1px solid ${C.rule}`,
+                               borderRadius: 12, padding: 16 }}>
+                    <div style={label}>TikTok ads</div>
                     <div style={{ display: 'flex', gap: 24, marginTop: 10, flexWrap: 'wrap' }}>
                       {stat(money(app.tiktok.spend), '30d spend')}
                       {stat(num(app.tiktok.impressions), 'impressions')}
                       {stat(num(app.tiktok.clicks), 'clicks')}
                     </div>
-                  ) : (
-                    <div style={{ marginTop: 10 }}>{notConnected('a TikTok ad account + access token')}</div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
+              {!app.tiktok && (
+                <p style={{ margin: '12px 0 0', fontSize: 12.5, color: C.soft }}>TikTok ads: not connected yet — needs a TikTok ad account + access token.</p>
+              )}
 
               {(app.appStore?.countries?.length ?? 0) > 0 && (
                 <Link href={`/analytics/${app.id}`} aria-label={`${app.name} map`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 220px', gap: 18, alignItems: 'center', marginTop: 20, textDecoration: 'none', color: C.ink }}>
@@ -327,7 +355,7 @@ export default function AnalyticsPage() {
                         <span style={{ flex: 1 }} /><b>{num(c.installs)}</b>
                       </div>
                     ))}
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.mint }}>Open map, money & states →</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.mint }}>Open map, money & states</span>
                   </div>
                 </Link>
               )}
