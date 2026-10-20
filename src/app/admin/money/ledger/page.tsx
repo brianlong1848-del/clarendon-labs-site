@@ -131,157 +131,162 @@ export default function Ledger() {
   return (
     <AdminShell title="Money · Quick Add" subtitle="Spending Plaid never sees, and the receipts behind it">
       <MoneyTabs />
-      <div style={{ maxWidth: 900, padding: '24px 0' }}>
-        <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={label}>LLC owes Brian</div>
-            <div style={{ fontFamily: C.serif, fontSize: 34, fontWeight: 900 }}>{usd(owed)}</div>
-          </div>
-          <div style={{ color: C.ink2, fontSize: 13.5, maxWidth: 420 }}>
-            {owedParts ? (
-              <>
-                <div>Business costs paid personally <b style={{ float: 'right', marginLeft: 16 }}>{usd(owedParts.expensesCents)}</b></div>
-                <div>Member loans to the LLC <b style={{ float: 'right', marginLeft: 16 }}>{usd(owedParts.loansCents)}</b></div>
-                {owedParts.repaidCents > 0 && <div>Loan repayments so far <b style={{ float: 'right', marginLeft: 16 }}>−{usd(owedParts.repaidCents)}</b></div>}
-                <div style={{ color: C.soft, fontSize: 12.5, marginTop: 6 }}>
-                  Paid back tax-free whenever the LLC has the cash.{owedParts.equityCents > 0 ? ` Separately, you've put in ${usd(owedParts.equityCents)} as capital (equity, not owed).` : ''}
-                </div>
-              </>
-            ) : 'Business costs paid from a personal card, account or cash, plus member loans, not yet paid back by the LLC.'}
-          </div>
-        </div>
-
-        {owedParts && owedParts.loanItems.length > 0 && (
-          <div style={card}>
-            <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Member loans</h2>
-            {owedParts.loanItems.map((r) => (
-              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '92px 1fr auto', gap: 10, alignItems: 'center', padding: '9px 0', borderTop: `1px solid ${C.rule}`, fontSize: 14 }}>
-                <span style={{ fontFamily: C.mono, fontSize: 12.5, color: C.ink2 }}>{r.posted_on}</span>
-                <span><b>{r.kind === 'loan' ? 'Loan to the LLC' : 'LLC repaid you'}</b><span style={{ display: 'block', color: C.soft, fontSize: 12.5 }}>{r.notes ?? r.merchant}</span></span>
-                <span style={{ fontWeight: 650, color: r.kind === 'loan' ? C.ink : C.mint }}>{r.kind === 'loan' ? '' : '−'}{usd(Math.abs(r.amount_cents))}</span>
-              </div>
-            ))}
-            <p style={{ color: C.soft, fontSize: 12.5, margin: '10px 0 0' }}>New transfers between you and the LLC show up in Triage. Tag them there as a loan, a repayment or a capital contribution.</p>
-          </div>
-        )}
-
-        {/* Receipt drop zone */}
-        <div style={{ ...card, borderStyle: 'dashed', borderColor: drag ? C.mint : C.rule2, background: drag ? C.mintTint : C.card, textAlign: 'center' }}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); onReceipt(e.dataTransfer.files?.[0]) }}>
-          <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 6px' }}>Upload a receipt</h2>
-          <p style={{ color: C.ink2, fontSize: 14, margin: '0 0 12px' }}>Drop a JPG, PNG or PDF here (10 MB max). It&rsquo;s read, then matched to a transaction or turned into a Quick Add. Nothing posts until you confirm.</p>
-          <label style={{ ...btn('ghost'), display: 'inline-block' }}>
-            {busy ? 'Working…' : 'Choose file'}
-            <input type="file" accept="image/jpeg,image/png,application/pdf" hidden disabled={busy} onChange={(e) => { onReceipt(e.target.files?.[0]); e.target.value = '' }} />
-          </label>
-        </div>
-
-        {found && (
-          <div style={{ ...card, borderColor: C.mint }}>
-            <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{found.name}</h3>
-            {found.extracted
-              ? <p style={{ margin: '0 0 12px', color: C.ink2, fontSize: 14 }}>Read as <b>{found.extracted.vendor ?? 'unknown vendor'}</b>{found.extracted.total != null ? ` · ${usd(Math.round(found.extracted.total * 100))}` : ''}{found.extracted.date ? ` · ${found.extracted.date}` : ''}{found.extracted.suggested_app ? ` · looks like ${appName(found.extracted.suggested_app)}` : ''}</p>
-              : <p style={{ margin: '0 0 12px', color: C.amber, fontSize: 14 }}>Saved, but it couldn&rsquo;t be read automatically. Fill in the Quick Add below.</p>}
-            {found.matches.map((m) => (
-              <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${C.rule}`, gap: 10 }}>
-                <span style={{ fontSize: 14 }}>{m.posted_on} · {m.merchant ?? '—'} · {usd(m.amount_cents)} <span style={{ color: C.soft }}>({m.source}, {m.status})</span></span>
-                <button style={btn('mint')} disabled={busy} onClick={() => receiptAction(found.receipt.id, 'attach', m.id)}>Attach here</button>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-              <button style={btn('solid')} onClick={() => prefill(found.receipt.id, found.extracted)}>{found.matches.length ? 'None of these — add as new expense' : 'Add as new expense'}</button>
-              <button style={btn('ghost')} onClick={() => setFound(null)}>Leave it in “to review”</button>
+      {/* Forms on the left; what's owed and the latest entries beside them. */}
+      <div className="ledger-cols" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(280px,1fr)', gap: 20, alignItems: 'start', padding: '24px 0', maxWidth: 1180 }}>
+        <div>
+          {/* Quick Add */}
+          <div ref={formRef} style={card}>
+            <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 14px' }}>Quick Add expense {pendingReceipt && <span style={{ fontSize: 13, color: C.mint, fontFamily: C.sans }}>· receipt attached</span>}</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+              <div><span style={label}>Date</span><input type="date" style={input} value={f.posted_on} onChange={(e) => set('posted_on', e.target.value)} /></div>
+              <div><span style={label}>Amount (USD)</span><input inputMode="decimal" placeholder="0.00" style={input} value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
+              <div><span style={label}>Paid to</span><input placeholder="ElevenLabs" style={input} value={f.merchant} onChange={(e) => set('merchant', e.target.value)} /></div>
+              <div><span style={label}>Category (Schedule C)</span>
+                <select style={input} value={f.schedule_c} onChange={(e) => set('schedule_c', e.target.value)}>{cats.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+              <div><span style={label}>Paid from</span>
+                <select style={input} value={f.paid_from} onChange={(e) => set('paid_from', e.target.value)}>
+                  <optgroup label="Personal (LLC owes you)">{payFrom.filter((p) => p.ownership === 'personal').map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</optgroup>
+                  <optgroup label="Business">{payFrom.filter((p) => p.ownership === 'business').map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</optgroup>
+                </select></div>
+              <div><span style={label}>App</span>
+                <select style={input} value={f.split ? '__split' : f.app_slug} onChange={(e) => e.target.value === '__split' ? set('split', true) : setF((p) => ({ ...p, split: false, app_slug: e.target.value }))}>
+                  <option value="">Shared (allocated across apps)</option>
+                  {apps.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
+                  <option value="__split">Split between apps…</option>
+                </select></div>
             </div>
+            {f.split && (
+              <div style={{ marginTop: 12, padding: 12, background: C.card2, borderRadius: 10 }}>
+                <span style={label}>Split by percent · {splitTotal}% of 100%</span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+                  {apps.filter((a) => a.slug !== 'studio').map((a) => (
+                    <label key={a.slug} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+                      <input inputMode="decimal" placeholder="0" style={{ ...input, width: 70 }} value={f.shares[a.slug] ?? ''}
+                        onChange={(e) => set('shares', { ...f.shares, [a.slug]: e.target.value })} />% {a.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}><span style={label}>Notes</span><input style={input} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+              <button style={btn('mint')} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save expense'}</button>
+              {!pendingReceipt && (
+                <label style={{ ...btn('ghost'), display: 'inline-block' }}>
+                  {file ? `Receipt: ${file.name}` : 'Attach receipt (optional)'}
+                  <input type="file" accept="image/jpeg,image/png,application/pdf" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                </label>
+              )}
+              {(pendingReceipt || file) && <button style={btn('ghost')} onClick={() => { setFile(null); setPendingReceipt(null) }}>Remove receipt</button>}
+            </div>
+            {msg && <p style={{ color: msg.bad ? C.red : C.mint, fontSize: 13.5, marginTop: 12 }}>{msg.text}</p>}
           </div>
-        )}
 
-        {/* Quick Add */}
-        <div ref={formRef} style={card}>
-          <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 14px' }}>Quick Add expense {pendingReceipt && <span style={{ fontSize: 13, color: C.mint, fontFamily: C.sans }}>· receipt attached</span>}</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-            <div><span style={label}>Date</span><input type="date" style={input} value={f.posted_on} onChange={(e) => set('posted_on', e.target.value)} /></div>
-            <div><span style={label}>Amount (USD)</span><input inputMode="decimal" placeholder="0.00" style={input} value={f.amount} onChange={(e) => set('amount', e.target.value)} /></div>
-            <div><span style={label}>Paid to</span><input placeholder="ElevenLabs" style={input} value={f.merchant} onChange={(e) => set('merchant', e.target.value)} /></div>
-            <div><span style={label}>Category (Schedule C)</span>
-              <select style={input} value={f.schedule_c} onChange={(e) => set('schedule_c', e.target.value)}>{cats.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
-            <div><span style={label}>Paid from</span>
-              <select style={input} value={f.paid_from} onChange={(e) => set('paid_from', e.target.value)}>
-                <optgroup label="Personal (LLC owes you)">{payFrom.filter((p) => p.ownership === 'personal').map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</optgroup>
-                <optgroup label="Business">{payFrom.filter((p) => p.ownership === 'business').map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</optgroup>
-              </select></div>
-            <div><span style={label}>App</span>
-              <select style={input} value={f.split ? '__split' : f.app_slug} onChange={(e) => e.target.value === '__split' ? set('split', true) : setF((p) => ({ ...p, split: false, app_slug: e.target.value }))}>
-                <option value="">Shared (allocated across apps)</option>
-                {apps.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
-                <option value="__split">Split between apps…</option>
-              </select></div>
+          {/* Receipt drop zone */}
+          <div style={{ ...card, borderStyle: 'dashed', borderColor: drag ? C.mint : C.rule2, background: drag ? C.mintTint : C.card, textAlign: 'center' }}
+            onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); onReceipt(e.dataTransfer.files?.[0]) }}>
+            <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 6px' }}>Upload a receipt</h2>
+            <p style={{ color: C.ink2, fontSize: 14, margin: '0 0 12px' }}>Drop a JPG, PNG or PDF here (10 MB max). It&rsquo;s read, then matched to a transaction or turned into a Quick Add. Nothing posts until you confirm.</p>
+            <label style={{ ...btn('ghost'), display: 'inline-block' }}>
+              {busy ? 'Working…' : 'Choose file'}
+              <input type="file" accept="image/jpeg,image/png,application/pdf" hidden disabled={busy} onChange={(e) => { onReceipt(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
           </div>
-          {f.split && (
-            <div style={{ marginTop: 12, padding: 12, background: C.card2, borderRadius: 10 }}>
-              <span style={label}>Split by percent · {splitTotal}% of 100%</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-                {apps.filter((a) => a.slug !== 'studio').map((a) => (
-                  <label key={a.slug} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-                    <input inputMode="decimal" placeholder="0" style={{ ...input, width: 70 }} value={f.shares[a.slug] ?? ''}
-                      onChange={(e) => set('shares', { ...f.shares, [a.slug]: e.target.value })} />% {a.name}
-                  </label>
-                ))}
+
+          {found && (
+            <div style={{ ...card, borderColor: C.mint }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{found.name}</h3>
+              {found.extracted
+                ? <p style={{ margin: '0 0 12px', color: C.ink2, fontSize: 14 }}>Read as <b>{found.extracted.vendor ?? 'unknown vendor'}</b>{found.extracted.total != null ? ` · ${usd(Math.round(found.extracted.total * 100))}` : ''}{found.extracted.date ? ` · ${found.extracted.date}` : ''}{found.extracted.suggested_app ? ` · looks like ${appName(found.extracted.suggested_app)}` : ''}</p>
+                : <p style={{ margin: '0 0 12px', color: C.amber, fontSize: 14 }}>Saved, but it couldn&rsquo;t be read automatically. Fill in the Quick Add below.</p>}
+              {found.matches.map((m) => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${C.rule}`, gap: 10 }}>
+                  <span style={{ fontSize: 14 }}>{m.posted_on} · {m.merchant ?? '—'} · {usd(m.amount_cents)} <span style={{ color: C.soft }}>({m.source}, {m.status})</span></span>
+                  <button style={btn('mint')} disabled={busy} onClick={() => receiptAction(found.receipt.id, 'attach', m.id)}>Attach here</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                <button style={btn('solid')} onClick={() => prefill(found.receipt.id, found.extracted)}>{found.matches.length ? 'None of these — add as new expense' : 'Add as new expense'}</button>
+                <button style={btn('ghost')} onClick={() => setFound(null)}>Leave it in “to review”</button>
               </div>
             </div>
           )}
-          <div style={{ marginTop: 12 }}><span style={label}>Notes</span><input style={input} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14, flexWrap: 'wrap' }}>
-            <button style={btn('mint')} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save expense'}</button>
-            {!pendingReceipt && (
-              <label style={{ ...btn('ghost'), display: 'inline-block' }}>
-                {file ? `Receipt: ${file.name}` : 'Attach receipt (optional)'}
-                <input type="file" accept="image/jpeg,image/png,application/pdf" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              </label>
-            )}
-            {(pendingReceipt || file) && <button style={btn('ghost')} onClick={() => { setFile(null); setPendingReceipt(null) }}>Remove receipt</button>}
-          </div>
-          {msg && <p style={{ color: msg.bad ? C.red : C.mint, fontSize: 13.5, marginTop: 12 }}>{msg.text}</p>}
-        </div>
 
-        {/* Receipts to review */}
-        <div style={card}>
-          <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Receipts to review <span style={{ fontSize: 14, color: C.soft }}>{inbox.length}</span></h2>
-          {inbox.length === 0 && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>Nothing waiting.</p>}
-          {inbox.map((r) => (
-            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: `1px solid ${C.rule}`, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 14 }}>
-                {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: C.ink }}>{r.file_name ?? 'receipt'}</a> : r.file_name}
-                <span style={{ color: C.soft }}> · {r.extracted ? `${r.extracted.vendor ?? '?'}${r.extracted.total != null ? ` · ${usd(Math.round(r.extracted.total * 100))}` : ''}${r.extracted.date ? ` · ${r.extracted.date}` : ''}` : 'not read'}</span>
-              </span>
-              <span style={{ display: 'flex', gap: 6 }}>
-                <button style={btn('ghost')} onClick={() => prefill(r.id, r.extracted)}>Add as expense</button>
-                <button style={btn('ghost')} disabled={busy} onClick={() => receiptAction(r.id, 'dismiss')}>Dismiss</button>
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* Recent manual + recurring entries */}
-        <div style={card}>
-          <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Recent manual entries</h2>
-          {recent.length === 0 && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>None yet.</p>}
-          {recent.map((r) => (
-            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '92px 1fr auto auto', gap: 10, alignItems: 'center', padding: '9px 0', borderTop: `1px solid ${C.rule}`, fontSize: 14 }}>
-              <span style={{ fontFamily: C.mono, fontSize: 12.5, color: C.ink2 }}>{r.posted_on}</span>
-              <span>
-                <b>{r.merchant}</b>{r.source === 'recurring' && <span style={{ color: C.soft }}> · auto</span>}{r.status === 'unreviewed' && <span style={{ color: C.amber }}> · held (possible duplicate)</span>}
-                <span style={{ display: 'block', color: C.soft, fontSize: 12.5 }}>
-                  {r.splits.length ? r.splits.map((s) => `${appName(s.app_slug)} ${Math.round(s.share * 100)}%`).join(' / ') : r.split_apps ? r.split_apps.map(appName).join(' / ') : appName(r.app_slug)}
-                  {' · '}{payLabel(r.paid_from)}{r.receipts.length ? ' · 🧾' : ''}
+          {/* Receipts to review */}
+          <div style={card}>
+            <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Receipts to review <span style={{ fontSize: 14, color: C.soft }}>{inbox.length}</span></h2>
+            {inbox.length === 0 && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>Nothing waiting.</p>}
+            {inbox.map((r) => (
+              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: `1px solid ${C.rule}`, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 14 }}>
+                  {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: C.ink }}>{r.file_name ?? 'receipt'}</a> : r.file_name}
+                  <span style={{ color: C.soft }}> · {r.extracted ? `${r.extracted.vendor ?? '?'}${r.extracted.total != null ? ` · ${usd(Math.round(r.extracted.total * 100))}` : ''}${r.extracted.date ? ` · ${r.extracted.date}` : ''}` : 'not read'}</span>
                 </span>
-              </span>
-              <span style={{ fontWeight: 650 }}>{usd(r.amount_cents)}</span>
-              {r.source === 'manual' ? <button style={{ ...btn('ghost'), padding: '6px 10px' }} onClick={() => remove(r.id)}>Delete</button> : <span />}
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <button style={btn('ghost')} onClick={() => prefill(r.id, r.extracted)}>Add as expense</button>
+                  <button style={btn('ghost')} disabled={busy} onClick={() => receiptAction(r.id, 'dismiss')}>Dismiss</button>
+                </span>
+              </div>
+            ))}
+          </div>
+
+        </div>
+        <div>
+          <div style={card}>
+            <div style={label}>LLC owes Brian</div>
+            <div style={{ fontFamily: C.serif, fontSize: 34, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{usd(owed)}</div>
+            <div style={{ color: C.ink2, fontSize: 13.5, marginTop: 10, display: 'grid', gap: 4 }}>
+              {owedParts ? (
+                <>
+                  <div style={{ display: 'flex', gap: 12 }}><span style={{ flex: 1 }}>Business costs paid personally</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{usd(owedParts.expensesCents)}</b></div>
+                  <div style={{ display: 'flex', gap: 12 }}><span style={{ flex: 1 }}>Member loans to the LLC</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{usd(owedParts.loansCents)}</b></div>
+                  {owedParts.repaidCents > 0 && <div style={{ display: 'flex', gap: 12 }}><span style={{ flex: 1 }}>Loan repayments so far</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>−{usd(owedParts.repaidCents)}</b></div>}
+                  <div style={{ color: C.soft, fontSize: 12.5, marginTop: 6 }}>
+                    Paid back tax-free whenever the LLC has the cash.{owedParts.equityCents > 0 ? ` Separately, you've put in ${usd(owedParts.equityCents)} as capital (equity, not owed).` : ''}
+                  </div>
+                </>
+              ) : 'Business costs paid from a personal card, account or cash, plus member loans, not yet paid back by the LLC.'}
             </div>
-          ))}
+          </div>
+
+          {owedParts && owedParts.loanItems.length > 0 && (
+            <div style={card}>
+              <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Member loans</h2>
+              {owedParts.loanItems.map((r) => (
+                <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center', padding: '9px 0', borderTop: `1px solid ${C.rule}`, fontSize: 14 }}>
+                  <span><b>{r.kind === 'loan' ? 'Loan to the LLC' : 'LLC repaid you'}</b><span style={{ display: 'block', color: C.soft, fontSize: 12.5 }}><span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.posted_on}</span>{(r.notes ?? r.merchant) ? ` · ${r.notes ?? r.merchant}` : ''}</span></span>
+                  <span style={{ fontWeight: 650, fontVariantNumeric: 'tabular-nums', color: r.kind === 'loan' ? C.ink : C.mint }}>{r.kind === 'loan' ? '' : '−'}{usd(Math.abs(r.amount_cents))}</span>
+                </div>
+              ))}
+              <p style={{ color: C.soft, fontSize: 12.5, margin: '10px 0 0' }}>New transfers between you and the LLC show up in Triage. Tag them there as a loan, a repayment or a capital contribution.</p>
+            </div>
+          )}
+
+          {/* Recent manual + recurring entries */}
+          <div style={card}>
+            <h2 style={{ fontFamily: C.serif, fontSize: 20, margin: '0 0 10px' }}>Last 5 quick adds</h2>
+            {recent.length === 0 && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>None yet.</p>}
+            {recent.slice(0, 5).map((r) => (
+              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center', padding: '9px 0', borderTop: `1px solid ${C.rule}`, fontSize: 14 }}>
+                <span style={{ minWidth: 0 }}>
+                  <b>{r.merchant}</b>{r.source === 'recurring' && <span style={{ color: C.soft }}> · auto</span>}{r.status === 'unreviewed' && <span style={{ color: C.amber }}> · held (possible duplicate)</span>}
+                  <span style={{ display: 'block', color: C.soft, fontSize: 12.5 }}>
+                    {r.splits.length ? r.splits.map((s) => `${appName(s.app_slug)} ${Math.round(s.share * 100)}%`).join(' / ') : r.split_apps ? r.split_apps.map(appName).join(' / ') : appName(r.app_slug)}
+                    {' · '}{payLabel(r.paid_from)}{r.receipts.length ? ' 🧾' : ''}
+                  </span>
+                </span>
+                <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <b style={{ fontWeight: 650 }}>{usd(r.amount_cents)}</b>
+                  <span style={{ display: 'block', fontSize: 12, color: C.soft }}>{r.posted_on}</span>
+                </span>
+                {r.source === 'manual' ? <button style={{ ...btn('ghost'), padding: '6px 10px', color: C.red }} onClick={() => remove(r.id)}>Delete</button> : <span />}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+      <style>{`@media (max-width: 980px){ .ledger-cols{ grid-template-columns: 1fr !important } }`}</style>
     </AdminShell>
   )
 }

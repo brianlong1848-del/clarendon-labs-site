@@ -60,6 +60,18 @@ export default function Triage() {
   }, [])
   useEffect(() => { load() }, [load])
 
+  // Same bank sync as the Plaid card on Overview; reload the queue after.
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const syncNow = async () => {
+    setSyncing(true); setSyncMsg(null)
+    const r = await fetch('/api/money/plaid/sync', { method: 'POST' }).catch(() => null)
+    const d = await r?.json().catch(() => ({})) ?? {}
+    setSyncing(false)
+    if (!r?.ok) { setSyncMsg(d.error ?? 'Sync failed — try again.'); return }
+    await load()
+  }
+
   const cur = items[0]
   useEffect(() => { if (cur) { setCategory(guessCategory(cur.plaid_category)); setPicking(false); setSplitMode(false); setSelected([]) } }, [cur?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -140,6 +152,8 @@ export default function Triage() {
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <h2 style={{ fontFamily: C.serif, fontSize: 28, margin: 0 }}>All caught up</h2>
             <p style={{ color: C.ink2 }}>Nothing waiting. New transactions show up here after the next bank sync.</p>
+            <button style={btn('ghost')} disabled={syncing} onClick={syncNow}>{syncing ? 'Syncing…' : 'Sync now'}</button>
+            {syncMsg && <p style={{ color: C.soft, fontSize: 13 }}>{syncMsg}</p>}
           </div>
         )}
         {cur && (

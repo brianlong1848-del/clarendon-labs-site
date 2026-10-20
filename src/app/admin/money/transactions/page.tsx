@@ -20,6 +20,7 @@ const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency'
 const input: React.CSSProperties = { padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.rule2}`, fontSize: 13.5, background: C.card, color: C.ink, font: 'inherit', boxSizing: 'border-box' }
 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: 20, marginBottom: 16 }
 const lab: React.CSSProperties = { ...labelStyle, display: 'block', marginBottom: 4 }
+const chip = (color: string): React.CSSProperties => ({ fontSize: 11.5, fontWeight: 600, color, border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '1px 8px' })
 
 export default function Transactions() {
   const [rows, setRows] = useState<Row[]>([])
@@ -79,28 +80,26 @@ export default function Transactions() {
   return (
     <AdminShell title="Money · Transactions" subtitle="Every transaction in one list: search, filter, edit, export">
       <MoneyTabs />
-      <div style={{ maxWidth: 1100, padding: '24px 0' }}>
+      <style>{`@media (max-width: 700px){ .tx-row{ grid-template-columns: minmax(0,1fr) auto !important } .tx-row > :first-child{ grid-column: 1 / -1 } .tx-row > :last-child{ grid-column: 1 / -1; justify-self: start } }`}</style>
+      <div style={{ maxWidth: 1180, padding: '24px 0' }}>
         <div style={card}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-            <div style={{ gridColumn: 'span 2' }}><span style={lab}>Search</span><input style={{ ...input, width: '100%' }} placeholder="Merchant or note" value={filt.q} onChange={(e) => setF('q', e.target.value)} /></div>
-            <div><span style={lab}>From</span><input type="date" style={{ ...input, width: '100%' }} value={filt.from} onChange={(e) => setF('from', e.target.value)} /></div>
-            <div><span style={lab}>To</span><input type="date" style={{ ...input, width: '100%' }} value={filt.to} onChange={(e) => setF('to', e.target.value)} /></div>
-            <div><span style={lab}>Status</span>
-              <select style={{ ...input, width: '100%' }} value={filt.status} onChange={(e) => setF('status', e.target.value)}>
-                <option value="">All</option><option value="business">Business</option><option value="personal">Personal</option><option value="unreviewed">Unreviewed</option><option value="ignored">Ignored</option>
-              </select></div>
-            <div><span style={lab}>Source</span>
-              <select style={{ ...input, width: '100%' }} value={filt.source} onChange={(e) => setF('source', e.target.value)}>
-                <option value="">All</option><option value="plaid">Bank</option><option value="manual">Manual</option><option value="recurring">Recurring</option>
-              </select></div>
-            <div><span style={lab}>App</span>
-              <select style={{ ...input, width: '100%' }} value={filt.app} onChange={(e) => setF('app', e.target.value)}>
-                <option value="">All</option><option value="__none">Shared / none</option>{apps.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
-              </select></div>
-            <div><span style={lab}>Category</span>
-              <select style={{ ...input, width: '100%' }} value={filt.category} onChange={(e) => setF('category', e.target.value)}>
-                <option value="">All</option>{cats.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select></div>
+          {/* One row on desktop: search grows, the rest stay compact; wraps on a phone. */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input aria-label="Search" style={{ ...input, flex: '1 1 220px', minWidth: 0 }} placeholder="Search merchant or note" value={filt.q} onChange={(e) => setF('q', e.target.value)} />
+            <input aria-label="From" title="From" type="date" style={input} value={filt.from} onChange={(e) => setF('from', e.target.value)} />
+            <input aria-label="To" title="To" type="date" style={input} value={filt.to} onChange={(e) => setF('to', e.target.value)} />
+            <select aria-label="Status" style={input} value={filt.status} onChange={(e) => setF('status', e.target.value)}>
+              <option value="">Any status</option><option value="business">Business</option><option value="personal">Personal</option><option value="unreviewed">Unreviewed</option><option value="ignored">Ignored</option>
+            </select>
+            <select aria-label="Source" style={input} value={filt.source} onChange={(e) => setF('source', e.target.value)}>
+              <option value="">Any source</option><option value="plaid">Bank</option><option value="manual">Manual</option><option value="recurring">Recurring</option>
+            </select>
+            <select aria-label="App" style={input} value={filt.app} onChange={(e) => setF('app', e.target.value)}>
+              <option value="">All apps</option><option value="__none">Shared / none</option>{apps.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
+            </select>
+            <select aria-label="Category" style={{ ...input, maxWidth: 200 }} value={filt.category} onChange={(e) => setF('category', e.target.value)}>
+              <option value="">All categories</option>{cats.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ color: C.ink2, fontSize: 13.5 }}>{total.toLocaleString()} transaction{total === 1 ? '' : 's'}</span>
@@ -113,14 +112,22 @@ export default function Transactions() {
           {rows.length === 0 && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>No transactions match.</p>}
           {rows.map((r, i) => (
             <div key={r.id} style={{ padding: '10px 0', borderTop: i ? `1px solid ${C.rule}` : 'none', fontSize: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr 100px auto', gap: 10, alignItems: 'center' }}>
-                <span style={{ fontFamily: C.mono, fontSize: 12.5, color: C.ink2 }}>{r.posted_on}</span>
-                <span>
-                  <b>{r.merchant ?? '—'}</b>
-                  <span style={{ color: C.soft }}> · {r.source === 'plaid' ? 'bank' : r.source}{r.status === 'unreviewed' ? ' · unreviewed' : ''}{r.possible_duplicate_of ? ' · possible duplicate' : ''}{r.receipts.length ? ' · 🧾' : ''}</span>
-                  <span style={{ display: 'block', color: C.soft, fontSize: 12.5 }}>{r.status} · {appName(r)} · {catName(r.schedule_c)}{r.notes ? ` · ${r.notes}` : ''}</span>
+              <div className="tx-row" style={{ display: 'grid', gridTemplateColumns: '92px minmax(0,1fr) 100px auto', gap: 10, alignItems: 'start' }}>
+                <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13, color: C.ink2, paddingTop: 1 }}>{r.posted_on}</span>
+                <span style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <b>{r.merchant ?? '—'}</b>
+                    {r.status === 'unreviewed' && <span style={chip(C.amber)}>Unreviewed</span>}
+                    {r.status === 'personal' && <span style={chip(C.ink2)}>Personal</span>}
+                    {r.status === 'ignored' && <span style={chip(C.soft)}>Ignored</span>}
+                    {r.possible_duplicate_of && <span style={chip(C.amber)}>Possible duplicate</span>}
+                    {r.receipts.length > 0 && <span title="Receipt attached" aria-label="Receipt attached">🧾</span>}
+                  </span>
+                  <span style={{ color: C.soft, fontSize: 12.5 }}>{appName(r)} · {catName(r.schedule_c)}</span>
+                  {r.notes && <span title={r.notes} style={{ color: C.ink2, fontSize: 12.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.notes}</span>}
                 </span>
-                <span style={{ fontWeight: 650, textAlign: 'right', color: r.amount_cents < 0 ? C.mint : C.ink }}>{usd(r.amount_cents)}</span>
+                <span title={r.source === 'plaid' ? 'From the bank' : r.source === 'recurring' ? 'Recurring' : 'Manual entry'}
+                  style={{ fontWeight: 650, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: r.amount_cents < 0 ? C.mint : C.ink }}>{usd(r.amount_cents)}</span>
                 <button style={{ ...btn('ghost'), padding: '6px 10px' }} onClick={() => (edit === r.id ? setEdit(null) : start(r))}>{edit === r.id ? 'Close' : 'Edit'}</button>
               </div>
               {edit === r.id && d && (

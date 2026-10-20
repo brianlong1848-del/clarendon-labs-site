@@ -135,7 +135,7 @@ export default function Subscriptions() {
                 </span>
               </span>
               <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <button style={btn('mint')} disabled={busy} onClick={() => call('PATCH', { id: s.id, moved_to_business_on: today() }, `${s.vendor} marked as moved. Auto-posting stopped; Plaid picks it up from the business account.`)}>Moved to business</button>
+                <button style={btn('ghost')} disabled={busy} onClick={() => call('PATCH', { id: s.id, moved_to_business_on: today() }, `${s.vendor} marked as moved. Auto-posting stopped; Plaid picks it up from the business account.`)}>Move to business</button>
                 <button style={btn('ghost')} disabled={busy} onClick={() => call('PATCH', { id: s.id, active: false }, `${s.vendor} paused.`)}>Cancelled</button>
               </span>
             </div>

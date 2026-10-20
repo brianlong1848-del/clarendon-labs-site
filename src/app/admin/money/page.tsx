@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, C, Label, TILE, labelStyle } from '@/components/AdminNav'
+import { AdminShell, AppTag, C, Label, TILE, labelStyle } from '@/components/AdminNav'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import PlaidSyncStatus from '@/components/money/PlaidSyncStatus'
 
@@ -10,7 +10,6 @@ type App = { slug: string; name: string }
 type Data = { pnl: Row[]; apps: App[]; roas30: Record<string, { spend: number; proceeds: number; installs: number }>; owedCents: number; unreviewed: number }
 
 const usd = (c: number) => (c < 0 ? '−' : '') + Math.abs(c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
-const iconFor = (slug: string) => (slug === 'studio' ? '/brand/clarendon-apple-touch-icon.png' : `/icons/${slug}.png`)
 const monthLabel = (m: string) => new Date(m + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
 export default function MoneyOverview() {
@@ -62,7 +61,7 @@ export default function MoneyOverview() {
   const firstMonth = months[months.length - 1]
 
   const th: React.CSSProperties = { ...labelStyle, textAlign: 'right', padding: '8px 10px' }
-  const td: React.CSSProperties = { textAlign: 'right', padding: '12px 10px', fontVariantNumeric: 'tabular-nums', borderTop: `1px solid ${C.rule}`, whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { textAlign: 'right', padding: '0 10px', height: 48, fontVariantNumeric: 'tabular-nums', borderTop: `1px solid ${C.rule}`, whiteSpace: 'nowrap' }
   const pos = (n: number) => (n > 0 ? C.mint : n < 0 ? C.loss : C.ink2)
 
   return (
@@ -77,7 +76,7 @@ export default function MoneyOverview() {
       ) : undefined}>
       <MoneyTabs />
       <PlaidSyncStatus />
-      {error && <p style={{ color: C.amber }}>{error}</p>}
+      {error && <p style={{ color: C.red }}>{error}</p>}
       {!d && !error && <p style={{ color: C.soft }}>Loading…</p>}
 
       {d && (
@@ -105,14 +104,18 @@ export default function MoneyOverview() {
                   <span style={{ color: C.soft }}>Revenue by app</span>
                   {Array.from(by).sort((a, b) => b[1] - a[1]).map(([slug, cents]) => (
                     <span key={slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={iconFor(slug)} alt="" width={16} height={16} style={{ borderRadius: 4 }} />
-                      {name(slug)} <b style={{ color: C.ink, fontVariantNumeric: 'tabular-nums' }}>{(cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</b>
+                      <AppTag id={slug} name={name(slug)} size={16} /> <b style={{ color: C.ink, fontVariantNumeric: 'tabular-nums' }}>{(cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</b>
                     </span>
                   ))}
                 </div>
               )
             })()}
+            {d.owedCents !== 0 && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 13.5, color: C.ink2, borderTop: `1px solid ${C.rule}`, paddingTop: 10 }}>
+                LLC owes Brian <b style={{ color: C.ink, fontVariantNumeric: 'tabular-nums' }}>{usd(d.owedCents)}</b>
+                <Link href="/admin/money/ledger" style={{ color: C.mint, fontWeight: 600, textDecoration: 'none', marginLeft: 'auto' }}>Details</Link>
+              </div>
+            )}
           </div>
 
           <Label>{periodLabel(month)}</Label>
@@ -130,19 +133,10 @@ export default function MoneyOverview() {
             ))}
           </div>
 
-          {(d.unreviewed > 0 || d.owedCents !== 0) && (
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {d.unreviewed > 0 && (
-                <Link href="/admin/money/triage" style={{ background: C.mintTint, color: C.ink, padding: '10px 16px', borderRadius: 12, textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>
-                  {d.unreviewed} transaction{d.unreviewed === 1 ? '' : 's'} waiting in Triage →
-                </Link>
-              )}
-              {d.owedCents !== 0 && (
-                <div style={{ background: C.card, border: `1px solid ${C.rule}`, padding: '10px 16px', borderRadius: 12, fontSize: 14 }}>
-                  LLC owes Brian <b>{usd(d.owedCents)}</b>
-                </div>
-              )}
-            </div>
+          {d.unreviewed > 0 && (
+            <Link href="/admin/money/triage" style={{ justifySelf: 'start', alignSelf: 'start', background: C.mintTint, color: C.ink, padding: '10px 16px', borderRadius: 12, textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>
+              Sort {d.unreviewed} transaction{d.unreviewed === 1 ? '' : 's'} in Triage
+            </Link>
           )}
 
           <div style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: '8px 10px', overflowX: 'auto' }}>
@@ -162,9 +156,7 @@ export default function MoneyOverview() {
                     return (
                       <tr key={r.app_slug}>
                         <td style={{ ...td, textAlign: 'left', fontWeight: 650 }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={iconFor(r.app_slug)} alt="" width={26} height={26} style={{ borderRadius: 6, verticalAlign: 'middle', marginRight: 10 }} />
-                          {name(r.app_slug)}
+                          <AppTag id={r.app_slug} name={name(r.app_slug)} />
                         </td>
                         <td style={td}>{usd(r.revenue_cents)}</td>
                         <td style={td}>{usd(r.direct_cost_cents + r.allocated_cost_cents)}</td>
