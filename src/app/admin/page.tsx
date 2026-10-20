@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 
 // ─── /admin — the studio console ─────────────────────────────────────────────
 //
@@ -164,7 +164,7 @@ export default function ConsolePage() {
     )
   }
 
-  const label: React.CSSProperties = { fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft }
+  const label = labelStyle
   const section = (title: string, aside?: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 8 }}>
       <h2 style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 800, margin: 0 }}>{title}</h2>

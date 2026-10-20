@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, Label, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { GeoMap } from '@/components/GeoMap'
 
@@ -96,10 +96,7 @@ export default function AnalyticsPage() {
     borderRadius: 10, padding: '12px 14px', color: C.ink,
     fontFamily: C.sans, fontSize: 15, width: '100%',
   }
-  const label: React.CSSProperties = {
-    fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em',
-    textTransform: 'uppercase', color: C.soft,
-  }
+  const label = labelStyle
   const stat = (value: string, caption: string) => (
     <div>
       <div style={{ fontFamily: C.serif, fontWeight: 900, fontSize: 26, letterSpacing: '-.01em' }}>
@@ -224,7 +221,7 @@ export default function AnalyticsPage() {
         {anyAppStore && <GeoExplorer pw={pw} app="all" title="All apps · world" />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontFamily: C.mono, fontSize: 11.5, letterSpacing: '.18em', textTransform: 'uppercase', color: C.soft }}>By app</span>
+          <Label as="span">By app</Label>
           <span style={{ flex: 1, height: 1, background: C.rule }} />
         </div>
 
@@ -323,7 +320,7 @@ export default function AnalyticsPage() {
                   <GeoMap scope="world" height={170} accent={app.accent}
                     values={(app.appStore?.countries ?? []).map((c) => ({ code: c.code, value: c.installs }))} />
                   <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft }}>Installs by country · 30d</div>
+                    <Label>Installs by country · 30 days</Label>
                     {(app.appStore?.countries ?? []).slice(0, 4).map((c) => (
                       <div key={c.code} style={{ display: 'flex', fontSize: 13 }}>
                         <span>{typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }).of(c.code) : c.code}</span>

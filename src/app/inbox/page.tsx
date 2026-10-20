@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph } from '@/components/post/shared'
 import type { InboxItem, SourceStatus } from '@/lib/inbox/types'
 
@@ -155,7 +155,7 @@ export default function InboxPage() {
       {n ? <span style={{ fontSize: 11.5, fontWeight: 800, color: active ? C.mint : C.soft }}>{n}</span> : null}
     </button>
   )
-  const railLabel = (t: string) => <div style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: C.faint, margin: '14px 10px 4px' }}>{t}</div>
+  const railLabel = (t: string) => <div style={{ ...labelStyle, color: C.faint, margin: '14px 10px 4px' }}>{t}</div>
 
   return (
     <AdminShell

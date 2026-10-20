@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 
 // ─── /analytics/<app> — one app, mapped ──────────────────────────────────────
@@ -88,7 +88,7 @@ export default function AppAnalyticsPage() {
     )
   }
 
-  const label: React.CSSProperties = { fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft }
+  const label = labelStyle
   const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: 22 }
   const big = (v: string, cap: string, sub?: string) => (
     <div style={{ ...card, padding: '18px 20px' }}>

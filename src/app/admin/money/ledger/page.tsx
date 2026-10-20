@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 import { uploadReceipt, type UploadResult } from '@/lib/money/uploadReceipt'
 import type { Owed } from '@/lib/money/owed'
 
@@ -28,7 +28,7 @@ const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency'
 const blank = (): Form => ({ posted_on: today(), amount: '', merchant: '', app_slug: '', split: false, shares: {}, schedule_c: 'software', paid_from: '', notes: '' })
 const input: React.CSSProperties = { padding: '10px 12px', borderRadius: 10, border: `1px solid ${C.rule2}`, fontSize: 14, background: C.card, color: C.ink, font: 'inherit', width: '100%', boxSizing: 'border-box' }
 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: 20, marginBottom: 16 }
-const label: React.CSSProperties = { display: 'block', fontSize: 12, fontFamily: C.mono, letterSpacing: '.08em', textTransform: 'uppercase', color: C.soft, marginBottom: 6 }
+const label: React.CSSProperties = { ...labelStyle, display: 'block', marginBottom: 6 }
 
 export default function Ledger() {
   const [apps, setApps] = useState<App[]>([])

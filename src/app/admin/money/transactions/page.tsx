@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 
 // Money → Transactions: every transaction (bank, manual, recurring) in one list.
 // Search, filter, edit status / app / category / notes inline, export CSV.
@@ -19,7 +19,7 @@ type Draft = { merchant: string; posted_on: string; amount: string; status: stri
 const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const input: React.CSSProperties = { padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.rule2}`, fontSize: 13.5, background: C.card, color: C.ink, font: 'inherit', boxSizing: 'border-box' }
 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: 20, marginBottom: 16 }
-const lab: React.CSSProperties = { display: 'block', fontSize: 11.5, fontFamily: C.mono, letterSpacing: '.08em', textTransform: 'uppercase', color: C.soft, marginBottom: 4 }
+const lab: React.CSSProperties = { ...labelStyle, display: 'block', marginBottom: 4 }
 
 export default function Transactions() {
   const [rows, setRows] = useState<Row[]>([])

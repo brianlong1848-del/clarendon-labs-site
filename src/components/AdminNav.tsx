@@ -18,6 +18,8 @@ export const C = {
   rule: '#E6E8EC', rule2: '#D5D9E0',
   // `mint` keeps its name for the 24 pages that use it; it is the teal accent now.
   mint: '#0B7A83', mintTint: '#E2F4F5', amber: '#B45309', red: '#C24A4A',
+  // Money below zero, on every page. Red stays for errors and destructive actions.
+  loss: '#B4532A',
   teal: '#0B7A83', tealHover: '#075E65', glow: '#2BD4E0',
   indigo: '#4F46E5', indigoTint: '#EEF0FF', coralTint: '#FFF1EC', violetTint: '#F5EEFF',
   grad: 'linear-gradient(135deg, #0B7A83 0%, #4F46E5 100%)',
@@ -36,6 +38,31 @@ export const STUDIO_APPS = [
   { id: 'borea', name: 'Borea', accent: '#22D3C4' },
   { id: 'jinglewire', name: 'Jinglewire', accent: '#1F6B3A' },
 ]
+
+/** An app's accent colour, or neutral ink for anything that isn't one of the five apps. */
+export const appAccent = (id: string) => STUDIO_APPS.find((a) => a.id === id)?.accent ?? C.ink2
+
+/** Icon + name inline, everywhere an app is named. `studio` is the company itself. */
+export function AppTag({ id, name, size = 20, style }: { id: string; name?: string; size?: number; style?: React.CSSProperties }) {
+  const label = name ?? STUDIO_APPS.find((a) => a.id === id)?.name ?? id
+  const src = id === 'studio' ? '/brand/clarendon-apple-touch-icon.png' : `/icons/${id}.png`
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: Math.round(size * 0.4), minWidth: 0, ...style }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" width={size} height={size} style={{ borderRadius: Math.round(size * 0.22), flexShrink: 0, display: 'block' }} />
+      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+    </span>
+  )
+}
+
+/** The house label above a figure: Geist Mono, small, tracked, uppercase. */
+export const labelStyle: React.CSSProperties = {
+  fontFamily: C.mono, fontSize: 10.5, fontWeight: 500, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft,
+}
+
+export function Label({ children, style, as: Tag = 'div' }: { children: React.ReactNode; style?: React.CSSProperties; as?: 'div' | 'span' | 'label' }) {
+  return <Tag style={{ ...labelStyle, ...style }}>{children}</Tag>
+}
 
 /** KPI tile tints, in order: teal, indigo, coral, violet. */
 export const TILE = [
@@ -128,8 +155,7 @@ export function AdminShell({ title, subtitle, actions, children }: {
           </div>
         </div>
 
-        <div className="adm-hide" style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em',
-                      textTransform: 'uppercase', color: C.faint, padding: '0 10px', marginBottom: 6 }}>
+        <div className="adm-hide" style={{ ...labelStyle, color: C.faint, padding: '0 10px', marginBottom: 6 }}>
           Studio
         </div>
 
@@ -151,8 +177,7 @@ export function AdminShell({ title, subtitle, actions, children }: {
 
         <div className="adm-hide" style={{ height: 1, background: C.rule, margin: '16px 10px' }} />
 
-        <div className="adm-hide" style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.16em',
-                      textTransform: 'uppercase', color: C.faint, padding: '0 10px', marginBottom: 6 }}>
+        <div className="adm-hide" style={{ ...labelStyle, color: C.faint, padding: '0 10px', marginBottom: 6 }}>
           Apps
         </div>
         {STUDIO_APPS.map((a) => {

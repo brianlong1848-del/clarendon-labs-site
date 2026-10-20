@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 
 // Money → Subscriptions
 //
@@ -23,7 +23,7 @@ const usd = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency'
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 const input: React.CSSProperties = { padding: '10px 12px', borderRadius: 10, border: `1px solid ${C.rule2}`, fontSize: 14, background: C.card, color: C.ink, font: 'inherit', width: '100%', boxSizing: 'border-box' }
 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: 20, marginBottom: 16 }
-const label: React.CSSProperties = { display: 'block', fontSize: 12, fontFamily: C.mono, letterSpacing: '.08em', textTransform: 'uppercase', color: C.soft, marginBottom: 6 }
+const label: React.CSSProperties = { ...labelStyle, display: 'block', marginBottom: 6 }
 
 export default function Subscriptions() {
   const [items, setItems] = useState<Sub[]>([])

@@ -1,5 +1,5 @@
 'use client'
-import { C } from '@/components/AdminNav'
+import { C, labelStyle } from '@/components/AdminNav'
 import type { Platform } from '@/lib/publish/rules'
 import type { RepeatRule } from '@/lib/publish/recur'
 
@@ -39,7 +39,7 @@ export function PlatformGlyph({ platform, size = 18, color }: { platform: Platfo
   }
 }
 
-export const label: React.CSSProperties = { fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft }
+export const label = labelStyle
 export const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22 }
 
 export function Toggle({ on, onChange, disabled, label: aria }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {

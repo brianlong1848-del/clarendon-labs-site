@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, C, TILE } from '@/components/AdminNav'
+import { AdminShell, C, Label, TILE, labelStyle } from '@/components/AdminNav'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import PlaidSyncStatus from '@/components/money/PlaidSyncStatus'
 
@@ -61,9 +61,9 @@ export default function MoneyOverview() {
   }), { revenue: 0, cost: 0, ads: 0, profit: 0 })
   const firstMonth = months[months.length - 1]
 
-  const th: React.CSSProperties = { textAlign: 'right', fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.1em', textTransform: 'uppercase', color: C.soft, fontWeight: 500, padding: '8px 10px' }
+  const th: React.CSSProperties = { ...labelStyle, textAlign: 'right', padding: '8px 10px' }
   const td: React.CSSProperties = { textAlign: 'right', padding: '12px 10px', fontVariantNumeric: 'tabular-nums', borderTop: `1px solid ${C.rule}`, whiteSpace: 'nowrap' }
-  const pos = (n: number) => (n > 0 ? C.mint : n < 0 ? C.amber : C.ink2)
+  const pos = (n: number) => (n > 0 ? C.mint : n < 0 ? C.loss : C.ink2)
 
   return (
     <AdminShell title="Money & ROI" subtitle="What each app earns, what it costs, and what's left"
@@ -84,14 +84,14 @@ export default function MoneyOverview() {
         <>
           <div data-card style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: '18px 20px', display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>All-time profit / loss</span>
+              <Label as="span">All-time profit / loss</Label>
               {firstMonth && <span style={{ fontSize: 12.5, color: C.soft }}>since {monthLabel(firstMonth)}</span>}
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, flexWrap: 'wrap' }}>
               <span style={{ fontFamily: C.sans, fontSize: 40, fontWeight: 700, letterSpacing: '-.02em', color: pos(all.profit) }}>{usd(all.profit)}</span>
               {[['Revenue', all.revenue], ['Costs', all.cost], ['Ad spend', all.ads]].map(([k, v]) => (
                 <span key={k as string} style={{ display: 'grid', gap: 2 }}>
-                  <span style={{ fontFamily: C.mono, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{k}</span>
+                  <Label as="span">{k}</Label>
                   <span style={{ fontSize: 18, fontWeight: 650 }}>{usd(v as number)}</span>
                 </span>
               ))}
@@ -115,7 +115,7 @@ export default function MoneyOverview() {
             })()}
           </div>
 
-          <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{periodLabel(month)}</div>
+          <Label>{periodLabel(month)}</Label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
             {[
               ['Revenue', usd(tot.revenue), C.ink],
@@ -124,7 +124,7 @@ export default function MoneyOverview() {
               ['Profit', usd(tot.profit), pos(tot.profit)],
             ].map(([k, v, col], i) => (
               <div key={k} data-card style={{ background: TILE[i % 4].bg, border: `1px solid ${TILE[i % 4].line}`, borderRadius: 12, padding: '16px 18px' }}>
-                <div style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }}>{k}</div>
+                <Label>{k}</Label>
                 <div style={{ fontFamily: C.sans, fontSize: 30, fontWeight: 650, letterSpacing: '-.02em', marginTop: 6, color: col }}>{v}</div>
               </div>
             ))}

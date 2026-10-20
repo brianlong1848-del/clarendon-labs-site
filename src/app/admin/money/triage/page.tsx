@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 import { SCHEDULE_C, guessCategory } from '@/lib/money/categories'
 
 // Triage: one unreviewed transaction at a time.
@@ -196,7 +196,7 @@ export default function Triage() {
               </>
             ) : (
               <div style={{ marginTop: 22 }}>
-                <div style={{ fontFamily: C.mono, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: C.soft, marginBottom: 8 }}>{splitMode ? 'Tick the apps sharing this cost, evenly split' : 'Which app? press a number'}</div>
+                <div style={{ ...labelStyle, marginBottom: 8 }}>{splitMode ? 'Tick the apps sharing this cost, evenly split' : 'Which app? press a number'}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                   {!splitMode && (
                     <Tile k="0" name="Shared" sub="Split across all apps" onClick={() => decide('business', null)}

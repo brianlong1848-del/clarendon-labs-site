@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
-import { AdminShell, C, btn } from '@/components/AdminNav'
+import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 
 // Money → Ads: every campaign on every app, with spend, installs, cost per
 // install and two ROAS figures (see /api/money/ads for the difference).
@@ -22,13 +22,13 @@ type Data = {
 
 const usd = (c: number | null) => (c == null ? '—' : (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' }))
 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 14, padding: 20, marginBottom: 16 }
-const label: React.CSSProperties = { fontSize: 11.5, fontFamily: C.mono, letterSpacing: '.08em', textTransform: 'uppercase', color: C.soft }
+const label = labelStyle
 const th: React.CSSProperties = { ...label, textAlign: 'right', padding: '8px 10px', fontWeight: 500, whiteSpace: 'nowrap' }
 const td: React.CSSProperties = { textAlign: 'right', padding: '10px', fontSize: 14, whiteSpace: 'nowrap', borderTop: `1px solid ${C.rule}` }
 
 function Roas({ v }: { v: number | null }) {
   if (v == null) return <span style={{ color: C.soft }}>—</span>
-  return <span style={{ fontWeight: 700, color: v < 1 ? C.red : C.mint }}>{v.toFixed(2)}×</span>
+  return <span style={{ fontWeight: 700, color: v < 1 ? C.loss : C.mint }}>{v.toFixed(2)}×</span>
 }
 
 function Spark({ points }: { points: { day: string; cents: number }[] }) {

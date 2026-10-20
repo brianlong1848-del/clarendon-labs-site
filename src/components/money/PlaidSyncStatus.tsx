@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { C, btn } from '@/components/AdminNav'
+import { C, btn, labelStyle } from '@/components/AdminNav'
 
 // Cash card for the Money tab: business cash on hand (sum of business accounts'
 // available balance), one row per connected account, and sync health with a
@@ -76,7 +76,7 @@ export default function PlaidSyncStatus({ onSynced, refreshKey }: { onSynced?: (
   const newest = rows.map(({ a }) => a.balance_updated_at).filter(Boolean).sort().pop() ?? null
   const problems = (items ?? []).filter((it) => it.last_error)
 
-  const label: React.CSSProperties = { fontFamily: C.mono, fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: C.soft }
+  const label = labelStyle
   const dot = (color: string): React.CSSProperties => ({ width: 7, height: 7, borderRadius: 99, display: 'inline-block', flex: 'none', background: color })
 
   return (
@@ -86,7 +86,7 @@ export default function PlaidSyncStatus({ onSynced, refreshKey }: { onSynced?: (
         <div style={{ minWidth: 0 }}>
           <div style={label}>Business cash</div>
           {!items || business.length
-            ? <div style={{ fontFamily: C.serif, fontSize: 38, fontWeight: 800, lineHeight: 1.1, marginTop: 6, fontVariantNumeric: 'tabular-nums', color: !items ? C.faint : cash < 0 ? C.amber : C.ink }}>
+            ? <div style={{ fontFamily: C.serif, fontSize: 38, fontWeight: 800, lineHeight: 1.1, marginTop: 6, fontVariantNumeric: 'tabular-nums', color: !items ? C.faint : cash < 0 ? C.loss : C.ink }}>
                 {items ? usd(cash) : '—'}
               </div>
             : <div style={{ fontSize: 14, color: C.soft, marginTop: 8 }}>Fetching the balance from the bank…</div>}
