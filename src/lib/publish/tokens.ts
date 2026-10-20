@@ -33,6 +33,15 @@ export async function getToken(platform: string, appId: string) {
   return (await all()).find((t) => t.platform === platform && t.app_id === appId)
 }
 
+/** Another app already using this same platform account, if any. Threads
+ *  connects whichever account is signed in on threads.net, so connecting app
+ *  A while signed in as app B's account would otherwise post A's content as B. */
+export async function connectedElsewhere(platform: string, accountId: string | null, appId: string) {
+  if (!accountId) return undefined
+  cache = null
+  return (await all()).find((t) => t.platform === platform && t.account_id === accountId && t.app_id !== appId)
+}
+
 export async function saveToken(row: Omit<StoredToken, 'refreshed_at'>) {
   const { url, h } = env()
   const res = await fetch(`${url}/rest/v1/studio_social_tokens?on_conflict=platform,app_id`, {

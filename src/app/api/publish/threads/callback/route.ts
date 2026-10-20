@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { readState, saveToken, threadsRedirect } from '@/lib/publish/tokens'
+import { connectedElsewhere, readState, saveToken, threadsRedirect } from '@/lib/publish/tokens'
+import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
 // Threads sends the browser back here after sign-in. The signed state says
 // which app is being connected (so this needs no console password); we swap
@@ -26,6 +27,14 @@ export async function GET(req: Request) {
     const long = await fetch(`https://graph.threads.net/access_token?grant_type=th_exchange_token&client_secret=${secret}&access_token=${short.access_token}`, { cache: 'no-store' }).then((r) => r.json())
     const token = long.access_token ?? short.access_token
     const me = await fetch(`https://graph.threads.net/v1.0/me?fields=id,username&access_token=${token}`, { cache: 'no-store' }).then((r) => r.json())
+
+    // Refuse to give one Threads account to two apps (it's always the
+    // threads.net session that decides which account comes back).
+    const clash = await connectedElsewhere('threads', me.id ?? null, appId)
+    if (clash) {
+      const name = (id: string) => PUBLISH_APPS.find((a) => a.id === id)?.name ?? id
+      return back(`threads.net is signed in as @${me.username ?? clash.username}, which is ${name(clash.app_id)}’s account. Sign out on threads.net, sign in as ${name(appId)}’s account, then press Connect again.`)
+    }
 
     await saveToken({
       platform: 'threads', app_id: appId, account_id: me.id ?? String(short.user_id ?? ''), username: me.username ?? null, token,
