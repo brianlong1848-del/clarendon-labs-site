@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { studioDb } from '@/lib/money/studioDb'
-import { analyticsRegistry } from '@/lib/analytics/registry'
 import { tiktokCampaignDays } from '@/lib/money/adSpend'
 import { closeFinished, metaCampaignDays } from '@/lib/ads/meta'
 
@@ -10,12 +9,16 @@ import { closeFinished, metaCampaignDays } from '@/lib/ads/meta'
 // on (platform, day, campaign_id), so re-pulling a window just refreshes it,
 // which also picks up TikTok's late attribution. Backfill with ?days=365.
 //
-// Jinglewire is kid-directed: no ad attribution is ever linked for it.
+// Jinglewire is kid-directed: its spend is tracked, but attribution
+// (installs, conversions, purchase value) is always zeroed.
 // Auth: Vercel Cron's CRON_SECRET bearer, or the signed-in admin session.
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const NEVER = new Set(['jinglewire'])
+const NO_ATTRIBUTION = new Set(['jinglewire'])
+// Every app with a TikTok ad account, read from <APP>_TIKTOK_ADVERTISER_ID.
+const TIKTOK_APPS = ['rolligan', 'gagorder', 'yulepick', 'borea', 'jinglewire']
+  .map((id) => ({ id, advertiserId: process.env[`${id.toUpperCase()}_TIKTOK_ADVERTISER_ID`] || undefined }))
 
 export async function GET(req: Request) {
   const cron = !!process.env.CRON_SECRET && req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
@@ -32,11 +35,13 @@ export async function GET(req: Request) {
   // as a note, not a per-app error.
   const tiktokOn = !!process.env.TIKTOK_ACCESS_TOKEN
   if (!tiktokOn) results.tiktok = { skipped: 'not connected yet' }
-  for (const app of tiktokOn ? analyticsRegistry() : []) {
-    if (NEVER.has(app.id)) { results[app.id] = { skipped: 'kid-directed' }; continue }
-    if (!app.tiktokAdvertiserId) { results[app.id] = { skipped: 'no TikTok ad account' }; continue }
-    const rows = await tiktokCampaignDays(app.tiktokAdvertiserId, start, end)
-    if ('error' in rows) { results[app.id] = { error: rows.error }; continue }
+  for (const app of tiktokOn ? TIKTOK_APPS : []) {
+    if (!app.advertiserId) { results[app.id] = { skipped: 'no TikTok ad account' }; continue }
+    const pulled = await tiktokCampaignDays(app.advertiserId, start, end)
+    if ('error' in pulled) { results[app.id] = { error: pulled.error }; continue }
+    const rows = NO_ATTRIBUTION.has(app.id)
+      ? pulled.map((r) => ({ ...r, installs: 0, conversions: 0, purchase_value_cents: 0 }))
+      : pulled
     const now = new Date().toISOString()
     const saved = await db.upsert('ad_spend', rows.map((r) => ({ ...r, owner_id: db.owner, app_slug: app.id, synced_at: now })), 'platform,day,campaign_id')
     results[app.id] = saved.ok ? { rows: rows.length } : { error: saved.error }
