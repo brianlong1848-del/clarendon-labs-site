@@ -6,7 +6,7 @@ import { checkRepeat, type RepeatSpec } from '@/lib/publish/recur'
 import { getPost, insertPost, listPosts, listSeries, updatePost, type TargetState } from '@/lib/publish/store'
 import { createSeries, recaption } from '@/lib/publish/series'
 import { run } from '@/lib/publish/runner'
-import { isMarket } from '@/lib/publish/markets'
+import { APP_MARKETS, isMarket, marketFromName } from '@/lib/publish/markets'
 
 // ─── /api/publish — the "post everywhere" queue ─────────────────────────────
 //
@@ -45,13 +45,18 @@ export async function POST(req: Request) {
   if (!PUBLISH_APPS.some((a) => a.id === appId)) return bad('Unknown app.')
   const caption = String(body.caption ?? '')
   const overrides = (body.overrides ?? {}) as Partial<Record<Platform, string>>
-  const media = (Array.isArray(body.media) ? body.media : []) as MediaItem[]
   const targets = (Array.isArray(body.targets) ? body.targets : []) as Target[]
   const captionBy: 'brian' | 'ai' = body.captionBy === 'ai' ? 'ai' : 'brian'
   const notes = String(body.notes ?? '').slice(0, 1000)
   const source = req.headers.get('x-studio-client') === 'ios' ? 'studio-ios' : 'web'
-  const market = body.market == null || body.market === '' ? null : body.market
-  if (market !== null && !isMarket(market)) return bad('Unknown market.')
+  const given = body.market == null || body.market === '' ? null : body.market
+  if (given !== null && !isMarket(given)) return bad('Unknown market.')
+  const media = (Array.isArray(body.media) ? body.media : []) as MediaItem[]
+  // A post sent without a market (an older client, a script) still lands in
+  // the right country lane: read it from the first media file's name
+  // (e.g. rol-condo-en-gb.mp4), for apps that post in more than one market.
+  const fileName = (u: unknown) => typeof u === 'string' ? decodeURIComponent(u.split('/').pop() ?? '').replace(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-/i, '') : ''
+  const market = given ?? ((APP_MARKETS[appId]?.length ?? 0) > 1 ? marketFromName(fileName(media[0]?.url), appId) : null)
   const editionGroup = typeof body.editionGroup === 'string' && /^[0-9a-f-]{36}$/i.test(body.editionGroup) ? body.editionGroup : null
   if (!targets.length) return bad('Pick at least one place to post.')
   if (targets.some((t) => !PLATFORMS.some((p) => p.id === t.platform && p.formats.includes(t.format)))) return bad('Unknown platform or format.')
