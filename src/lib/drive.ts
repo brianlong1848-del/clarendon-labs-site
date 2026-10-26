@@ -75,3 +75,67 @@ export async function writeText(id: string, content: string): Promise<void> {
     method: 'PATCH', headers: { 'Content-Type': 'text/markdown; charset=utf-8' }, body: content,
   })
 }
+
+// ─── Browsing (Studio's Google Drive picker) ─────────────────────────────────
+// Studio's "Google Drive" button lists Marketing/Assets through here, because
+// the phone's own Files picker can't see Drive under the Workspace device
+// policy. Picks come back down through /api/publish/drive/file with their real
+// names, so cuts named for a platform find their platform (platformMedia.ts).
+
+export const ASSETS_FOLDER = process.env.DRIVE_ASSETS_FOLDER_ID || '1u2a6IEQuaap3Xluf_rqBoQWwE9_9NNaL'
+
+export type DriveFolder = { id: string; name: string }
+export type DriveEntry = {
+  id: string; name: string; mimeType: string; folder: boolean
+  size?: number; modifiedTime?: string
+  /** From Drive's media metadata when it has it. */
+  width?: number; height?: number; duration?: number
+}
+export type DriveListing = { folder: DriveFolder; parent: DriveFolder | null; root: string; entries: DriveEntry[] }
+
+const FOLDER = 'application/vnd.google-apps.folder'
+const LIST_FIELDS = 'files(id,name,mimeType,size,modifiedTime,videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height))'
+
+type RawFile = {
+  id: string; name: string; mimeType: string; size?: string; modifiedTime?: string
+  videoMediaMetadata?: { width?: number; height?: number; durationMillis?: string }
+  imageMediaMetadata?: { width?: number; height?: number }
+}
+
+/** A folder's sub-folders and photos/videos, plus its parent (null at `root`, so Back stops there). */
+export async function listFolder(id: string, root: string = ASSETS_FOLDER): Promise<DriveListing> {
+  const meta = await (await drive(`${API}/${id}?fields=id,name,parents&${ALL}`)).json() as { id: string; name: string; parents?: string[] }
+  const q = `'${id}' in parents and trashed = false`
+  const res = await drive(`${API}?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(LIST_FIELDS)}&orderBy=folder,name&pageSize=500&${ALL}`)
+  const { files = [] } = await res.json() as { files?: RawFile[] }
+  const entries: DriveEntry[] = files
+    .filter((f) => f.mimeType === FOLDER || /^(image|video)\//.test(f.mimeType))
+    .map((f) => ({
+      id: f.id, name: f.name, mimeType: f.mimeType, folder: f.mimeType === FOLDER,
+      size: f.size ? Number(f.size) : undefined, modifiedTime: f.modifiedTime,
+      width: f.videoMediaMetadata?.width ?? f.imageMediaMetadata?.width,
+      height: f.videoMediaMetadata?.height ?? f.imageMediaMetadata?.height,
+      duration: f.videoMediaMetadata?.durationMillis ? Number(f.videoMediaMetadata.durationMillis) / 1000 : undefined,
+    }))
+  let parent: DriveFolder | null = null
+  const pid = meta.parents?.[0]
+  if (id !== root && pid) {
+    const p = await (await drive(`${API}/${pid}?fields=id,name&${ALL}`)).json() as DriveFolder
+    parent = { id: p.id, name: p.name }
+  }
+  return { folder: { id: meta.id, name: meta.name }, parent, root, entries }
+}
+
+/** Where an app's picker opens: Assets/<App>/05_Exports, else Assets/<App>, else Assets. */
+export async function exportsFolder(appName: string, assets: string = ASSETS_FOLDER): Promise<string> {
+  const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const app = (await listFolder(assets, assets)).entries.find((e) => e.folder && squash(e.name) === squash(appName))
+  if (!app) return assets
+  const exp = (await listFolder(app.id, assets)).entries.find((e) => e.folder && /export/i.test(e.name))
+  return exp?.id ?? app.id
+}
+
+/** The file's bytes as a stream, for the phone to download through clarendon.dev. */
+export async function fileStream(id: string): Promise<Response> {
+  return drive(`${API}/${id}?alt=media&${ALL}`, { signal: AbortSignal.timeout(55_000) })
+}
