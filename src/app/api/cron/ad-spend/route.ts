@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { studioDb } from '@/lib/money/studioDb'
 import { tiktokCampaignDays } from '@/lib/money/adSpend'
-import { closeFinished, metaCampaignDays } from '@/lib/ads/meta'
+import { closeFinished, metaCampaignDays, toAdSpendRow } from '@/lib/ads/meta'
 
 // Nightly (vercel.json) and the "Sync now" button on Money → Ads: pull every
 // app's TikTok campaigns, plus every campaign on the shared Meta ad account, day by day, into ad_spend. Idempotent: rows are keyed
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const NO_ATTRIBUTION = new Set(['jinglewire'])
-// Every app with a TikTok ad account, read from <APP>_TIKTOK_ADVERTISER_ID.
+// Every app has a TikTok ad account (vault reference_tiktok_business_center); ids from <APP>_TIKTOK_ADVERTISER_ID.
 const TIKTOK_APPS = ['rolligan', 'gagorder', 'yulepick', 'borea', 'jinglewire']
   .map((id) => ({ id, advertiserId: process.env[`${id.toUpperCase()}_TIKTOK_ADVERTISER_ID`] || undefined }))
 
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
   if ('error' in meta) results.meta = { error: meta.error }
   else if (meta.length) {
     const now = new Date().toISOString()
-    const saved = await db.upsert('ad_spend', meta.map((r) => ({ ...r, owner_id: db.owner, synced_at: now })), 'platform,day,campaign_id')
+    const saved = await db.upsert('ad_spend', meta.map((r) => ({ ...toAdSpendRow(r), owner_id: db.owner, synced_at: now })), 'platform,day,campaign_id')
     results.meta = saved.ok ? { rows: meta.length } : { error: saved.error }
   } else results.meta = { rows: 0 }
   await closeFinished()

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AdminShell, AppTag, C, Label, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { GeoMap } from '@/components/GeoMap'
+import { Campaigns } from '@/components/analytics/Campaigns'
 
 // ─── /analytics — per-app data ───────────────────────────────────────────────
 //
@@ -245,6 +246,8 @@ export default function AnalyticsPage() {
             )}
           </div>
         )}
+
+        <Campaigns app="all" title="Campaigns · every app" />
 
         {anyAppStore && <GeoExplorer pw={pw} app="all" title="All apps · world" />}
 

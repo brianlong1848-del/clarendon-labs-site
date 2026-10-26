@@ -187,12 +187,12 @@ export const STORE_LINKS: Record<string, string> = Object.fromEntries(Object.key
 
 export type Promotion = {
   id: string; app_id: string; post_id: string | null; network: 'meta' | 'tiktok'; platform: string; remote_id: string; permalink: string | null
-  goal: Goal; daily_budget_cents: number; start_at: string; end_at: string; audience: Audience
+  goal: Goal | 'views'; daily_budget_cents: number; start_at: string; end_at: string; audience: Audience
   campaign_id: string | null; adset_id: string | null; ad_id: string | null
   status: 'creating' | 'active' | 'paused' | 'ended' | 'failed'; error: string | null; source: string; created_at: string; updated_at: string
 }
 
-export const listPromotions = (limit = 60) => rest<Promotion[]>(`studio_promotions?hidden=eq.false&order=created_at.desc&limit=${limit}`)
+export const listPromotions = (limit = 60) => rest<Promotion[]>(`studio_promotions?hidden=eq.false&network=eq.meta&order=created_at.desc&limit=${limit}`)
 export const getPromotion = async (id: string) => (await rest<Promotion[]>(`studio_promotions?id=eq.${encodeURIComponent(id)}`))[0] ?? null
 const insertPromotion = async (row: Partial<Promotion>) =>
   (await rest<Promotion[]>('studio_promotions', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'return=representation' } }))[0]
@@ -407,6 +407,32 @@ export type MetaCampaignDay = {
   platform: 'meta'; advertiser_id: string; campaign_id: string; campaign_name: string | null; day: string
   spend_cents: number; impressions: number; clicks: number; installs: number; conversions: number; purchase_value_cents: number; currency: string
   app_slug: string | null
+  // Campaigns card only (FEAT-CLA-022) — not columns of ad_spend; the cron
+  // picks the columns it stores (toAdSpendRow).
+  reach?: number; cpm_cents?: number; ctr?: number
+  video_views?: number; views_15s?: number; views_100?: number
+}
+
+/** The ad_spend columns of a campaign-day row (drops the card-only extras). */
+export function toAdSpendRow(r: MetaCampaignDay) {
+  const { reach, cpm_cents, ctr, video_views, views_15s, views_100, ...row } = r
+  void reach; void cpm_cents; void ctr; void video_views; void views_15s; void views_100
+  return row
+}
+
+/** Name, status, objective and daily budget per campaign on the shared account. */
+export async function metaCampaignInfo(): Promise<Map<string, { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number }>> {
+  const out = new Map<string, { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number }>()
+  if (!token()) return out
+  const word: Record<string, string> = { ACTIVE: 'running', PAUSED: 'paused', PENDING_REVIEW: 'in_review', DISAPPROVED: 'rejected', PREAPPROVED: 'in_review',
+    PENDING_BILLING_INFO: 'no_funds', CAMPAIGN_PAUSED: 'paused', ADSET_PAUSED: 'paused', ARCHIVED: 'ended', DELETED: 'ended', WITH_ISSUES: 'running', IN_PROCESS: 'in_review' }
+  let url: string | null = `${G}/${act()}/campaigns?${new URLSearchParams({ fields: 'id,name,effective_status,objective,daily_budget', limit: '200', access_token: token()! })}`
+  for (let pages = 0; url && pages < 5; pages++) {
+    const body: any = await call(url)
+    for (const c of body.data ?? []) out.set(String(c.id), { name: c.name, status: word[c.effective_status] ?? 'unknown', effective_status: c.effective_status, objective: c.objective, daily_budget_cents: c.daily_budget ? Number(c.daily_budget) : undefined })
+    url = body.paging?.next ?? null
+  }
+  return out
 }
 
 /** Campaign × day rows for the shared ad account. The app comes from the
@@ -423,7 +449,7 @@ export async function metaCampaignDays(start: string, end: string): Promise<Meta
   let url: string | null = `${G}/${act()}/insights?${new URLSearchParams({
     level: 'campaign', time_increment: '1', limit: '500',
     time_range: JSON.stringify({ since: start, until: end }),
-    fields: 'campaign_id,campaign_name,spend,impressions,clicks,actions,action_values,account_currency',
+    fields: 'campaign_id,campaign_name,spend,impressions,reach,cpm,ctr,clicks,actions,action_values,account_currency,video_play_actions,video_15_sec_watched_actions,video_p100_watched_actions',
     access_token: token()!,
   })}`
   try {
@@ -441,6 +467,10 @@ export async function metaCampaignDays(start: string, end: string): Promise<Meta
           conversions: 0,
           purchase_value_cents: kid ? 0 : Math.round(sum(r.action_values, ['app_custom_event.fb_mobile_purchase', 'omni_purchase']) * 100),
           currency: r.account_currency ?? 'USD', app_slug: app,
+          reach: r.reach != null ? Number(r.reach) : undefined, cpm_cents: r.cpm != null ? Math.round(Number(r.cpm) * 100) : undefined, ctr: r.ctr != null ? Number(r.ctr) : undefined,
+          video_views: r.video_play_actions ? sum(r.video_play_actions, ['video_view']) : undefined,
+          views_15s: r.video_15_sec_watched_actions ? sum(r.video_15_sec_watched_actions, ['video_view']) : undefined,
+          views_100: r.video_p100_watched_actions ? sum(r.video_p100_watched_actions, ['video_view']) : undefined,
         })
       }
       url = body.paging?.next ?? null

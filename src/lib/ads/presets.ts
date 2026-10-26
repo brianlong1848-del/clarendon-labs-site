@@ -127,3 +127,76 @@ const MARKET_PRESETS: AudiencePreset[] = Object.entries(APP_MARKETS).filter(([, 
 
 export const presetsFor = (appId: string, saved: AudiencePreset[] = []) =>
   [...BUILT_IN_PRESETS.filter((p) => p.appId === appId), ...MARKET_PRESETS.filter((p) => p.appId === appId), ...saved.filter((p) => p.appId === appId)]
+
+// ─── TikTok presets (FEAT-CLA-022) ───────────────────────────────────────────
+//
+// TikTok targets by location id, age group, interest category / keyword and
+// hashtag interactions — none of them share ids with Meta, and hashtag and
+// interest ids come from TikTok's search endpoints, so a preset carries the
+// NAMES and the Promote sheet resolves them when it's applied (an exact
+// match on TikTok's side, or the chip is skipped and the sheet says so).
+// Audiences from the Spark Ad playbook (vault FEAT-CLA-021): the lesbian cut
+// runs with sapphic / wlw hashtags, the gay cut with drag / RuPaul, each in
+// its own ad group — never mixed. TikTok has refused "drag" and "Pride" as
+// interests on save before; if a name doesn't resolve, the queer-cities
+// style locations + game-night interests still carry the audience.
+
+export type TikTokPresetAudience = {
+  ageGroups: string[]; gender: 'all' | 'men' | 'women'
+  locations: { id: string; name: string; level: string }[]
+  interestNames: string[]; hashtagNames: string[]
+}
+export type TikTokPreset = {
+  id: string; appId: string; name: string; note?: string
+  goal?: 'downloads' | 'views'; dailyUsd?: number; days?: number
+  /** Which creative cut this audience is for; the sheet warns when the file name says the other one. */
+  cut?: 'lesbian' | 'gay'
+  audience: TikTokPresetAudience
+}
+
+const TT_US = { id: '6252001', name: 'United States', level: 'COUNTRY' }
+
+export const TIKTOK_PRESETS: TikTokPreset[] = [
+  {
+    id: 'tt-gagorder-lesbian', appId: 'gagorder', name: 'US 18–44 · lesbian cut', cut: 'lesbian',
+    note: 'US, 18–44, Pride interest + #pride #sapphic #sapphics #wlw🌈 #wlwrelationship hashtag interactions. For the lesbian cut only.',
+    goal: 'downloads', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_18_24', 'AGE_25_34', 'AGE_35_44'], gender: 'all', locations: [TT_US], interestNames: ['Pride'], hashtagNames: ['pride', 'sapphic', 'sapphics', 'wlw🌈', 'wlwrelationship'] },
+  },
+  {
+    id: 'tt-gagorder-gay', appId: 'gagorder', name: 'US 18–44 · gay cut', cut: 'gay',
+    note: 'US, 18–44, drag + Pride interests, #rupaulsdragrace #rupauldragrace #rupaulsdragraceallstars #pride hashtag interactions. For the gay cut only.',
+    goal: 'downloads', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_18_24', 'AGE_25_34', 'AGE_35_44'], gender: 'all', locations: [TT_US], interestNames: ['Drag', 'Pride'], hashtagNames: ['rupaulsdragrace', 'rupauldragrace', 'rupaulsdragraceallstars', 'pride'] },
+  },
+  {
+    id: 'tt-gagorder-gamenight', appId: 'gagorder', name: 'US 21–44 · game night',
+    note: 'US, 21–44 (TikTok groups: 18–44), party-game / board-game / nightlife interests, no hashtags. Works for either cut.',
+    goal: 'views', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_18_24', 'AGE_25_34', 'AGE_35_44'], gender: 'all', locations: [TT_US], interestNames: ['Games', 'Board games', 'Party games', 'Nightlife'], hashtagNames: [] },
+  },
+  {
+    id: 'tt-rolligan-us', appId: 'rolligan', name: 'US 18–44 · dice & party games',
+    goal: 'downloads', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_18_24', 'AGE_25_34', 'AGE_35_44'], gender: 'all', locations: [TT_US], interestNames: ['Games', 'Board games', 'Party games'], hashtagNames: ['dicegame', 'partygames', 'gamenight'] },
+  },
+  {
+    id: 'tt-borea-us', appId: 'borea', name: 'US 21–54 · fitness progress',
+    goal: 'downloads', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_18_24', 'AGE_25_34', 'AGE_35_44', 'AGE_45_54'], gender: 'all', locations: [TT_US], interestNames: ['Fitness', 'Sports & Outdoors'], hashtagNames: ['progresspics', 'gymtok', 'transformation'] },
+  },
+  {
+    id: 'tt-yulepick-us', appId: 'yulepick', name: 'US 25–55 · Secret Santa',
+    goal: 'downloads', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_25_34', 'AGE_35_44', 'AGE_45_54', 'AGE_55_100'], gender: 'all', locations: [TT_US], interestNames: ['Holidays', 'Family'], hashtagNames: ['secretsanta', 'christmas', 'giftexchange'] },
+  },
+  {
+    // Kid-directed app: parents only, no interests, no behaviours (vault rule).
+    id: 'tt-jinglewire-parents', appId: 'jinglewire', name: 'US parents 25+ · no targeting',
+    note: 'Jinglewire is for kids: parents only, 25+, no interest or behaviour targeting, nothing tracked.',
+    goal: 'views', dailyUsd: 20, days: 7,
+    audience: { ageGroups: ['AGE_25_34', 'AGE_35_44', 'AGE_45_54', 'AGE_55_100'], gender: 'all', locations: [TT_US], interestNames: [], hashtagNames: [] },
+  },
+]
+
+export const tiktokPresetsFor = (appId: string) => TIKTOK_PRESETS.filter((p) => p.appId === appId)

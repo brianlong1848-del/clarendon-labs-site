@@ -6,7 +6,8 @@ import { AppTag, C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, allMediaOf, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { describeRule } from '@/lib/publish/recur'
-import { PromoteSheet, Promotions, promotable, type AdsData } from './Promote'
+import { PromoteSheet, Promotions, promotable, type AdsData, type PromotionRow } from './Promote'
+import { TikTokVideoPicker, tiktokTarget, type AccountVideo, type TikTokAdsData } from './PromoteTikTok'
 import { APP_MARKETS, isMarket, MARKETS, type Market, type MarketId } from '@/lib/publish/markets'
 
 // Repeating posts (pause / resume / stop), then everything scheduled, in
@@ -77,6 +78,9 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
   const [error, setError] = useState<string | null>(null)
   const [ads, setAds] = useState<AdsData | null>(null)
   const [promoting, setPromoting] = useState<QueuedPost | null>(null)
+  const [tt, setTt] = useState<TikTokAdsData | null>(null)
+  const [pickingVideo, setPickingVideo] = useState<PublishApp | null>(null)
+  const [boostingVideo, setBoostingVideo] = useState<AccountVideo | null>(null)
   const [viewing, setViewing] = useState<{ media: QueuedPost['media']; index: number } | null>(null)
   const [appFilter, setAppFilter] = useState<string>('all')
   // All-apps view: lanes per app, or per country (remembered in this browser).
@@ -87,9 +91,19 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
   const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
   const loadAds = useCallback(async () => {
-    const r = await fetch('/api/ads/meta').then((x) => (x.ok ? x.json() : null)).catch(() => null)
+    const [r, t] = await Promise.all([
+      fetch('/api/ads/meta').then((x) => (x.ok ? x.json() : null)).catch(() => null),
+      fetch('/api/ads/tiktok').then((x) => (x.ok ? x.json() : null)).catch(() => null),
+    ])
     if (r) setAds(r)
+    if (t) setTt(t)
   }, [])
+  /** Meta and TikTok boosts in one list, newest first. */
+  const allPromotions: PromotionRow[] = [
+    ...(ads?.promotions ?? []).map((p) => ({ ...p, network: (p.network ?? 'meta') as 'meta' | 'tiktok' })),
+    ...((tt?.promotions ?? []) as PromotionRow[]).map((p) => ({ ...p, network: 'tiktok' as const })),
+  ].sort((a, b) => (b.start_at ?? '').localeCompare(a.start_at ?? ''))
+  const canPromote = (p: QueuedPost) => (ads ? promotable(p).length > 0 : false) || (!!tt && !!tiktokTarget(p))
   useEffect(() => { loadAds() }, [loadAds, refreshKey])
 
   const load = useCallback(async () => {
@@ -142,7 +156,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
   const scheduled = posts.filter((p) => p.status === 'scheduled' && inApp(p)).sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
   const rest = posts.filter((p) => p.status !== 'scheduled' && inApp(p))
   const shownSeries = series.filter(inApp)
-  const shownAds = ads ? { ...ads, promotions: ads.promotions.filter(inApp) } : null
+  const shownAds = ads ? { ...ads, promotions: allPromotions.filter(inApp) } : null
   // Apps that have anything in the queue, in the sidebar's order, with what's coming up.
   const appIds = apps.map((a) => a.id).filter((id) => posts.some((p) => p.app_id === id) || series.some((r) => r.app_id === id))
   // Apps with nothing at all still get a slim lane, so every app is visible.
@@ -225,7 +239,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
             <div style={{ display: 'grid', gap: 8 }}>
               {p.status === 'scheduled' && p.series_id && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH', 'recaption')}>{busy === p.id ? 'Writing…' : '✦ New caption'}</button>}
               {p.status === 'scheduled' && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip this one' : 'Cancel'}</button>}
-              {ads && promotable(p).length > 0 && <button style={btn('mint')} onClick={() => setPromoting(p)}>{ads.promotions.some((x) => x.post_id === p.id && (x.status === 'active' || x.status === 'paused')) ? 'Promote again' : 'Promote'}</button>}
+              {canPromote(p) && <button style={btn('mint')} onClick={() => setPromoting(p)}>{allPromotions.some((x) => x.post_id === p.id && (x.status === 'active' || x.status === 'paused')) ? 'Promote again' : 'Promote'}</button>}
               {(p.status === 'failed' || p.status === 'partial') && <button style={btn('solid')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? 'Retrying…' : 'Retry failed'}</button>}
               {(p.status === 'failed' || p.status === 'partial') && <button style={btn('ghost')} disabled={busy === p.id} title={p.status === 'partial' ? 'Keeps what went out; drops the failed platforms' : 'Remove it from the queue'} onClick={() => act(p.id, 'DELETE')}>{p.status === 'partial' ? 'Clear failures' : 'Clear'}</button>}
             </div>
@@ -362,7 +376,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
     const trouble = troubleAll.slice(0, 2)
     const sent = posts.filter((p) => (p.status === 'done' || p.status === 'partial') && p.app_id === id)
     const last = sent[0]
-    const boosts = (ads?.promotions ?? []).filter((x) => x.app_id === id && x.status === 'active').length
+    const boosts = allPromotions.filter((x) => x.app_id === id && x.status === 'active').length
     const reps = series.filter((r) => r.app_id === id && r.status === 'active').length
     const SHOW = 3
     return (
@@ -457,9 +471,21 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
           })}
         </section>
       )}
+      {tt && (
+        <section style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={label}>Boost on TikTok</span>
+          <span style={{ fontSize: 12.5, color: C.ink2 }}>A video already on an app’s TikTok (posted from the phone, say) can be boosted too — never from the TikTok app’s own Promote button.</span>
+          {apps.filter((a) => tt.statusByApp?.[a.id]?.ready).map((a) => (
+            <button key={a.id} style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} onClick={() => setPickingVideo(a)}>{a.name}: pick a video</button>
+          ))}
+          {!apps.some((a) => tt.statusByApp?.[a.id]?.ready) && <span style={{ fontSize: 12.5, color: C.amber }}>{Object.values(tt.statusByApp ?? {})[0]?.reasons?.[0] ?? 'TikTok ads aren’t connected yet.'}</span>}
+        </section>
+      )}
       {shownAds && <Promotions ads={shownAds} apps={apps} onChange={loadAds} />}
       {viewing && <MediaViewer media={viewing.media} start={viewing.index} onClose={() => setViewing(null)} />}
-      {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
+      {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} tt={tt} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
+      {pickingVideo && <TikTokVideoPicker app={pickingVideo} onClose={() => setPickingVideo(null)} onPick={(v) => { setPickingVideo(null); setBoostingVideo(v) }} />}
+      {boostingVideo && ads && <PromoteSheet video={boostingVideo} app={apps.find((a) => a.id === boostingVideo.appId)} ads={ads} tt={tt} onClose={() => setBoostingVideo(null)} onDone={() => { setBoostingVideo(null); loadAds() }} />}
       {appFilter === 'all' && appIds.length > 1 ? (
         <section style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

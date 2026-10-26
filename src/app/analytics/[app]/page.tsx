@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { AdminShell, C, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
+import { Campaigns } from '@/components/analytics/Campaigns'
 
 // ─── /analytics/<app> — one app, mapped ──────────────────────────────────────
 //
@@ -117,6 +118,8 @@ export default function AppAnalyticsPage() {
         {big(2, app?.instagram ? num(app.instagram.followers) : '—', 'Instagram followers', app?.instagram?.reach30d != null ? `${num(app.instagram.reach30d)} reached · 30d` : undefined)}
         {big(3, app?.facebook ? num(app.facebook.followers) : '—', 'Facebook followers', app?.facebook?.posts30d != null ? `${app.facebook.posts30d} posts · 30d` : app?.facebook ? undefined : 'Page not linked yet')}
       </div>
+
+      {pw && <Campaigns app={appId} title={`Campaigns · ${app?.name ?? appId}`} />}
 
       {pw && <GeoExplorer pw={pw} app={appId} accent={accent} title="World" />}
     </AdminShell>
