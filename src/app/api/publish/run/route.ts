@@ -8,6 +8,7 @@ import { driveConfigured } from '@/lib/drive'
 import { run } from '@/lib/publish/runner'
 import { refreshThreadsTokens } from '@/lib/publish/tokens'
 import { refreshTikTokTokens } from '@/lib/publish/tiktok'
+import { bizConfigured, refreshBizTokens } from '@/lib/publish/tiktokBiz'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { consoleAuthed } from '@/lib/console'
 
@@ -37,7 +38,8 @@ async function handle(req: Request) {
     return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   }
   await refreshThreadsTokens().catch(() => {})
-  await refreshTikTokTokens(PUBLISH_APPS.map((a) => a.id)).catch(() => {})
+  if (bizConfigured()) await refreshBizTokens(PUBLISH_APPS.map((a) => a.id)).catch(() => {})
+  else await refreshTikTokTokens(PUBLISH_APPS.map((a) => a.id)).catch(() => {})
   const started = Date.now()
   const made = await materializeDue(15_000).catch(() => 0)
   const due = await duePosts().catch(() => [])

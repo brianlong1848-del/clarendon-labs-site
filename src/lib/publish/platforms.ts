@@ -23,7 +23,9 @@ import { captionFor } from './rules'
 import type { Post, TargetState } from './store'
 import { clearTokenCache, connectedElsewhere, getToken } from './tokens'
 import { handleFits, wrongAccount } from './ownership'
-import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken } from './tiktok'
+import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken, type CreatorInfo, type PublishStatus } from './tiktok'
+import { bizConfigured, bizCreatorInfo, bizPublish, bizStatus, bizToken } from './tiktokBiz'
+import type { StoredToken } from './tokens'
 
 const G = 'https://graph.facebook.com/v21.0'
 const T = 'https://graph.threads.net/v1.0'
@@ -184,15 +186,16 @@ async function checkAccounts() {
 
     }), within(tkA, 'tiktok', async () => { const out = tkA
     // TikTok
-    if (!tiktokConfigured()) out.push({ platform: 'tiktok', ready: false, reason: 'TikTok needs a one-time setup: save TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET from the developer app.' })
+    const biz = bizConfigured()
+    if (!biz && !tiktokConfigured()) out.push({ platform: 'tiktok', ready: false, reason: 'TikTok needs a one-time setup: save TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET from the developer app.' })
     else {
       let row
-      try { row = await tiktokToken(app.id) } catch (e) {
+      try { row = biz ? await bizToken(app.id) : await tiktokToken(app.id) } catch (e) {
         out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `TikTok sign-in expired (${(e as Error).message}). Reconnect it.` })
       }
       if (row) {
         try {
-          const c = await creatorInfo(row.token)
+          const c = biz ? await bizCreatorInfo(row) : await creatorInfo(row.token)
           out.push(handleFits(app.id, c.creator_username)
             ? { platform: 'tiktok', ready: true, handle: c.creator_username, avatar: c.creator_avatar_url }
             : { platform: 'tiktok', ready: false, connect: 'tiktok', handle: c.creator_username, reason: wrongAccount(app.id, c.creator_username, 'TikTok') })
@@ -324,7 +327,12 @@ async function threads(p: Post, t: TargetState): Promise<Step> {
 }
 
 async function tiktok(p: Post, t: TargetState): Promise<Step> {
-  const row = await tiktokToken(p.app_id)
+  // A post started on one TikTok route finishes on it: Business API publish
+  // ids start with "v_pub" / "p_pub"; anything else is the old Login Kit app.
+  const biz = bizConfigured() && (!t.containerId || /^[vp]_pub/.test(t.containerId))
+  const row = biz ? await bizToken(p.app_id) : await tiktokToken(p.app_id)
+  const info = (r: StoredToken): Promise<CreatorInfo> => biz ? bizCreatorInfo(r) : creatorInfo(r.token)
+  const status = (r: StoredToken, id: string): Promise<PublishStatus> => biz ? bizStatus(r, id) : publishStatus(r.token, id)
   if (!row) return { status: 'failed', error: 'TikTok isn’t connected for this app.' }
   // Never post an app's video to someone else's account (e.g. Brian's personal TikTok).
   if (!handleFits(p.app_id, row.username)) return { status: 'failed', error: wrongAccount(p.app_id, row.username!, 'TikTok') }
@@ -335,18 +343,21 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
   if (!t.containerId) {
     // TikTok asks for creator info right before each post; it also catches a
     // privacy choice that's no longer allowed before any upload happens.
-    const c = await creatorInfo(row.token)
+    const c = await info(row)
     if (settings.mode === 'direct') {
       if (!settings.privacy || !c.privacy_level_options.includes(settings.privacy)) return { status: 'failed', error: 'That privacy choice isn’t available for this TikTok account — pick again.' }
       if (video.duration && c.max_video_post_duration_sec && video.duration > c.max_video_post_duration_sec) {
         return { status: 'failed', error: `This account can post videos up to ${c.max_video_post_duration_sec}s on TikTok.` }
       }
     }
-    const publishId = await startUpload(row.token, video.url, video.mime, captionFor('tiktok', p.caption, p.overrides), settings)
+    const caption = captionFor('tiktok', p.caption, p.overrides)
+    const publishId = biz
+      ? await bizPublish(row, video.url, caption, settings)
+      : await startUpload(row.token, video.url, video.mime, caption, settings)
     return { containerId: publishId, status: 'processing' }
   }
 
-  const st = await publishStatus(row.token, t.containerId)
+  const st = await status(row, t.containerId)
   if (st.status === 'FAILED') return { status: 'failed', error: `TikTok couldn’t post it (${st.fail_reason ?? 'unknown reason'}).` }
   const profile = row.username ? `https://www.tiktok.com/@${row.username}` : undefined
   if (st.status === 'SEND_TO_USER_INBOX') return { status: 'published', remoteId: t.containerId, permalink: profile }
