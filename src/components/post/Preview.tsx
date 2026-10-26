@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { C } from '@/components/AdminNav'
 import type { Format, Platform } from '@/lib/publish/rules'
 import { PlatformGlyph } from './shared'
+import { SAFE_FRAME, safeBox, safeZoneFor } from '@/lib/publish/safeZones'
 
 // Live previews — close enough to each platform's real layout that crops,
 // caption truncation and "which item leads the carousel" are obvious before
@@ -35,40 +36,29 @@ function Caption({ handle, text, clamp = 2 }: { handle?: string; text: string; c
 
 type PreviewProps = { platform: Platform; format: Format; media: PreviewMedia[]; caption: string; handle?: string; avatar: string; appName: string }
 
-// Approximate keep-clear margins (% of the frame) for full-screen vertical placements.
-// Based on Meta's published Reels/Stories guidance and TikTok's ad safe-zone template;
-// apps change their UI, so treat as a guide and confirm in the real app.
-const ZONES: Record<string, { top: number; bottom: number; left: number; right: number; note: string }> = {
-  'instagram:reel': { top: 14, bottom: 35, left: 6, right: 14, note: 'Instagram Reel' },
-  'facebook:reel': { top: 14, bottom: 35, left: 6, right: 14, note: 'Facebook Reel' },
-  'instagram:story': { top: 14, bottom: 20, left: 6, right: 6, note: 'Instagram Story' },
-  'tiktok:video': { top: 7, bottom: 25, left: 5, right: 12, note: 'TikTok' },
-}
-const zoneKey = (platform: string, format: string) => (platform === 'tiktok' ? 'tiktok:video' : `${platform}:${format}`)
+// Where each app's own UI covers a full-screen video: src/lib/publish/safeZones.ts
+// (shared with Studio's SafeZones.swift). Worst case = the promoted/ad state.
+const pct = (px: number, of: number) => `${(px / of) * 100}%`
 
 function SafeZones({ platform, format }: { platform: string; format: string }) {
-  const z = ZONES[zoneKey(platform, format)]
+  const z = safeZoneFor(platform, format)
   if (!z) return null
+  const { width: W, height: H } = SAFE_FRAME
   const shade = 'repeating-linear-gradient(45deg, rgba(220,38,38,.38) 0 5px, rgba(220,38,38,.18) 5px 10px)'
-  const dot = (size: number) => <span style={{ width: size, height: size, borderRadius: 99, background: 'rgba(255,255,255,.9)', display: 'block' }} />
+  const col = z.actionColumn
+  const box = safeBox(z)
+  const band = (style: React.CSSProperties) => <div style={{ position: 'absolute', background: shade, ...style }} />
   return (
     <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontSize: 9, fontWeight: 700, color: '#fff' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: `${z.top}%`, background: shade }} />
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${z.bottom}%`, background: shade }} />
-      <div style={{ position: 'absolute', top: `${z.top}%`, bottom: `${z.bottom}%`, left: 0, width: `${z.left}%`, background: shade }} />
-      <div style={{ position: 'absolute', top: `${z.top}%`, bottom: `${z.bottom}%`, right: 0, width: `${z.right}%`, background: shade }} />
-      <div style={{ position: 'absolute', top: `${z.top}%`, bottom: `${z.bottom}%`, left: `${z.left}%`, right: `${z.right}%`, border: '1.5px dashed rgba(78,205,196,.95)' }} />
-      {/* Stand-ins for the app's own UI */}
-      <div style={{ position: 'absolute', top: '3%', left: 10, right: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textShadow: '0 1px 2px rgba(0,0,0,.6)' }}>
-        <span>{z.note} · top bar</span>{dot(14)}
-      </div>
-      <div style={{ position: 'absolute', right: 8, bottom: `${z.bottom + 2}%`, display: platform === 'instagram' && format === 'story' ? 'none' : 'grid', gap: 10, justifyItems: 'center' }}>
-        {[22, 22, 22, 22].map((n, k) => <span key={k}>{dot(n)}</span>)}
-      </div>
-      <div style={{ position: 'absolute', left: 10, right: platform === 'tiktok' ? 54 : 50, bottom: '3%', display: 'grid', gap: 4, textShadow: '0 1px 2px rgba(0,0,0,.6)' }}>
-        <span style={{ height: 6, background: 'rgba(255,255,255,.85)', borderRadius: 9, width: '60%' }} />
-        <span style={{ height: 6, background: 'rgba(255,255,255,.7)', borderRadius: 9, width: '90%' }} />
-        <span>{platform === 'instagram' && format === 'story' ? 'reply bar / stickers' : 'username · caption · audio · CTA'}</span>
+      {band({ top: 0, left: 0, right: 0, height: pct(z.top, H) })}
+      {band({ bottom: 0, left: 0, right: 0, height: pct(z.bottom, H) })}
+      {band({ top: pct(z.top, H), bottom: pct(z.bottom, H), left: 0, width: pct(z.left, W) })}
+      {band({ top: pct(z.top, H), bottom: pct(z.bottom, H), right: 0, width: pct(z.right, W) })}
+      {col && band({ top: pct(col.fromY, H), bottom: pct(z.bottom, H), right: pct(z.right, W), width: pct(col.width - z.right, W) })}
+      <div style={{ position: 'absolute', top: pct(box.y, H), left: pct(box.x, W), width: pct(box.width, W), height: pct(box.height, H), border: '1.5px dashed rgba(78,205,196,.95)' }} />
+      <div style={{ position: 'absolute', top: '2.5%', left: 10, right: 10, textShadow: '0 1px 2px rgba(0,0,0,.7)' }}>{z.label} · top bar</div>
+      <div style={{ position: 'absolute', left: 10, right: 10, bottom: '2.5%', textShadow: '0 1px 2px rgba(0,0,0,.7)' }}>
+        {format === 'story' ? 'reply bar · stickers · ad CTA' : 'username · caption · Sponsored · CTA button'}
       </div>
     </div>
   )
@@ -95,9 +85,10 @@ function GridCrop({ ratio }: { ratio: number }) {
 }
 
 export function Preview(props: PreviewProps) {
-  const [zones, setZones] = useState(false)
+  const [zones, setZones] = useState(true) // on by default: every vertical cut gets checked
   const isGrid = props.platform === 'instagram' && props.format === 'feed'
-  const canZone = isGrid || !!ZONES[zoneKey(props.platform, props.format)]
+  const zone = safeZoneFor(props.platform, props.format)
+  const canZone = isGrid || !!zone
   return (
     <div>
       <PreviewInner {...props} zones={zones && canZone} />
@@ -108,7 +99,10 @@ export function Preview(props: PreviewProps) {
             {zones ? (isGrid ? 'Hide grid crop' : 'Hide safe zones') : (isGrid ? 'Show profile-grid crop' : 'Show safe zones')}
           </button>
           {zones && isGrid && <p style={{ margin: 0, fontSize: 11.5, color: C.soft, textAlign: 'center', maxWidth: 270, lineHeight: 1.4 }}>Instagram&apos;s profile grid shows a centered 3:4 crop. Keep key content inside the dashed box; red areas are cut off in the grid.</p>}
-          {zones && !isGrid && <p style={{ margin: 0, fontSize: 11.5, color: C.soft, textAlign: 'center', maxWidth: 270, lineHeight: 1.4 }}>Keep faces, text, app screens and CTAs inside the dashed box. Red areas are covered by the app&apos;s UI. Approximate — confirm in the real app.</p>}
+          {zones && !isGrid && zone && (() => { const b = safeBox(zone); return (
+            <p style={{ margin: 0, fontSize: 11.5, color: C.soft, textAlign: 'center', maxWidth: 280, lineHeight: 1.4 }}>
+              Keep faces, text, app screens and CTAs inside the dashed box — on a 1080×1920 export that&apos;s x {b.x}–{b.x + b.width}, y {b.y}–{b.y + b.height}. Red is covered by {zone.label}&apos;s UI, including the Sponsored label and CTA button if the post is promoted.
+            </p>) })()}
         </div>
       )}
     </div>
