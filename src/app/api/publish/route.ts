@@ -3,7 +3,7 @@ import { consoleAuthed } from '@/lib/console'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { PLATFORMS, validate, type MediaItem, type MediaOverrides, type Platform, type Target } from '@/lib/publish/rules'
 import { checkRepeat, type RepeatSpec } from '@/lib/publish/recur'
-import { getPost, insertPost, listPosts, listSeries, updatePost, type TargetState } from '@/lib/publish/store'
+import { failedPosts, getPost, insertPost, listPosts, listSeries, updatePost, type Post, type TargetState } from '@/lib/publish/store'
 import { createSeries, recaption } from '@/lib/publish/series'
 import { run } from '@/lib/publish/runner'
 import { APP_MARKETS, isMarket, marketFromName } from '@/lib/publish/markets'
@@ -25,7 +25,9 @@ import { anyPlatformTagged, assignPlatformMedia, isMaster } from '@/lib/publish/
 //                               or — with `repeat` (see lib/publish/recur.ts) — starts a series
 //   PATCH ?id=                → retry the failed platforms of a post
 //   PATCH ?id=&action=recaption → fresh AI caption for a post that hasn't gone out
-//   DELETE ?id=               → cancel a scheduled post (for a repeating post: skips just that copy)
+//   DELETE ?id=               → cancel a scheduled post (for a repeating post: skips just that copy),
+//                               or clear a failed one (see clear() below)
+//   DELETE ?failed=all[&app=] → clear every failed / partly-failed post (for one app)
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -133,11 +135,28 @@ export async function PATCH(req: Request) {
   return NextResponse.json({ post: await run(fresh, 45_000) })
 }
 
+/** Clear a failure from the queue. Nothing went out → the post is hidden
+ *  (canceled). Some platforms went out → the post stays (it's live), the
+ *  failed platforms become skipped and it counts as done. The row is kept
+ *  either way, so the history isn't lost. */
+const clear = (post: Post) => post.status === 'partial'
+  ? updatePost(post.id, { status: 'done', targets: post.targets.map((t) => t.status === 'failed' ? { ...t, status: 'skipped' as const } : t) })
+  : updatePost(post.id, { status: 'canceled' })
+
 export async function DELETE(req: Request) {
   if (!(await consoleAuthed())) return deny()
-  const id = new URL(req.url).searchParams.get('id') ?? ''
+  const q = new URL(req.url).searchParams
+  if (q.get('failed') === 'all') {
+    try {
+      const list = await failedPosts(q.get('app') || undefined)
+      await Promise.all(list.map(clear))
+      return NextResponse.json({ cleared: list.length })
+    } catch (e) { return bad((e as Error).message, 500) }
+  }
+  const id = q.get('id') ?? ''
   const post = await getPost(id).catch(() => null)
   if (!post) return bad('Not found.', 404)
-  if (post.status !== 'scheduled') return bad('Only scheduled posts can be canceled.')
+  if (post.status === 'failed' || post.status === 'partial') return NextResponse.json({ post: await clear(post) })
+  if (post.status !== 'scheduled') return bad('Only scheduled or failed posts can be removed from the queue.')
   return NextResponse.json({ post: await updatePost(id, { status: 'canceled' }) })
 }

@@ -90,6 +90,10 @@ export async function rest<T>(path: string, init: RequestInit = {}): Promise<T> 
 export const listPosts = (limit = 60) =>
   rest<Post[]>(`studio_posts?status=neq.canceled&order=created_at.desc&limit=${limit}`)
 
+/** Failed or partly-failed posts (the ones "Clear failed" tidies), optionally for one app. */
+export const failedPosts = (appId?: string) =>
+  rest<Post[]>(`studio_posts?status=in.(failed,partial)${appId ? `&app_id=eq.${encodeURIComponent(appId)}` : ''}&order=created_at.desc&limit=200`)
+
 export const getPost = async (id: string) =>
   (await rest<Post[]>(`studio_posts?id=eq.${encodeURIComponent(id)}`))[0] ?? null
 

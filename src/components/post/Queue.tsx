@@ -116,6 +116,16 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
     setBusy(null); load()
   }
 
+  /** Clear every failed post (for one app), after a confirm. */
+  const clearFailed = async (appId: string | undefined, n: number) => {
+    if (!confirm(`Clear ${n} failed post${n === 1 ? '' : 's'}? Anything that did go out stays up — only the failures leave the queue.`)) return
+    setBusy(`clear:${appId ?? 'all'}`)
+    const res = await fetch(`/api/publish?failed=all${appId ? `&app=${appId}` : ''}`, { method: 'DELETE' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) setError(body.error ?? 'Something went wrong.')
+    setBusy(null); load()
+  }
+
   const control = async (id: string, action: 'pause' | 'resume' | 'end') => {
     if (action === 'end' && !confirm('Stop this repeating post? The copy waiting in the queue is skipped. Posts already out stay up.')) return
     setBusy(id)
@@ -217,6 +227,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
               {p.status === 'scheduled' && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip this one' : 'Cancel'}</button>}
               {ads && promotable(p).length > 0 && <button style={btn('mint')} onClick={() => setPromoting(p)}>{ads.promotions.some((x) => x.post_id === p.id && (x.status === 'active' || x.status === 'paused')) ? 'Promote again' : 'Promote'}</button>}
               {(p.status === 'failed' || p.status === 'partial') && <button style={btn('solid')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? 'Retrying…' : 'Retry failed'}</button>}
+              {(p.status === 'failed' || p.status === 'partial') && <button style={btn('ghost')} disabled={busy === p.id} title={p.status === 'partial' ? 'Keeps what went out; drops the failed platforms' : 'Remove it from the queue'} onClick={() => act(p.id, 'DELETE')}>{p.status === 'partial' ? 'Clear failures' : 'Clear'}</button>}
             </div>
           </article>
         )
@@ -272,6 +283,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {tone && <button style={{ ...small, ...btn('solid'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? '…' : 'Retry'}</button>}
+          {tone && <button style={small} disabled={busy === p.id} title="Remove the failure from the queue" onClick={() => act(p.id, 'DELETE')}>Clear</button>}
           {!tone && <button style={small} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip' : 'Cancel'}</button>}
         </div>
       </div>
@@ -346,7 +358,8 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
     // One country across the lane → say it once in the header, not on every row.
     const laneMarkets = Array.from(new Map(next.map((p) => marketOf(p)).filter((m): m is Market => !!m).map((m) => [m.id, m])).values())
     const mixed = laneMarkets.length > 1
-    const trouble = posts.filter((p) => (p.status === 'failed' || p.status === 'partial') && p.app_id === id).slice(0, 2)
+    const troubleAll = posts.filter((p) => (p.status === 'failed' || p.status === 'partial') && p.app_id === id)
+    const trouble = troubleAll.slice(0, 2)
     const sent = posts.filter((p) => (p.status === 'done' || p.status === 'partial') && p.app_id === id)
     const last = sent[0]
     const boosts = (ads?.promotions ?? []).filter((x) => x.app_id === id && x.status === 'active').length
@@ -378,6 +391,11 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
         </div>
         <div style={{ padding: '4px 18px 6px' }}>
           {trouble.map((p) => row(p, { tone: 'bad', country: mixed }))}
+          {troubleAll.length > 0 && (
+            <button style={{ ...small, margin: '2px 0 8px' }} disabled={busy === `clear:${id}`} onClick={() => clearFailed(id, troubleAll.length)}>
+              {busy === `clear:${id}` ? 'Clearing…' : troubleAll.length > 1 ? `Clear all ${troubleAll.length} failed` : 'Clear failed'}
+            </button>
+          )}
           {items.slice(0, SHOW).map((it) => it.kind === 'post' ? row(it.post, { country: mixed }) : editions(it))}
           {!next.length && !trouble.length && <p style={{ margin: '8px 0 10px', fontSize: 12.5, color: C.soft, borderTop: `1px solid ${C.rule}`, paddingTop: 10 }}>Queue is empty — compose one to keep the account warm.</p>}
         </div>
