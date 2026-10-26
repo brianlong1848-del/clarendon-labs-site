@@ -403,7 +403,7 @@ export async function clearTikTokPromotion(id: string) {
 }
 
 export type TikTokPromoResults = {
-  spend_cents: number; impressions: number; reach?: number; clicks: number; views_15s?: number; video_views?: number; follows?: number; likes?: number
+  spend_cents: number; impressions: number; reach?: number; clicks: number; views15s?: number; video_views?: number; follows?: number; likes?: number
   /** One word: running | in_review | rejected | paused | scheduled | ended | … */
   delivery?: string; status_detail?: string; review?: string
 }
@@ -423,7 +423,7 @@ export async function tiktokPromotionResults(p: Promotion): Promise<TikTokPromoR
     const review = p.ad_id && ad?.secondary_status === 'AD_STATUS_AUDIT_DENY' ? (await tiktokReviewInfo(advertiserId, [p.ad_id]).catch(() => new Map())).get(p.ad_id) : undefined
     return {
       spend_cents: Math.round(n(m.spend) * 100), impressions: n(m.impressions), reach: m.reach == null ? undefined : n(m.reach), clicks: n(m.clicks),
-      views_15s: m.engaged_view_15s == null ? undefined : n(m.engaged_view_15s), video_views: m.video_play_actions == null ? undefined : n(m.video_play_actions),
+      views15s: m.engaged_view_15s == null ? undefined : n(m.engaged_view_15s), video_views: m.video_play_actions == null ? undefined : n(m.video_play_actions),
       follows: m.follows == null ? undefined : n(m.follows), likes: m.likes == null ? undefined : n(m.likes),
       delivery: ad ? tiktokStatusWord(ad.secondary_status, ad.operation_status) : undefined, status_detail: ad?.secondary_status, review,
     }

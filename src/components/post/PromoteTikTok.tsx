@@ -20,7 +20,7 @@ export type TTInterest = { id: string; name: string; kind: 'category' | 'keyword
 export type TTHashtag = { id: string; name: string }
 export type TikTokAudience = { ageGroups: string[]; gender: 'all' | 'men' | 'women'; locations: TTLocation[]; interests: TTInterest[]; hashtags: TTHashtag[] }
 export type TikTokStatus = { ready: boolean; reasons: string[]; account?: { name: string; status: string; currency: string; timezone?: string }; identity?: { id: string; name: string }; limits: { maxDailyCents: number; maxTotalCents: number; minDailyCents: number; minAge: number } }
-export type TikTokResults = { spend_cents: number; impressions: number; reach?: number; clicks: number; views_15s?: number; video_views?: number; follows?: number; likes?: number; delivery?: string; status_detail?: string; review?: string }
+export type TikTokResults = { spend_cents: number; impressions: number; reach?: number; clicks: number; views15s?: number; video_views?: number; follows?: number; likes?: number; delivery?: string; status_detail?: string; review?: string }
 export type TikTokAdsData = {
   status: TikTokStatus | Record<string, TikTokStatus>
   statusByApp: Record<string, TikTokStatus>

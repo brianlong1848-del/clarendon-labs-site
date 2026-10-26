@@ -15,7 +15,7 @@ import { adsManagerUrl } from './tiktok'
 
 export type CampaignAd = {
   ad_id: string; name: string; status?: string; status_detail?: string; review?: string; item_id?: string
-  spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views_15s?: number; follows?: number
+  spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
 
 export type CampaignRow = {
@@ -31,11 +31,11 @@ export type CampaignRow = {
   budget_daily_cents?: number
   spend_cents: number; impressions?: number; reach?: number; clicks?: number
   ctr?: number; cpc_cents?: number; cpm_cents?: number
-  video_views?: number; views_2s?: number; views_6s?: number; views_15s?: number; views_100?: number
+  video_views?: number; views2s?: number; views6s?: number; views15s?: number; views100?: number
   follows?: number; profile_visits?: number; likes?: number; comments?: number; shares?: number
   /** Not available yet — comes from App Store Connect campaign tokens. */
   installs?: number; cpi_cents?: number
-  daily: { day: string; spend_cents: number; impressions?: number; views_15s?: number }[]
+  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
   ads: CampaignAd[]
   /** Set when a Studio boost created it. */
   promotion_id?: string
@@ -73,11 +73,11 @@ export async function campaignsFor(appId: string | 'all', range: Range): Promise
         status: tiktokStatusWord(c.status_detail, c.operation_status), status_detail: c.status_detail,
         budget_daily_cents: c.budget_mode === 'BUDGET_MODE_DAY' ? c.budget_cents : undefined,
         spend_cents: c.spend_cents, impressions: c.impressions, reach: c.reach, clicks: c.clicks, ctr: c.ctr, cpc_cents: c.cpc_cents, cpm_cents: c.cpm_cents,
-        video_views: c.video_views, views_2s: c.views_2s, views_6s: c.views_6s, views_15s: c.views_15s, views_100: c.views_100,
+        video_views: c.video_views, views2s: c.views2s, views6s: c.views6s, views15s: c.views15s, views100: c.views100,
         follows: c.follows, profile_visits: c.profile_visits, likes: c.likes, comments: c.comments, shares: c.shares,
         daily: c.daily,
         ads: c.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: tiktokStatusWord(a.status_detail), status_detail: a.status_detail, review: a.review, item_id: a.item_id,
-                                 spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views_15s: a.views_15s, follows: a.follows })),
+                                 spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows })),
         promotion_id: promoByCampaign.get(`tiktok:${c.campaign_id}`)?.id,
         url: adsManagerUrl(advertiserId),
       }))
@@ -100,9 +100,9 @@ export async function campaignsFor(appId: string | 'all', range: Range): Promise
       r.spend_cents += d.spend_cents; r.impressions = (r.impressions ?? 0) + d.impressions; r.clicks = (r.clicks ?? 0) + d.clicks
       if (d.reach != null) r.reach = (r.reach ?? 0) + d.reach
       if (d.video_views != null) r.video_views = (r.video_views ?? 0) + d.video_views
-      if (d.views_15s != null) r.views_15s = (r.views_15s ?? 0) + d.views_15s
-      if (d.views_100 != null) r.views_100 = (r.views_100 ?? 0) + d.views_100
-      r.daily.push({ day: d.day, spend_cents: d.spend_cents, impressions: d.impressions, views_15s: d.views_15s })
+      if (d.views15s != null) r.views15s = (r.views15s ?? 0) + d.views15s
+      if (d.views100 != null) r.views100 = (r.views100 ?? 0) + d.views100
+      r.daily.push({ day: d.day, spend_cents: d.spend_cents, impressions: d.impressions, views15s: d.views15s })
       by.set(d.campaign_id, r)
     }
     for (const r of by.values()) {

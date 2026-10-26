@@ -369,7 +369,7 @@ export function Promotions({ ads, apps, onChange }: { ads: AdsData; apps: Publis
                 {(ta.hashtags ?? []).length > 0 && ` · ${ta.hashtags.map((x) => `#${x.name}`).join(' ')}`}
               </span>}
               {mr && <span style={{ fontSize: 13 }}><b>{usd(mr.spend_cents)}</b> spent · {big(mr.reach)} reached · {big(mr.impressions)} views · {mr.engagements || mr.clicks} {mr.engagements ? 'engagements' : 'clicks'}{mr.delivery && mr.delivery !== 'ACTIVE' && p.status === 'active' ? ` · Meta: ${mr.delivery.toLowerCase().replace(/_/g, ' ')}` : ''}</span>}
-              {tr && <span style={{ fontSize: 13 }}><b>{usd(tr.spend_cents)}</b> spent · {big(tr.impressions)} impressions · {big(tr.clicks)} clicks{tr.views_15s != null ? ` · ${big(tr.views_15s)} 15-s views` : ''}{tr.follows != null ? ` · ${big(tr.follows)} follows` : ''}{tr.status_detail ? ` · TikTok: ${tr.status_detail.toLowerCase().replace(/^ad_status_/, '').replace(/_/g, ' ')}` : ''}</span>}
+              {tr && <span style={{ fontSize: 13 }}><b>{usd(tr.spend_cents)}</b> spent · {big(tr.impressions)} impressions · {big(tr.clicks)} clicks{tr.views15s != null ? ` · ${big(tr.views15s)} 15-s views` : ''}{tr.follows != null ? ` · ${big(tr.follows)} follows` : ''}{tr.status_detail ? ` · TikTok: ${tr.status_detail.toLowerCase().replace(/^ad_status_/, '').replace(/_/g, ' ')}` : ''}</span>}
               {p.error && <span style={{ fontSize: 12, color: C.red }}>{p.error}</span>}
               {r?.review && <span style={{ fontSize: 12, color: C.red }}>{tiktok ? 'TikTok' : 'Meta'}: {r.review}</span>}
               {tiktok && p.status === 'active' && d === 'in_review' && <span style={{ fontSize: 12, color: C.ink2 }}>TikTok reviews new ads before showing them, usually within a day.</span>}

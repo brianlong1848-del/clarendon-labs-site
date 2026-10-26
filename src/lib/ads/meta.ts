@@ -410,13 +410,13 @@ export type MetaCampaignDay = {
   // Campaigns card only (FEAT-CLA-022) — not columns of ad_spend; the cron
   // picks the columns it stores (toAdSpendRow).
   reach?: number; cpm_cents?: number; ctr?: number
-  video_views?: number; views_15s?: number; views_100?: number
+  video_views?: number; views15s?: number; views100?: number
 }
 
 /** The ad_spend columns of a campaign-day row (drops the card-only extras). */
 export function toAdSpendRow(r: MetaCampaignDay) {
-  const { reach, cpm_cents, ctr, video_views, views_15s, views_100, ...row } = r
-  void reach; void cpm_cents; void ctr; void video_views; void views_15s; void views_100
+  const { reach, cpm_cents, ctr, video_views, views15s, views100, ...row } = r
+  void reach; void cpm_cents; void ctr; void video_views; void views15s; void views100
   return row
 }
 
@@ -469,8 +469,8 @@ export async function metaCampaignDays(start: string, end: string): Promise<Meta
           currency: r.account_currency ?? 'USD', app_slug: app,
           reach: r.reach != null ? Number(r.reach) : undefined, cpm_cents: r.cpm != null ? Math.round(Number(r.cpm) * 100) : undefined, ctr: r.ctr != null ? Number(r.ctr) : undefined,
           video_views: r.video_play_actions ? sum(r.video_play_actions, ['video_view']) : undefined,
-          views_15s: r.video_15_sec_watched_actions ? sum(r.video_15_sec_watched_actions, ['video_view']) : undefined,
-          views_100: r.video_p100_watched_actions ? sum(r.video_p100_watched_actions, ['video_view']) : undefined,
+          views15s: r.video_15_sec_watched_actions ? sum(r.video_15_sec_watched_actions, ['video_view']) : undefined,
+          views100: r.video_p100_watched_actions ? sum(r.video_p100_watched_actions, ['video_view']) : undefined,
         })
       }
       url = body.paging?.next ?? null

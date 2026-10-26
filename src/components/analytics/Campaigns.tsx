@@ -13,16 +13,16 @@ import { PlatformGlyph } from '@/components/post/shared'
 
 export type CampaignAd = {
   ad_id: string; name: string; status?: string; status_detail?: string; review?: string; item_id?: string
-  spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views_15s?: number; follows?: number
+  spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
 export type CampaignRow = {
   platform: 'tiktok' | 'meta'; app_id: string | null; campaign_id: string; name: string; objective?: string
   status?: string; status_detail?: string; review?: string; budget_daily_cents?: number
   spend_cents: number; impressions?: number; reach?: number; clicks?: number; ctr?: number; cpc_cents?: number; cpm_cents?: number
-  video_views?: number; views_2s?: number; views_6s?: number; views_15s?: number; views_100?: number
+  video_views?: number; views2s?: number; views6s?: number; views15s?: number; views100?: number
   follows?: number; profile_visits?: number; likes?: number; comments?: number; shares?: number
   installs?: number; cpi_cents?: number
-  daily: { day: string; spend_cents: number; impressions?: number; views_15s?: number }[]
+  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
   ads: CampaignAd[]; promotion_id?: string; url?: string
 }
 type Payload = { range: { id: string; start: string; end: string; days: number }; apps: { id: string; name: string; accent: string }[]; campaigns: CampaignRow[]; errors: string[]; notes: { installs: string } }
@@ -84,7 +84,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
     : 'minmax(0,1.6fr) 90px 80px 84px 70px 70px 76px 70px 96px 120px'
   const head = (t: string, right = true) => <span style={{ ...labelStyle, textAlign: right ? 'right' : 'left' }}>{t}</span>
   const cell = (v: string, strong = false) => <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontFamily: C.mono, fontSize: 12.5, fontWeight: strong ? 700 : 500, color: v === '—' ? C.faint : C.ink }}>{v}</span>
-  const totals = rows.reduce((t, r) => ({ spend: t.spend + r.spend_cents, impressions: t.impressions + (r.impressions ?? 0), views15: t.views15 + (r.views_15s ?? 0), follows: t.follows + (r.follows ?? 0) }), { spend: 0, impressions: 0, views15: 0, follows: 0 })
+  const totals = rows.reduce((t, r) => ({ spend: t.spend + r.spend_cents, impressions: t.impressions + (r.impressions ?? 0), views15: t.views15 + (r.views15s ?? 0), follows: t.follows + (r.follows ?? 0) }), { spend: 0, impressions: 0, views15: 0, follows: 0 })
 
   return (
     <section style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22, display: 'grid', gap: 14 }}>
@@ -137,7 +137,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                       </div>
                     </div>
                     <div><StatusChip s={r.status} /></div>
-                    {cell(usd(r.spend_cents), true)}{cell(num(r.impressions))}{cell(pct(r.ctr))}{cell(usd(r.cpc_cents))}{cell(num(r.views_15s))}{cell(num(r.follows))}
+                    {cell(usd(r.spend_cents), true)}{cell(num(r.impressions))}{cell(pct(r.ctr))}{cell(usd(r.cpc_cents))}{cell(num(r.views15s))}{cell(num(r.follows))}
                     <span style={{ textAlign: 'right', fontFamily: C.mono, fontSize: 12, color: C.faint }} title={data?.notes.installs}>{r.installs != null ? `${num(r.installs)} · ${usd(r.cpi_cents)}` : 'soon'}</span>
                     {!compact && <Bars daily={r.daily} color={app?.accent ?? C.mint} />}
                   </div>
@@ -149,9 +149,9 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                         {r.cpm_cents != null && <span>CPM <b>{usd(r.cpm_cents)}</b></span>}
                         {r.clicks != null && <span>Clicks <b>{num(r.clicks)}</b></span>}
                         {r.video_views != null && <span>Video views <b>{num(r.video_views)}</b></span>}
-                        {r.views_2s != null && <span>2-s <b>{num(r.views_2s)}</b></span>}
-                        {r.views_6s != null && <span>6-s <b>{num(r.views_6s)}</b></span>}
-                        {r.views_100 != null && <span>Watched to end <b>{num(r.views_100)}</b></span>}
+                        {r.views2s != null && <span>2-s <b>{num(r.views2s)}</b></span>}
+                        {r.views6s != null && <span>6-s <b>{num(r.views6s)}</b></span>}
+                        {r.views100 != null && <span>Watched to end <b>{num(r.views100)}</b></span>}
                         {r.profile_visits != null && <span>Profile visits <b>{num(r.profile_visits)}</b></span>}
                         {r.likes != null && <span>Likes <b>{num(r.likes)}</b></span>}
                         {r.comments != null && <span>Comments <b>{num(r.comments)}</b></span>}
@@ -165,7 +165,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                             {a.review && <span style={{ color: C.red }}> · {a.review}</span>}
                           </span>
                           <div><StatusChip s={a.status} /></div>
-                          {cell(usd(a.spend_cents))}{cell(num(a.impressions))}{cell(pct(a.ctr))}{cell(usd(a.cpc_cents))}{cell(num(a.views_15s))}{cell(num(a.follows))}
+                          {cell(usd(a.spend_cents))}{cell(num(a.impressions))}{cell(pct(a.ctr))}{cell(usd(a.cpc_cents))}{cell(num(a.views15s))}{cell(num(a.follows))}
                         </div>
                       )) : <span style={{ fontSize: 12.5, color: C.soft }}>{r.platform === 'meta' ? 'Ad-level figures for Meta campaigns live in Ads Manager.' : 'No ads reported in this window.'}</span>}
                     </div>

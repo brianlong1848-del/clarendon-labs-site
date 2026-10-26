@@ -65,7 +65,7 @@ export async function fetchTikTok(advertiserId?: string): Promise<TikTokMetrics>
 export type TikTokStats = {
   spend_cents: number; impressions?: number; reach?: number; clicks?: number
   ctr?: number; cpc_cents?: number; cpm_cents?: number
-  video_views?: number; views_2s?: number; views_6s?: number; views_15s?: number; views_100?: number
+  video_views?: number; views2s?: number; views6s?: number; views15s?: number; views100?: number
   follows?: number; profile_visits?: number; likes?: number; comments?: number; shares?: number
 }
 
@@ -81,7 +81,7 @@ export type TikTokCampaign = TikTokStats & {
   campaign_id: string; name: string; objective?: string
   operation_status?: string; status_detail?: string
   budget_cents?: number; budget_mode?: string; created?: string
-  daily: { day: string; spend_cents: number; impressions?: number; views_15s?: number }[]
+  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
   ads: TikTokAd[]
 }
 
@@ -96,8 +96,8 @@ function stats(m: Record<string, unknown>): TikTokStats {
   return {
     spend_cents: Math.round(n(m.spend) * 100), impressions: opt('impressions'), reach: opt('reach'), clicks: opt('clicks'),
     ctr: opt('ctr'), cpc_cents: m.cpc == null ? undefined : Math.round(n(m.cpc) * 100), cpm_cents: m.cpm == null ? undefined : Math.round(n(m.cpm) * 100),
-    video_views: opt('video_play_actions'), views_2s: opt('video_watched_2s'), views_6s: opt('video_watched_6s'),
-    views_15s: opt('engaged_view_15s'), views_100: opt('video_views_p100'),
+    video_views: opt('video_play_actions'), views2s: opt('video_watched_2s'), views6s: opt('video_watched_6s'),
+    views15s: opt('engaged_view_15s'), views100: opt('video_views_p100'),
     follows: opt('follows'), profile_visits: opt('profile_visits'), likes: opt('likes'), comments: opt('comments'), shares: opt('shares'),
   }
 }
@@ -179,7 +179,7 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
     const row = byId.get(String(r.dimensions.campaign_id ?? ''))
     if (!row) continue
     const s = stats(r.metrics)
-    row.daily.push({ day: String(r.dimensions.stat_time_day ?? '').slice(0, 10), spend_cents: s.spend_cents, impressions: s.impressions, views_15s: s.views_15s })
+    row.daily.push({ day: String(r.dimensions.stat_time_day ?? '').slice(0, 10), spend_cents: s.spend_cents, impressions: s.impressions, views15s: s.views15s })
   }
   for (const row of byId.values()) row.daily.sort((a, b) => a.day.localeCompare(b.day))
   // Ads: report rows first, then ad/get for the review status.
