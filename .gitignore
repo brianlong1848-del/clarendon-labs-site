@@ -38,3 +38,7 @@ next-env.d.ts
 # local render previews
 /.preview/
 .env*
+
+# credentials never belong in the repo (they live in ~/code/clarendon-labs/secrets/)
+*secret*.txt
+*.p8
