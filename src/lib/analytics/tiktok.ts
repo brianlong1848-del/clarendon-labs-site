@@ -147,7 +147,8 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
   const [camp, daily, ads] = await Promise.all([
     tiktokReport(advertiserId, 'AUCTION_CAMPAIGN', ['campaign_id'], start, end, ['campaign_name', 'objective_type']),
     tiktokReport(advertiserId, 'AUCTION_CAMPAIGN', ['campaign_id', 'stat_time_day'], start, end).catch(() => [] as ReportRow[]),
-    tiktokReport(advertiserId, 'AUCTION_AD', ['ad_id'], start, end, ['ad_name', 'campaign_id', 'adgroup_id', 'tiktok_item_id']).catch(() => [] as ReportRow[]),
+    // (tiktok_item_id isn't a report metric — the item id comes from ad/get when that scope is granted.)
+    tiktokReport(advertiserId, 'AUCTION_AD', ['ad_id'], start, end, ['ad_name', 'campaign_id', 'adgroup_id']).catch(() => [] as ReportRow[]),
   ])
   const byId = new Map<string, TikTokCampaign>()
   for (const r of camp) {

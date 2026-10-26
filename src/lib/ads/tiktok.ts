@@ -182,14 +182,17 @@ export async function searchInterests(advertiserId: string, q: string): Promise<
   let keywords: TTInterest[] = []
   try {
     const data = await tiktokCall('/tool/interest_keyword/recommend/', { query: { advertiser_id: advertiserId, keywords: JSON.stringify([q.trim()]), language: 'en' } })
-    keywords = (data.interest_keyword_list ?? data.list ?? []).slice(0, 8).map((k: any) => ({ id: String(k.keyword_id ?? k.interest_keyword_id), name: String(k.keyword ?? k.interest_keyword ?? k.name), kind: 'keyword' as const }))
+    keywords = (data.recommended_keywords ?? data.interest_keyword_list ?? data.list ?? []).filter((k: any) => !k.status || k.status === 'EFFECTIVE').slice(0, 8)
+      .map((k: any) => ({ id: String(k.keyword_id ?? k.interest_keyword_id), name: String(k.keyword ?? k.interest_keyword ?? k.name), kind: 'keyword' as const }))
   } catch { /* optional */ }
   return [...cats, ...keywords].filter((i) => i.id && i.name)
 }
 
 export async function searchHashtags(advertiserId: string, q: string): Promise<TTHashtag[]> {
+  // Answer shape (checked 2026-10-26): { recommend_keywords: [{ keyword: '#sapphic', keyword_id, keyword_status: 'ONLINE' }] }
   const data = await tiktokCall('/tool/hashtag/recommend/', { query: { advertiser_id: advertiserId, keywords: JSON.stringify([q.trim().replace(/^#/, '')]), limit: '15' } })
-  return (data.hashtags ?? data.list ?? []).map((h: any) => ({ id: String(h.hashtag_id ?? h.id), name: String(h.hashtag_name ?? h.name ?? '').replace(/^#/, '') })).filter((h: TTHashtag) => h.id && h.name)
+  return (data.recommend_keywords ?? data.hashtags ?? data.list ?? []).filter((h: any) => !h.keyword_status || h.keyword_status === 'ONLINE')
+    .map((h: any) => ({ id: String(h.keyword_id ?? h.hashtag_id ?? h.id), name: String(h.keyword ?? h.hashtag_name ?? h.name ?? '').replace(/^#/, '') })).filter((h: TTHashtag) => h.id && h.name)
 }
 
 // ── Posts that can be boosted ────────────────────────────────────────────────
