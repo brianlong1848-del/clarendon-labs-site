@@ -22,6 +22,11 @@ export type TikTokSettings = {
   commercial?: boolean; yourBrand?: boolean; brandedContent?: boolean
 }
 export type Target = { platform: Platform; format: Format; tiktok?: TikTokSettings }
+/** A platform's own media, replacing the post's shared media there — e.g. the
+ *  TikTok cut for TikTok and the Reels cut for Instagram. An empty list means
+ *  "nothing here" (a text-only Thread or Facebook post); a missing key means
+ *  "use the shared media". */
+export type MediaOverrides = Partial<Record<Platform, MediaItem[]>>
 
 export const TIKTOK_PRIVACY_LABEL: Record<TikTokPrivacy, string> = {
   PUBLIC_TO_EVERYONE: 'Everyone', MUTUAL_FOLLOW_FRIENDS: 'Friends', FOLLOWER_OF_CREATOR: 'Followers', SELF_ONLY: 'Only me',
@@ -59,15 +64,22 @@ export function captionFor(platform: Platform, caption: string, overrides: Parti
   return o != null && o !== '' ? o : caption
 }
 
-export function validate(targets: Target[], media: MediaItem[], caption: string,
-                         overrides: Partial<Record<Platform, string>> = {}): Issue[] {
+/** What actually goes to `platform`: its own media if it has some, else the shared media. */
+export function mediaFor(platform: Platform, media: MediaItem[], overrides: MediaOverrides | null | undefined): MediaItem[] {
+  const o = overrides?.[platform]
+  return Array.isArray(o) ? o : media
+}
+
+export function validate(targets: Target[], shared: MediaItem[], caption: string,
+                         overrides: Partial<Record<Platform, string>> = {}, mediaOverrides: MediaOverrides = {}): Issue[] {
   const issues: Issue[] = []
-  const images = media.filter((m) => m.kind === 'image')
-  const videos = media.filter((m) => m.kind === 'video')
   const add = (platform: Platform, level: Issue['level'], text: string, todo = false) => issues.push(todo ? { platform, level, text, todo } : { platform, level, text })
 
   if (targets.length === 0) return issues
   for (const t of targets) {
+    const media = mediaFor(t.platform, shared, mediaOverrides)
+    const images = media.filter((m) => m.kind === 'image')
+    const videos = media.filter((m) => m.kind === 'video')
     const text = captionFor(t.platform, caption, overrides)
     const spec = PLATFORMS.find((p) => p.id === t.platform)!
     if (text.length > spec.captionMax) add(t.platform, 'error', `Caption is ${text.length - spec.captionMax} characters over ${spec.name}'s ${spec.captionMax.toLocaleString()} limit.`)

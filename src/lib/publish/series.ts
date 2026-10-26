@@ -14,7 +14,7 @@ import {
   insertPost, insertSeries, openCopy, pastCaptions, seriesDue, updatePost, updateSeries, cancelOpenCopies, getSeries,
   type Post, type Series, type TargetState,
 } from './store'
-import type { MediaItem, Platform, Target } from './rules'
+import type { MediaItem, MediaOverrides, Platform, Target } from './rules'
 
 const LEAD = 48 * 3600_000
 
@@ -37,13 +37,14 @@ export async function nextTime(spec: RepeatSpec, appId: string, targets: Target[
 const pending = (targets: Target[]) => targets.map((t) => ({ ...t, status: 'pending' }) as TargetState)
 
 export async function createSeries(input: {
-  appId: string; caption: string; overrides: Partial<Record<Platform, string>>; media: MediaItem[]; targets: Target[]
+  appId: string; caption: string; overrides: Partial<Record<Platform, string>>; media: MediaItem[]; mediaOverrides?: MediaOverrides; targets: Target[]
   repeat: RepeatSpec; captionBy: 'brian' | 'ai'; source: string
 }): Promise<{ series: Series; post: Post | null }> {
   const first = await nextTime(input.repeat, input.appId, input.targets, new Date(), 0, true)
   if (!first) throw new Error('None of those times are in the future.')
   const series = await insertSeries({
     app_id: input.appId, caption: input.caption, overrides: input.overrides, media: input.media, targets: input.targets,
+    ...(input.mediaOverrides && Object.keys(input.mediaOverrides).length ? { media_overrides: input.mediaOverrides } : {}),
     frames: (input.repeat.frames ?? []).slice(0, 6), notes: (input.repeat.notes ?? '').slice(0, 1000),
     caption_mode: input.repeat.captionMode === 'same' ? 'same' : 'fresh', rule: input.repeat.rule,
     starts_at: input.repeat.startsAt ?? null, ends_at: input.repeat.endsAt ?? null, max_runs: input.repeat.maxRuns ?? null,
@@ -83,6 +84,7 @@ export async function materialize(s: Series, opts: { firstCaptionBy?: 'brian' | 
 
   const post = await insertPost({
     app_id: s.app_id, caption, overrides, media: s.media, targets: pending(s.targets),
+    ...(s.media_overrides && Object.keys(s.media_overrides).length ? { media_overrides: s.media_overrides } : {}),
     status: 'scheduled', scheduled_at: at.toISOString(), source: s.source,
     series_id: s.id, occurrence, notes: s.notes, caption_by: captionBy,
   })

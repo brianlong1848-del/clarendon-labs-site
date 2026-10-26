@@ -4,7 +4,7 @@
 // Supabase project this site already uses (SUPABASE_URL / SERVICE_ROLE_KEY).
 // Service-role only — RLS is on with no policies, so nothing else can read it.
 
-import type { MediaItem, Platform, Target } from './rules'
+import type { MediaItem, MediaOverrides, Platform, Target } from './rules'
 import type { RepeatRule } from './recur'
 
 export type TargetState = Target & {
@@ -21,6 +21,8 @@ export type Post = {
   caption: string
   overrides: Partial<Record<Platform, string>>
   media: MediaItem[]
+  /** A platform's own cut (rules.ts mediaFor); absent/{} = every platform gets `media`. */
+  media_overrides?: MediaOverrides | null
   targets: TargetState[]
   status: 'scheduled' | 'publishing' | 'done' | 'partial' | 'failed' | 'canceled'
   scheduled_at: string | null
@@ -51,6 +53,7 @@ export type Series = {
   caption: string
   overrides: Partial<Record<Platform, string>>
   media: MediaItem[]
+  media_overrides?: MediaOverrides | null
   targets: Target[]
   frames: string[]
   notes: string

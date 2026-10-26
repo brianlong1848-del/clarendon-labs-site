@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { C, btn } from '@/components/AdminNav'
 import {
   PLATFORMS, FORMAT_LABEL, defaultFormat, fbReelOK, validate, captionFor, ratioName,
-  type Format, type MediaItem, type Platform, type Target, type TikTokSettings,
+  type Format, type MediaItem, type MediaOverrides, type Platform, type Target, type TikTokSettings,
 } from '@/lib/publish/rules'
+import { anyPlatformTagged, assignPlatformMedia } from '@/lib/publish/platformMedia'
 import { Preview } from './Preview'
 import { TikTokPanel, type Creator } from './TikTokPanel'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
@@ -35,6 +36,8 @@ const BLANK: Edition = { caption: '', overrides: {} }
 type OverridesArg = Partial<Record<Platform, string>> | ((o: Partial<Record<Platform, string>>) => Partial<Record<Platform, string>>)
 
 const DRAFT_KEY = 'clarendon:post-draft'
+/** Up to 10 per platform (a carousel), and room for one cut per platform per edition. */
+const MAX_ITEMS = 40
 const initialDest = (): Dest => ({
   instagram: { on: true, format: 'feed' }, facebook: { on: false, format: 'post' },
   threads: { on: false, format: 'post' }, tiktok: { on: false, format: 'post' },
@@ -112,6 +115,12 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const [appId, setAppId] = useState(apps[0]?.id ?? '')
   const [items, setItems] = useState<Item[]>([])
   const [tailor, setTailor] = useState(false)
+  // A different cut per platform (platformMedia.ts): files named for a
+  // platform go to it; untagged files are shared; Brian can pick per platform.
+  const [splitPref, setSplitPref] = useState(false)
+  const splitTouched = useRef(false)
+  const [platPicked, setPlatPicked] = useState<Partial<Record<MarketId, Partial<Record<Platform, string[]>>>>>({})
+  const [choosingPlat, setChoosingPlat] = useState<Platform | null>(null)
   // Market editions: which countries/languages this post goes to, and each
   // edition's caption. With one market (most apps) it's the classic composer.
   const [mkts, setMkts] = useState<MarketId[]>(['us'])
@@ -231,36 +240,62 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const activeItems = itemsFor(active)
   const media: MediaItem[] = useMemo(() => toMedia(activeItems), [activeItems]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Per-platform cuts. `split` only means something with more than one file.
+  const split = splitPref && items.length > 1
+  useEffect(() => { if (!splitTouched.current && anyPlatformTagged(items)) setSplitPref(true) }, [items])
+  const platAssign = useCallback((m: MarketId) => assignPlatformMedia(itemsFor(m), platPicked[m]), [itemsFor, platPicked])
+  const platItemsFor = useCallback((m: MarketId, p: Platform): Item[] => {
+    if (!split) return itemsFor(m)
+    return platAssign(m)[p].keys.map((k) => items.find((i) => i.key === k)!).filter(Boolean)
+  }, [split, itemsFor, platAssign, items])
+  const igMedia = useMemo(() => toMedia(platItemsFor(active, 'instagram')), [platItemsFor, active]) // eslint-disable-line react-hooks/exhaustive-deps
+  const fbMedia = useMemo(() => toMedia(platItemsFor(active, 'facebook')), [platItemsFor, active]) // eslint-disable-line react-hooks/exhaustive-deps
+  const ttMedia = useMemo(() => toMedia(platItemsFor(active, 'tiktok')), [platItemsFor, active]) // eslint-disable-line react-hooks/exhaustive-deps
+  const mediaOf = (p: Platform): MediaItem[] => p === 'instagram' ? igMedia : p === 'facebook' ? fbMedia : p === 'tiktok' ? ttMedia : toMedia(platItemsFor(active, p))
+  /** What validate() and the server get: every platform's own cut, or {} when not split. */
+  const moFor = (m: MarketId, on: Platform[] = PLATFORMS.map((p) => p.id)): MediaOverrides =>
+    split ? Object.fromEntries(on.map((p) => [p, toMedia(platItemsFor(m, p))])) : {}
+
   // Keep Instagram's format sensible as media changes.
+  // Each judged on its own cut when the media is split per platform.
   useEffect(() => {
     setDest((d) => {
       const f = d.instagram.format
-      const oneVideo = media.length === 1 && media[0].kind === 'video'
-      const ok = f === 'reel' ? oneVideo : f === 'story' ? media.length <= 1 : !oneVideo
-      const next = ok ? d : { ...d, instagram: { ...d.instagram, format: defaultFormat('instagram', media) } }
+      const igOne = igMedia.length === 1 && igMedia[0].kind === 'video'
+      const ok = f === 'reel' ? igOne : f === 'story' ? igMedia.length <= 1 : !igOne
+      const next = ok ? d : { ...d, instagram: { ...d.instagram, format: defaultFormat('instagram', igMedia) } }
       // New media → Facebook picks its default (a vertical clip becomes a Reel);
       // same media → keep your choice unless it no longer fits.
-      const key = media.map((m) => `${m.kind}${m.width}x${m.height}:${Math.round(m.duration ?? 0)}`).join()
+      const key = fbMedia.map((m) => `${m.kind}${m.width}x${m.height}:${Math.round(m.duration ?? 0)}`).join()
       const changed = key !== mediaKey.current
       mediaKey.current = key
-      const fbValid = d.facebook.format === 'post' || (oneVideo && fbReelOK(media[0]))
-      const fb = changed || !fbValid ? defaultFormat('facebook', media) : d.facebook.format
+      const fbOne = fbMedia.length === 1 && fbMedia[0].kind === 'video'
+      const fbValid = d.facebook.format === 'post' || (fbOne && fbReelOK(fbMedia[0]))
+      const fb = changed || !fbValid ? defaultFormat('facebook', fbMedia) : d.facebook.format
       return fb === next.facebook.format ? next : { ...next, facebook: { ...next.facebook, format: fb } }
     })
-  }, [media])
+  }, [igMedia, fbMedia])
 
   const targets: Target[] = PLATFORMS.filter((p) => dest[p.id].on).map((p) => ({ platform: p.id, format: dest[p.id].format, ...(p.id === 'tiktok' ? { tiktok: tt } : {}) }))
   const tag = (m: MarketId) => `${MARKETS[m].flag} ${MARKETS[m].short}: `
-  const issues = !multi ? validate(targets, media, caption, tailor ? overrides : {}) : mkts.flatMap((m) => {
+  const issues = !multi ? validate(targets, media, caption, tailor ? overrides : {}, moFor(active)) : mkts.flatMap((m) => {
     const a = assignment[m], e = eds[m] ?? BLANK
-    const out = validate(targets, toMedia(itemsFor(m)), e.caption, tailor ? e.overrides : {}).map((i) => ({ ...i, text: tag(m) + i.text }))
+    const out = validate(targets, toMedia(itemsFor(m)), e.caption, tailor ? e.overrides : {}, moFor(m)).map((i) => ({ ...i, text: tag(m) + i.text }))
     if (items.length && a?.how === 'none') out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no photo or video for this edition — add one named for ${MARKETS[m].short}, or pick one.`, todo: true })
     if (a?.note) out.push({ platform: targets[0]?.platform ?? 'instagram', level: wrongLanguage(a) ? 'error' : 'warn', text: tag(m) + a.note })
     if (!e.caption.trim() && targets.some((t) => t.format !== 'story')) out.push({ platform: targets[0]?.platform ?? 'instagram', level: 'error', text: `${tag(m)}no ${MARKETS[m].langName} caption yet — ✦ Write with AI does every edition at once.`, todo: true })
     return out
   })
   if (multi && mode === 'now' && targets.length) issues.push({ platform: targets[0].platform, level: 'warn', text: `All ${mkts.length} editions go to the same accounts at once. Schedule → “same local time” spreads them across time zones.` })
-  const ttVideo = media.length === 1 && media[0].kind === 'video' ? media[0] : undefined
+  if (split) for (const m of mkts) for (const t of targets) {
+    if ((t.platform === 'threads' || t.platform === 'facebook') && !platItemsFor(m, t.platform).length) {
+      issues.push({ platform: t.platform, level: 'warn', text: `${multi ? tag(m) : ''}${PLATFORMS.find((p) => p.id === t.platform)!.name} has no video of its own, so it goes out as text only. Name a file for it, or pick one under Photos & video.` })
+    }
+  }
+  const ttVideo = ttMedia.length === 1 && ttMedia[0].kind === 'video' ? ttMedia[0] : undefined
+  // What the AI looks at and the post's shared media: the first platform's cut when split.
+  const capItemsFor = (m: MarketId) => split && targets[0] ? platItemsFor(m, targets[0].platform) : itemsFor(m)
+  const sendMediaFor = (m: MarketId) => ({ media: toMedia(capItemsFor(m)), ...(split ? { mediaOverrides: moFor(m, targets.map((t) => t.platform)) } : {}) })
   if (ttOn && creator.loading) issues.push({ platform: 'tiktok', level: 'error', text: 'Checking the TikTok account…' })
   if (ttOn && !creator.loading && !creator.info) issues.push({ platform: 'tiktok', level: 'error', text: creator.error ?? 'Couldn’t read the TikTok account.' })
   if (ttOn && creator.info && ttVideo?.duration && ttVideo.duration > creator.info.max_video_post_duration_sec) issues.push({ platform: 'tiktok', level: 'error', text: `This TikTok account can post videos up to ${creator.info.max_video_post_duration_sec}s.` })
@@ -298,7 +333,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   useEffect(() => { if (firstTarget && !dest[previewOn]?.on) setPreviewOn(firstTarget) }, [dest, previewOn, firstTarget])
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
-    const list = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/')).slice(0, 10)
+    const list = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/')).slice(0, Math.max(0, MAX_ITEMS - items.length))
     await Promise.all(list.map(async (file) => {
       const key = crypto.randomUUID()
       setItems((xs) => [...xs, { key, name: file.name, src: '', kind: file.type.startsWith('video/') ? 'video' : 'image', mime: file.type, width: 1, height: 1, size: file.size, progress: 0, status: 'preparing' }])
@@ -314,7 +349,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
         setItems((xs) => xs.map((x) => x.key === key ? { ...x, status: 'error', error: (e as Error).message } : x))
       }
     }))
-  }, [pw, appId])
+  }, [pw, appId, items.length])
 
   const uploadBlob = async (blob: Blob, name: string) => {
     const res = await fetch('/api/publish/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, filename: name }) })
@@ -345,7 +380,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       const intent = (eds[home] ?? BLANK).caption || caption
       const done = await Promise.all(mkts.map(async (m) => {
         try {
-          const list = itemsFor(m)
+          const list = capItemsFor(m)
           const frames = await ensureFrames(list)
           const res = await fetch('/api/publish/captions', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -366,10 +401,11 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       return
     }
     try {
-      const frames = await ensureFrames()
+      const capItems = capItemsFor(active)
+      const frames = await ensureFrames(capItems)
       const res = await fetch('/api/publish/captions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appId, targets, frames, notes, draft: caption, market: active === 'us' ? undefined : active, media: activeItems.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration })) }),
+        body: JSON.stringify({ appId, targets, frames, notes, draft: caption, market: active === 'us' ? undefined : active, media: capItems.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration })) }),
       })
       const out = await res.json()
       if (!res.ok) throw new Error(out.error ?? 'Couldn’t write captions.')
@@ -392,7 +428,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             appId, caption: e.caption, overrides: tailor ? e.overrides : {}, targets, market: m, editionGroup: group,
-            media: itemsFor(m).map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })),
+            ...sendMediaFor(m),
             scheduledAt: t ? t.toISOString() : null, captionBy, notes,
           }),
         }).catch(() => null)
@@ -407,12 +443,12 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       return
     }
     try {
-      const repeat = mode === 'repeat' ? { ...repeatSpec, frames: fresh ? await ensureFrames().catch(() => []) : [] } : undefined
+      const repeat = mode === 'repeat' ? { ...repeatSpec, frames: fresh ? await ensureFrames(capItemsFor(active)).catch(() => []) : [] } : undefined
       const res = await fetch('/api/publish', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           appId, caption, overrides: tailor ? overrides : {}, targets,
-          media: items.map((i) => ({ url: i.url, kind: i.kind, width: i.width, height: i.height, duration: i.duration, mime: i.mime })),
+          ...sendMediaFor(active),
           scheduledAt: schedule ? scheduleDate.toISOString() : null,
           captionBy, notes, ...(repeat ? { repeat } : {}),
         }),
@@ -444,7 +480,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const reset = () => { setItems([]); setEds({}); setPicked({}); setResults(null); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null }
+  const reset = () => { setItems([]); setEds({}); setPicked({}); setResults(null); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null; setSplitPref(false); splitTouched.current = false; setPlatPicked({}); setChoosingPlat(null) }
   const move = (from: string, to: string) => setItems((xs) => {
     const a = [...xs], i = a.findIndex((x) => x.key === from), j = a.findIndex((x) => x.key === to)
     if (i < 0 || j < 0) return xs
@@ -505,7 +541,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
               <div style={{ textAlign: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
                 <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={C.mint} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-9 9" /></svg>
                 <b style={{ fontSize: 15 }}>Drop photos or a video here</b>
-                <span style={{ fontSize: 13, color: C.soft }}>JPEG, PNG, MP4 or MOV · up to 10 for a carousel · or post text only to Threads and Facebook</span>
+                <span style={{ fontSize: 13, color: C.soft }}>JPEG, PNG, MP4 or MOV · up to 10 for a carousel · one cut per platform (name them _ig, _fb, _tiktok, _threads) · or text only to Threads and Facebook</span>
                 <button style={{ ...btn('ghost'), marginTop: 6 }} onClick={() => fileInput.current?.click()}>Choose files</button>
               </div>
             ) : (
@@ -534,13 +570,85 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                     {it.status === 'error' && <div title={it.error} style={{ position: 'absolute', inset: 0, background: 'rgba(194,74,74,.88)', color: '#fff', fontSize: 11.5, padding: 8, display: 'grid', placeItems: 'center', textAlign: 'center' }}>{it.error}</div>}
                   </div>
                 ))}
-                {items.length < 10 && (
+                {items.length < MAX_ITEMS && (
                   <button onClick={() => fileInput.current?.click()} aria-label="Add more"
                     style={{ aspectRatio: '1', borderRadius: 12, border: `1.5px dashed ${C.rule2}`, background: 'transparent', color: C.mint, fontSize: 28, cursor: 'pointer' }}>+</button>
                 )}
               </div>
             )}
           </div>
+          {items.length > 1 && (
+            <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: C.ink2, cursor: 'pointer' }}>
+                <Toggle on={split} onChange={(v) => { splitTouched.current = true; setSplitPref(v); setChoosingPlat(null) }} label="A different video for each platform" />
+                <span><b style={{ color: C.ink }}>A different video for each platform</b>
+                  {split ? (multi ? ` · ${MARKETS[active].flag} ${MARKETS[active].short} edition` : '') : ' · off: every platform gets the same media'}</span>
+              </label>
+              {split && multi && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {mkts.map((id) => (
+                    <button key={id} onClick={() => { setActive(id); setChoosingPlat(null) }} aria-pressed={id === active}
+                      style={{ border: `1.5px solid ${id === active ? C.ink : C.rule2}`, background: id === active ? C.ink : C.card, color: id === active ? C.paper : C.ink2, borderRadius: 99,
+                               padding: '4px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans }}>{MARKETS[id].flag} {MARKETS[id].short}</button>
+                  ))}
+                </div>
+              )}
+              {split && PLATFORMS.map((p) => {
+                const a = platAssign(active)[p.id], list = platItemsFor(active, p.id), on = dest[p.id].on, pool = itemsFor(active)
+                const textOk = p.id === 'threads' || p.id === 'facebook'
+                const how = a.how === 'tagged' ? `Named for ${p.name}` : a.how === 'shared' ? 'Shared file (no platform in its name)'
+                  : a.how === 'borrowed' ? `No ${p.name} cut — using the ${PLATFORMS.find((x) => x.id === a.from)?.name} one`
+                  : a.how === 'master' ? 'Only the master fits — check it has sound'
+                  : list.length ? 'Picked by you' : textOk ? 'No media — text only' : 'Nothing yet — name a file for it, or pick one'
+                const v = list.length === 1 ? list[0] : undefined
+                return (
+                  <div key={p.id} style={{ display: 'grid', gap: 8, padding: 10, borderRadius: 12, background: C.paper, border: `1px solid ${C.rule}`, opacity: on ? 1 : 0.55 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '112px auto minmax(0,1fr) auto', gap: 12, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 13.5, minWidth: 0 }}><PlatformGlyph platform={p.id} size={17} />{p.name}</div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {list.slice(0, 4).map((i) => (
+                          <span key={i.key} title={i.name} style={{ width: 38, height: 38, borderRadius: 8, overflow: 'hidden', background: C.card2, display: 'block' }}>
+                            {i.src && (i.kind === 'video' ? <video src={i.src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={i.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
+                          </span>
+                        ))}
+                        {!list.length && <span style={{ width: 38, height: 38, borderRadius: 8, border: `1.5px dashed ${C.rule2}`, display: 'block' }} />}
+                      </div>
+                      <div style={{ fontSize: 12, color: !list.length && on && !textOk ? C.amber : C.soft, lineHeight: 1.4, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {how}{v && v.width > 1 ? ` · ${v.kind === 'video' && v.duration ? `${Math.round(v.duration)}s · ` : ''}${ratioName(v.width / v.height)}` : ''}{!on ? ' · not posting here' : ''}
+                        {v && <><br /><span style={{ color: C.faint }}>{v.name}</span></>}
+                      </div>
+                      <button onClick={() => setChoosingPlat(choosingPlat === p.id ? null : p.id)}
+                        style={{ border: 0, background: 'transparent', color: C.mint, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', fontFamily: C.sans }}>{choosingPlat === p.id ? 'Done' : 'Change'}</button>
+                    </div>
+                    {choosingPlat === p.id && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {pool.map((i) => {
+                          const sel = list.some((x) => x.key === i.key)
+                          return (
+                            <button key={i.key} title={i.name} aria-pressed={sel}
+                              onClick={() => setPlatPicked((pk) => {
+                                const cur = list.map((x) => x.key)
+                                const next = sel ? cur.filter((k) => k !== i.key) : pool.map((x) => x.key).filter((k) => k === i.key || cur.includes(k))
+                                return { ...pk, [active]: { ...(pk[active] ?? {}), [p.id]: next } }
+                              })}
+                              style={{ width: 52, height: 52, borderRadius: 9, overflow: 'hidden', padding: 0, cursor: 'pointer', background: C.card2,
+                                       border: `2.5px solid ${sel ? C.mint : 'transparent'}`, opacity: sel ? 1 : 0.55 }}>
+                              {i.src && (i.kind === 'video' ? <video src={i.src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={i.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
+                            </button>
+                          )
+                        })}
+                        {platPicked[active]?.[p.id] && <button onClick={() => setPlatPicked((pk) => { const mine = { ...(pk[active] ?? {}) }; delete mine[p.id]; return { ...pk, [active]: mine } })}
+                          style={{ border: 0, background: 'transparent', color: C.soft, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', fontFamily: C.sans }}>Back to automatic</button>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {split && <span style={{ fontSize: 11.5, color: C.soft, lineHeight: 1.5 }}>
+                Name each cut with its platform and it finds its own: “…_ig-reels.mp4”, “…_fb-reels.mp4”, “…_tiktok.mp4”, “…_threads.mp4”. A platform with no cut of its own borrows a sibling’s (Threads uses Instagram’s); a “master” file is only used if nothing else fits.
+              </span>}
+            </div>
+          )}
           <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         </section>
 
@@ -698,7 +806,8 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
             {PLATFORMS.map((p) => {
               const acc = account(p.id)
               const on = dest[p.id].on
-              const oneVideo = media.length === 1 && media[0].kind === 'video'
+              const pm = mediaOf(p.id)
+              const oneVideo = pm.length === 1 && pm[0].kind === 'video'
               return (
                 <div key={p.id} style={{ borderRadius: 14, padding: 14, border: `1.5px solid ${on ? C.mint : C.rule}`, background: on ? C.mintTint : acc?.ready ? C.card : C.paper, display: 'grid', gap: 10, transition: 'all .15s' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -719,7 +828,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                       options={[
                         { value: 'feed', label: 'Post', disabled: oneVideo, title: oneVideo ? 'A single video posts as a Reel' : 'Photo or carousel in the grid' },
                         { value: 'reel', label: 'Reel', disabled: !oneVideo, title: 'One video' },
-                        { value: 'story', label: 'Story', disabled: media.length > 1, title: 'One photo or video, gone in 24 hours' },
+                        { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video, gone in 24 hours' },
                       ]} />
                   )}
                   {p.id === 'facebook' && acc?.ready && oneVideo && (
@@ -727,7 +836,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                       onChange={(f) => setDest((d) => ({ ...d, facebook: { ...d.facebook, format: f } }))}
                       options={[
                         { value: 'post', label: 'Video', title: 'A regular video post on the Page' },
-                        { value: 'reel', label: 'Reel', disabled: !fbReelOK(media[0]), title: fbReelOK(media[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' },
+                        { value: 'reel', label: 'Reel', disabled: !fbReelOK(pm[0]), title: fbReelOK(pm[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' },
                       ]} />
                   )}
                   {!acc?.ready && acc?.reason && <p style={{ margin: 0, fontSize: 12, color: C.ink2, lineHeight: 1.45 }}>{acc.reason}</p>}
@@ -740,14 +849,14 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                     <TikTokPanel creator={creator.info} audited={creator.audited} loading={creator.loading} error={creator.error}
                       value={tt} onChange={setTt} duration={ttVideo?.duration} />
                   )}
-                  {p.id === 'tiktok' && !acc?.ready && oneVideo && items[0]?.url && (
+                  {p.id === 'tiktok' && !acc?.ready && oneVideo && pm[0]?.url && pm[0].url !== 'https://pending' && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, fontWeight: 800, color: C.ink, width: '100%' }}>Post it yourself</span>
                       <button style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px' }}
                         onClick={() => { navigator.clipboard?.writeText(captionFor('tiktok', caption, tailor ? overrides : {})); setCopied(true); setTimeout(() => setCopied(false), 1800) }}>
                         {copied ? 'Copied ✓' : 'Copy caption'}
                       </button>
-                      <a href={items[0].url} target="_blank" rel="noreferrer" download style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px', textDecoration: 'none' }}>Open video</a>
+                      <a href={pm[0].url} target="_blank" rel="noreferrer" download style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px', textDecoration: 'none' }}>Open video</a>
                     </div>
                   )}
                 </div>
@@ -775,7 +884,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
             <Preview platform={previewTarget.platform} format={previewTarget.format} appName={app?.name ?? ''}
               handle={account(previewTarget.platform)?.handle} avatar={account(previewTarget.platform)?.avatar ?? app?.icon ?? ''}
               caption={previewTarget.format === 'story' ? '' : captionFor(previewTarget.platform, caption, tailor ? overrides : {})}
-              media={activeItems.filter((i) => i.src).map((i) => ({ src: i.src, kind: i.kind, width: i.width, height: i.height }))} />
+              media={platItemsFor(active, previewTarget.platform).filter((i) => i.src).map((i) => ({ src: i.src, kind: i.kind, width: i.width, height: i.height }))} />
           ) : <p style={{ color: C.soft, fontSize: 13.5, textAlign: 'center', margin: '30px 0' }}>Turn on a platform to preview it.</p>}
         </section>
 

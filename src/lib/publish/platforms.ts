@@ -19,7 +19,7 @@
 //               must be "Only me" (TIKTOK_AUDITED unset).
 
 import type { MediaItem, Platform } from './rules'
-import { captionFor } from './rules'
+import { captionFor, mediaFor } from './rules'
 import type { Post, TargetState } from './store'
 import { clearTokenCache, connectedElsewhere, getToken } from './tokens'
 import { handleFits, wrongAccount } from './ownership'
@@ -369,7 +369,9 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
 }
 
 /** Move one target forward a step. Never throws — failures land on the target. */
-export async function advance(p: Post, t: TargetState): Promise<Step> {
+export async function advance(post: Post, t: TargetState): Promise<Step> {
+  // Each platform gets its own cut when the post has one (mediaFor).
+  const p: Post = { ...post, media: mediaFor(t.platform, post.media, post.media_overrides) }
   try {
     switch (t.platform) {
       case 'instagram': return await instagram(p, t)

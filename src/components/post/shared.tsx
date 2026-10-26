@@ -15,6 +15,13 @@ export type QueuedPost = {
   overrides?: Partial<Record<Platform, string>>; series_id?: string | null; occurrence?: number | null; caption_by?: 'brian' | 'ai'
   /** Market edition ('gb', 'cafr', …; lib/publish/markets.ts). */
   market?: string | null; edition_group?: string | null
+  /** A platform's own cut, replacing `media` there (rules.ts mediaFor). */
+  media_overrides?: Partial<Record<Platform, QueuedPost['media']>> | null
+}
+/** Everything a post sends — shared media plus each platform's own cut — once each. */
+export function allMediaOf(p: Pick<QueuedPost, 'media' | 'media_overrides'>): QueuedPost['media'] {
+  const seen = new Set<string>()
+  return [...p.media, ...Object.values(p.media_overrides ?? {}).flatMap((l) => l ?? [])].filter((m) => !seen.has(m.url) && !!seen.add(m.url))
 }
 /** A repeating post, as /api/publish returns it. */
 export type QueuedSeries = {

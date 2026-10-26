@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AppTag, C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
-import { PlatformGlyph, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
+import { PlatformGlyph, allMediaOf, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { describeRule } from '@/lib/publish/recur'
 import { PromoteSheet, Promotions, promotable, type AdsData } from './Promote'
 import { APP_MARKETS, isMarket, MARKETS, type Market, type MarketId } from '@/lib/publish/markets'
@@ -172,13 +172,15 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
           {group.map((p) => {
         const app = apps.find((a) => a.id === p.app_id)
         const s = STATUS[p.status] ?? STATUS.scheduled
-        const first = p.media[0]
+        const every = allMediaOf(p)
+        const cuts = Object.keys(p.media_overrides ?? {}).length
+        const first = every[0]
         return (
           <article key={p.id} style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: '84px minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
             <div style={{ width: 84, height: 84, borderRadius: 12, overflow: 'hidden', background: C.card2, position: 'relative' }}>
-              {first ? <Thumb item={first} onOpen={() => setViewing({ media: p.media, index: 0 })} />
+              {first ? <Thumb item={first} onOpen={() => setViewing({ media: every, index: 0 })} />
                 : <div style={{ padding: 8, fontSize: 11, color: C.soft }}>Text only</div>}
-              {p.media.length > 1 && <span style={{ position: 'absolute', right: 5, top: 5, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10.5, fontWeight: 700, borderRadius: 99, padding: '1px 6px' }}>{p.media.length}</span>}
+              {every.length > 1 && <span title={cuts ? 'A different cut for each platform' : undefined} style={{ position: 'absolute', right: 5, top: 5, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10.5, fontWeight: 700, borderRadius: 99, padding: '1px 6px' }}>{cuts ? `${every.length} cuts` : every.length}</span>}
             </div>
             <div style={{ minWidth: 0, display: 'grid', gap: 7 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

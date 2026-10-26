@@ -80,6 +80,8 @@ export async function logPost(post: Post, series?: { rule: RepeatRule } | null):
     ...(isMarket(post.market) ? [`- Market edition: ${MARKETS[post.market].name} (${MARKETS[post.market].lang})${post.edition_group ? ` · group ${post.edition_group.slice(0, 8)}` : ''}`] : []),
     `- Caption written by: ${post.caption_by === 'ai' ? 'AI (Claude), from the caption brief' : 'Brian'}`,
     `- Media: ${mediaLine}${m[0]?.url ? ` — ${m.map((x) => x.url).join(' , ')}` : ''}`,
+    ...Object.entries(post.media_overrides ?? {}).filter(([, list]) => Array.isArray(list))
+      .map(([p, list]) => `- ${name(p)} cut: ${list!.length ? list!.map((x) => x.url).join(' , ') : 'none (text only)'}`),
     ...(post.notes ? [`- Notes: ${post.notes.replace(/\s+/g, ' ').trim()}`] : []),
   ]
   for (const t of post.targets) {

@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
-import { PLATFORMS, validate, type MediaItem, type Platform, type Target } from '@/lib/publish/rules'
+import { PLATFORMS, validate, type MediaItem, type MediaOverrides, type Platform, type Target } from '@/lib/publish/rules'
 import { checkRepeat, type RepeatSpec } from '@/lib/publish/recur'
 import { getPost, insertPost, listPosts, listSeries, updatePost, type TargetState } from '@/lib/publish/store'
 import { createSeries, recaption } from '@/lib/publish/series'
 import { run } from '@/lib/publish/runner'
 import { APP_MARKETS, isMarket, marketFromName } from '@/lib/publish/markets'
+import { anyPlatformTagged, assignPlatformMedia, isMaster } from '@/lib/publish/platformMedia'
 
 // ─── /api/publish — the "post everywhere" queue ─────────────────────────────
 //
@@ -14,7 +15,11 @@ import { APP_MARKETS, isMarket, marketFromName } from '@/lib/publish/markets'
 // the Compose screen in the Studio iOS app.
 //
 //   GET                       → { posts, series } recent + scheduled posts, live repeating series
-//   POST                      → { appId, caption, overrides, media, targets, scheduledAt?, repeat?, captionBy?, notes?, market?, editionGroup? }
+//   POST                      → { appId, caption, overrides, media, mediaOverrides?, targets, scheduledAt?, repeat?, captionBy?, notes?, market?, editionGroup? }
+//                               (mediaOverrides: { tiktok: [...], instagram: [...] } — a platform's own cut; see rules.ts mediaFor.
+//                                Sent without it, files named for a platform (…_tiktok.mp4, …_ig-reels.mp4) are split
+//                                by name here, so scripts and Claude projects just send every cut in `media`.
+//                                splitByPlatform: false turns that off.)
 //                               (one call per market edition; editions of one post share editionGroup)
 //                               posts now (and waits up to ~45s for it to land), queues it,
 //                               or — with `repeat` (see lib/publish/recur.ts) — starts a series
@@ -51,18 +56,36 @@ export async function POST(req: Request) {
   const source = req.headers.get('x-studio-client') === 'ios' ? 'studio-ios' : 'web'
   const given = body.market == null || body.market === '' ? null : body.market
   if (given !== null && !isMarket(given)) return bad('Unknown market.')
-  const media = (Array.isArray(body.media) ? body.media : []) as MediaItem[]
+  let media = (Array.isArray(body.media) ? body.media : []) as MediaItem[]
+  // The name the file had before upload (storage paths are <uuid>-<name>).
+  const fileName = (u: unknown) => typeof u === 'string' ? decodeURIComponent(u.split('/').pop() ?? '').replace(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-/i, '') : ''
+  // Per-platform cuts: only known platforms, only lists. {} when the client sends none.
+  const rawMo = body.mediaOverrides && typeof body.mediaOverrides === 'object' && !Array.isArray(body.mediaOverrides) ? body.mediaOverrides as Record<string, unknown> : {}
+  const mediaOverrides: MediaOverrides = {}
+  for (const p of PLATFORMS) if (Array.isArray(rawMo[p.id])) mediaOverrides[p.id] = rawMo[p.id] as MediaItem[]
+  // No cuts given but the files are named for platforms → split them by name (platformMedia.ts).
+  if (!Object.keys(mediaOverrides).length && body.splitByPlatform !== false && media.length > 1) {
+    const named = media.map((m, i) => ({ key: String(i), name: fileName(m?.url) }))
+    if (anyPlatformTagged(named)) {
+      const a = assignPlatformMedia(named)
+      for (const p of PLATFORMS) mediaOverrides[p.id] = a[p.id].keys.map((k) => media[Number(k)])
+      // The post's own media (Queue thumbnail, AI captions): the shared files, else Instagram's cut.
+      const shared = media.filter((_, i) => !anyPlatformTagged([named[i]]) && !isMaster(named[i].name))
+      media = shared.length ? shared : (mediaOverrides.instagram?.length ? mediaOverrides.instagram : media.slice(0, 1))
+    }
+  }
+  const hasMo = Object.keys(mediaOverrides).length > 0
+  const allMedia = [...media, ...Object.values(mediaOverrides).flat()] as MediaItem[]
   // A post sent without a market (an older client, a script) still lands in
   // the right country lane: read it from the first media file's name
   // (e.g. rol-condo-en-gb.mp4), for apps that post in more than one market.
-  const fileName = (u: unknown) => typeof u === 'string' ? decodeURIComponent(u.split('/').pop() ?? '').replace(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-/i, '') : ''
-  const market = given ?? ((APP_MARKETS[appId]?.length ?? 0) > 1 ? marketFromName(fileName(media[0]?.url), appId) : null)
+  const market = given ?? ((APP_MARKETS[appId]?.length ?? 0) > 1 ? marketFromName(fileName(allMedia[0]?.url), appId) : null)
   const editionGroup = typeof body.editionGroup === 'string' && /^[0-9a-f-]{36}$/i.test(body.editionGroup) ? body.editionGroup : null
   if (!targets.length) return bad('Pick at least one place to post.')
   if (targets.some((t) => !PLATFORMS.some((p) => p.id === t.platform && p.formats.includes(t.format)))) return bad('Unknown platform or format.')
-  if (media.some((m) => typeof m.url !== 'string' || !/^https:\/\//.test(m.url))) return bad('Media must be uploaded first.')
+  if (allMedia.some((m) => !m || typeof m.url !== 'string' || !/^https:\/\//.test(m.url))) return bad('Media must be uploaded first.')
 
-  const errors = validate(targets, media, caption, overrides).filter((i) => i.level === 'error')
+  const errors = validate(targets, media, caption, overrides, mediaOverrides).filter((i) => i.level === 'error')
   if (errors.length) return bad(errors.map((e) => e.text).join(' '))
 
   if (body.repeat) {
@@ -71,7 +94,7 @@ export async function POST(req: Request) {
     if (problems.length) return bad(problems.join(' '))
     if ((repeat.frames ?? []).some((u) => typeof u !== 'string' || !/^https:\/\//.test(u))) return bad('Frames must be uploaded first.')
     try {
-      const { series, post } = await createSeries({ appId, caption, overrides, media, targets, repeat: { ...repeat, notes: repeat.notes ?? notes }, captionBy, source })
+      const { series, post } = await createSeries({ appId, caption, overrides, media, mediaOverrides, targets, repeat: { ...repeat, notes: repeat.notes ?? notes }, captionBy, source })
       return NextResponse.json({ post, series })
     } catch (e) { return bad((e as Error).message, 500) }
   }
@@ -83,6 +106,8 @@ export async function POST(req: Request) {
   try {
     const row = await insertPost({
       app_id: appId, caption, overrides, media,
+      // Only written when used, so posts still save before the column exists.
+      ...(hasMo ? { media_overrides: mediaOverrides } : {}),
       targets: targets.map((t) => ({ ...t, status: 'pending' }) as TargetState),
       status: later ? 'scheduled' : 'publishing',
       scheduled_at: (when ?? new Date()).toISOString(),
