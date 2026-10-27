@@ -44,3 +44,6 @@ One card per app (Rolligan, Gag Order, YulePick, Borea, Jinglewire), 3 across on
   supabase functions deploy studio-admin --no-verify-jwt --project-ref lexhmdbwopgbcagmhwyi
   ```
 - Site: the Jinglewire Connect note now names the env vars.
+
+### Update 3 (Claude Code, 2026-10-27 late) — all deployed
+- Brian pasted the commands back; they ran. Jinglewire: four functions deployed on sleighline, ADMIN_TOKEN set, JINGLEWIRE_ADMIN_URL/_TOKEN on Vercel production; studio-admin answers (Calls started 7d/30d 0, Reports 7d 0, Avg call —, Flagged 0 — counts begin with the next call). Borea: ten macro-* functions + studio-admin redeployed; the admin stat now reads "—" with "Usage rows carry no id yet — counts start with Borea 1.2 (installId)". Site redeployed so the Console reads 4 servers connected (Rolligan has none).
