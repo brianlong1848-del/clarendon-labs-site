@@ -248,6 +248,10 @@ export type PromoteInput = {
   endAt: string
   audience: Audience
   source?: string
+  /** Apple campaign token: the Download button then goes to clarendon.dev/get/<app>?ct=<token>. */
+  ctToken?: string
+  /** Create everything paused. */
+  paused?: boolean
 }
 
 export function checkPromote(i: PromoteInput): string[] {
@@ -299,13 +303,14 @@ export async function promote(i: PromoteInput): Promise<Promotion> {
   const name = `${app.name} · Boost ${i.platform === 'instagram' ? 'IG' : 'FB'} · ${stamp} · ${row.id.slice(0, 6)}`
   const patch: Partial<Promotion> = {}
   try {
+    const status = i.paused ? 'PAUSED' : 'ACTIVE'
     const campaign = await post(`${act()}/campaigns`, {
-      name, objective: goal.objective, status: 'ACTIVE', special_ad_categories: [], is_adset_budget_sharing_enabled: false,
+      name, objective: goal.objective, status, special_ad_categories: [], is_adset_budget_sharing_enabled: false,
     })
     patch.campaign_id = campaign.id
     const eu = i.audience.places.some((p) => (p.type === 'country' ? EU.has(p.key) : false))
     const adset = await post(`${act()}/adsets`, {
-      name, campaign_id: campaign.id, status: 'ACTIVE',
+      name, campaign_id: campaign.id, status,
       daily_budget: String(i.dailyBudgetCents), billing_event: 'IMPRESSIONS', optimization_goal: goal.optimization,
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP', ...(goal.destination ? { destination_type: goal.destination } : {}),
       start_time: new Date(Math.max(Date.parse(i.startAt), Date.now() + 60_000)).toISOString(), end_time: new Date(i.endAt).toISOString(),
@@ -318,9 +323,9 @@ export async function promote(i: PromoteInput): Promise<Promotion> {
       : i.platform === 'facebook'
         ? { name, object_story_id: await fbStoryId(page.id, i.remoteId) }
         : { name, object_id: page.id, instagram_user_id: ig, source_instagram_media_id: i.remoteId })
-    const ad = await post(`${act()}/ads`, { name, adset_id: adset.id, creative: { creative_id: creative.id }, status: 'ACTIVE' })
+    const ad = await post(`${act()}/ads`, { name, adset_id: adset.id, creative: { creative_id: creative.id }, status })
     patch.ad_id = ad.id
-    return await updatePromotion(row.id, { ...patch, status: 'active', error: null })
+    return await updatePromotion(row.id, { ...patch, status: i.paused ? 'paused' : 'active', error: null })
   } catch (e) {
     const msg = (e as Error).message
     // Don't leave a half-built, spending campaign behind.
@@ -335,7 +340,7 @@ export async function promote(i: PromoteInput): Promise<Promotion> {
  *  Facebook: an existing post can't take a new button, so the ad is the same
  *  video with the button (shown only as an ad, not on the Page). */
 async function downloadCreative(name: string, pageId: string, ig: string | undefined, i: PromoteInput) {
-  const link = STORE_LINKS[i.appId]
+  const link = i.ctToken ? `${downloadLink(i.appId)}?ct=${encodeURIComponent(i.ctToken)}` : STORE_LINKS[i.appId]
   const cta = { type: 'DOWNLOAD', value: { link } }
   if (i.platform === 'instagram') {
     return { name, object_id: pageId, instagram_user_id: ig, source_instagram_media_id: i.remoteId, call_to_action: cta }

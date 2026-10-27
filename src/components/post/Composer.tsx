@@ -188,6 +188,22 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const home = available[0].id
   // New app → back to its home market (its other editions are opt-in).
   useEffect(() => { setMkts([home]); setActive(home); setPicked({}); setChoosing(null) }, [home])
+  // Prefill from the URL (Ad insights "Reuse angle": /post?app=&caption=&notes=&media=), once.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    if (!q.get('app') && !q.get('caption') && !q.get('media')) return
+    const app = q.get('app'); if (app && apps.some((a) => a.id === app)) setAppId(app)
+    const cap = q.get('caption'); if (cap) setEds((e) => ({ ...e, us: { ...(e.us ?? BLANK), caption: cap } }))
+    const n = q.get('notes'); if (n) setNotes(n)
+    const media = q.get('media')
+    if (media) {
+      const video = /\.(mp4|mov|m4v|webm)(\?|$)/i.test(media)
+      setItems([{ key: `prefill-${Date.now()}`, name: media.split('/').pop()?.split('?')[0] ?? 'media', src: media, kind: video ? 'video' : 'image', mime: video ? 'video/mp4' : 'image/jpeg',
+        width: 0, height: 0, size: 0, progress: 1, status: 'ready', url: media }])
+    }
+    window.history.replaceState(null, '', window.location.pathname)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const multi = mkts.length > 1
   const sx = available.length > 1 ? 1 : 0
   useEffect(() => { if (!mkts.includes(active)) setActive(mkts[0]) }, [mkts, active])

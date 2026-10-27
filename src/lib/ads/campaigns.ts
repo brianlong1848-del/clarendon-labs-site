@@ -21,7 +21,10 @@ export type MediaFields = {
 }
 
 export type CampaignAd = MediaFields & {
-  ad_id: string; name: string; status?: string; status_detail?: string; status_note?: string; review?: string; item_id?: string
+  ad_id: string; name: string; status?: string; status_detail?: string; status_note?: string; review?: string
+  /** The post the ad runs: TikTok item id, or Meta's IG media / object story id. */
+  item_id?: string
+  adgroup_id?: string
   spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
 
@@ -51,6 +54,7 @@ export type CampaignRow = MediaFields & {
   url?: string
   /** Ads on the campaign (the thumbnail shows the first one, "+N" the rest). */
   ad_count?: number
+  created?: string
 }
 
 const cached = tiktokCached
@@ -86,12 +90,12 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
       return rows.map((c) => ({
         platform: 'tiktok' as const, app_id: app.id, campaign_id: c.campaign_id, name: c.name, objective: c.objective,
         status: c.status_detail || c.operation_status ? tiktokStatusWord(c.status_detail, c.operation_status) : undefined, status_detail: c.status_detail, status_note: c.status_note,
-        budget_daily_cents: c.budget_mode === 'BUDGET_MODE_DAY' ? c.budget_cents : undefined,
+        budget_daily_cents: c.budget_mode === 'BUDGET_MODE_DAY' ? c.budget_cents : undefined, created: c.created,
         spend_cents: c.spend_cents, impressions: c.impressions, reach: c.reach, clicks: c.clicks, ctr: c.ctr, cpc_cents: c.cpc_cents, cpm_cents: c.cpm_cents,
         video_views: c.video_views, views2s: c.views2s, views6s: c.views6s, views15s: c.views15s, views100: c.views100,
         follows: c.follows, profile_visits: c.profile_visits, likes: c.likes, comments: c.comments, shares: c.shares,
         daily: c.daily,
-        ads: c.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: a.status_detail ? tiktokStatusWord(a.status_detail) : undefined, status_detail: a.status_detail, status_note: a.status_note, review: a.review, item_id: a.item_id,
+        ads: c.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: a.status_detail ? tiktokStatusWord(a.status_detail) : undefined, status_detail: a.status_detail, status_note: a.status_note, review: a.review, item_id: a.item_id, adgroup_id: a.adgroup_id,
                                  spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows })),
         promotion_id: promoByCampaign.get(`tiktok:${c.campaign_id}`)?.id,
         url: adsManagerUrl(advertiserId),
@@ -138,6 +142,7 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
         ])
         const byAd = new Map(ins.map((a) => [a.ad_id, a]))
         r.ads = list.map((a) => { const s = byAd.get(a.ad_id); return { ad_id: a.ad_id, name: a.name, status: metaStatusWord(a.effective_status), status_detail: a.effective_status,
+          item_id: a.creative?.effective_instagram_media_id ?? a.creative?.effective_object_story_id,
           spend_cents: s?.spend_cents ?? 0, impressions: s?.impressions, clicks: s?.clicks, ctr: s?.ctr, cpc_cents: s?.cpc_cents, views15s: s?.views15s } })
         for (const s of ins) if (!list.some((a) => a.ad_id === s.ad_id)) r.ads.push({ ad_id: s.ad_id, name: s.name ?? s.ad_id, spend_cents: s.spend_cents, impressions: s.impressions, clicks: s.clicks, ctr: s.ctr, cpc_cents: s.cpc_cents, views15s: s.views15s })
       } catch { /* the campaign row stands on its own */ }

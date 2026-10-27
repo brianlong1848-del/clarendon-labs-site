@@ -433,4 +433,115 @@ export async function tiktokPromotionResults(p: Promotion): Promise<TikTokPromoR
   } catch { return null }
 }
 
-export const adsManagerUrl = (advertiserId: string) => `https://ads.tiktok.com/i18n/perf/campaign?aadvid=${advertiserId}`
+export const adsManagerUrl = (advertiserId: string, campaignId?: string) =>
+  `https://ads.tiktok.com/i18n/perf/campaign?aadvid=${advertiserId}${campaignId ? `&keyword=${campaignId}` : ''}`
+
+// ── Duplicate as Traffic (FEAT-CLA-023 actions) ──────────────────────────────
+//
+// Reads the source campaign's ad group and Spark ad, then creates a TRAFFIC
+// campaign → an ad group copying the targeting / placements (schedule from
+// now, budget from the confirm sheet, CLICK optimisation) → a Spark Ad on the
+// same post with a DOWNLOAD_NOW button to clarendon.dev/get/<app>?ct=…
+// Field names checked against TikTok Marketing API v1.3 (adgroup/create,
+// ad/create creatives, adgroup/get filtering) on 2026-10-27. `dryRun` builds
+// and returns the payloads without creating anything.
+
+export type DuplicateTrafficInput = {
+  appId: string; campaignId: string; dailyBudgetCents?: number; pauseOriginal?: boolean; dryRun?: boolean; source?: string
+}
+export type DuplicateTrafficResult = {
+  dry_run: boolean
+  payloads: { campaign: Record<string, unknown>; adgroup: Record<string, unknown>; ad: Record<string, unknown>; pause_original?: Record<string, unknown> }
+  result_ids?: { campaign_id: string; adgroup_id: string; ad_id: string; promotion_id?: string }
+  notes: string[]
+}
+
+// Targeting + delivery settings copied from the source ad group (v1.3 adgroup/get → adgroup/create names).
+const COPY_ADGROUP_FIELDS = ['location_ids', 'zipcode_ids', 'age_groups', 'gender', 'languages', 'interest_category_ids', 'interest_keyword_ids', 'actions',
+  'operating_systems', 'device_price_ranges', 'network_types', 'carrier_ids', 'spending_power', 'household_income', 'audience_ids', 'excluded_audience_ids',
+  'placements', 'placement_type', 'search_result_enabled', 'comment_disabled', 'video_download_disabled', 'share_disabled', 'tiktok_subplacements'] as const
+
+export async function duplicateTikTokAsTraffic(i: DuplicateTrafficInput): Promise<DuplicateTrafficResult> {
+  const app = PUBLISH_APPS.find((a) => a.id === i.appId)
+  const advertiserId = tiktokAdvertiserId(i.appId)
+  if (!app || !advertiserId) throw new Error('No TikTok ad account id for this app.')
+  const notes: string[] = []
+  const budgetUsd = Math.max(TT_LIMITS.minDailyCents, Math.min(TT_LIMITS.maxDailyCents, i.dailyBudgetCents ?? 2000)) / 100
+  const now = new Date()
+  const token = campaignToken(i.appId, 'downloads', now)
+  const code = APP_CODE[i.appId] ?? i.appId.toUpperCase()
+
+  // 1. The source: campaign name, its (first) ad group, its (first) Spark ad.
+  let srcCampaign: any = null, srcGroup: any = null, srcAd: any = null
+  const read = async <T,>(label: string, fn: () => Promise<T>): Promise<T | null> => {
+    try { return await fn() } catch (e) {
+      const m = (e as Error).message
+      if (/code 40001/.test(m) && i.dryRun) { notes.push(`${label}: not readable yet (TikTok 40001 — Ads Management scope under review); payload shows a placeholder.`); return null }
+      throw new Error(/code 40001/.test(m) ? `${m} — TikTok hasn’t approved the Ads Management scope yet; duplicate it in Ads Manager for now.` : m)
+    }
+  }
+  srcCampaign = (await read('campaign/get', () => tiktokCall('/campaign/get/', { query: { advertiser_id: advertiserId, filtering: JSON.stringify({ campaign_ids: [i.campaignId] }), fields: JSON.stringify(['campaign_id', 'campaign_name', 'objective_type', 'budget', 'budget_mode']) } })))?.list?.[0] ?? null
+  srcGroup = (await read('adgroup/get', () => tiktokCall('/adgroup/get/', { query: { advertiser_id: advertiserId, filtering: JSON.stringify({ campaign_ids: [i.campaignId] }), page_size: '10' } })))?.list?.[0] ?? null
+  srcAd = (await read('ad/get', () => tiktokCall('/ad/get/', { query: { advertiser_id: advertiserId, filtering: JSON.stringify({ campaign_ids: [i.campaignId] }), page_size: '10',
+    fields: JSON.stringify(['ad_id', 'ad_name', 'adgroup_id', 'tiktok_item_id', 'identity_id', 'identity_type', 'identity_authorized_bc_id', 'ad_text', 'display_name']) } })))?.list?.find((a: any) => a.tiktok_item_id) ?? null
+  const ph = (what: string) => `<${what}>`
+  const audienceName = srcGroup?.adgroup_name ? String(srcGroup.adgroup_name).slice(0, 50) : ph('source ad group name')
+  const name = `${code} Traffic - Download - ${audienceName} - ${MON[now.getUTCMonth()]} ${now.getUTCFullYear()}`
+  const bcId = process.env.TIKTOK_BC_ID || '7652176736041467920'
+  const itemId = srcAd?.tiktok_item_id ?? ph('tiktok_item_id of the source Spark ad')
+  const identityId = srcAd?.identity_id ?? ph('identity_id of the source Spark ad')
+  if (notes.length) notes.push('Placeholders in < > are filled from campaign/get, adgroup/get and ad/get once TikTok approves the Ads Management scope.')
+
+  // 2. Payloads.
+  const campaign = { advertiser_id: advertiserId, campaign_name: name, objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_DAY', budget: budgetUsd, operation_status: 'ENABLE' }
+  const copied: Record<string, unknown> = {}
+  if (srcGroup) { for (const k of COPY_ADGROUP_FIELDS) if (srcGroup[k] != null) copied[k] = srcGroup[k] }
+  else copied['<copied from the source ad group>'] = COPY_ADGROUP_FIELDS.join(', ')
+  const adgroup = {
+    advertiser_id: advertiserId, campaign_id: '<new campaign_id>', adgroup_name: `${audienceName} - Traffic`,
+    placement_type: 'PLACEMENT_TYPE_NORMAL', placements: ['PLACEMENT_TIKTOK'], search_result_enabled: false,
+    ...copied,
+    promotion_type: 'WEBSITE', optimization_goal: 'CLICK', billing_event: 'CPC', bid_type: 'BID_TYPE_NO_BID', pacing: 'PACING_MODE_SMOOTH',
+    budget_mode: 'BUDGET_MODE_DAY', budget: budgetUsd,
+    schedule_type: 'SCHEDULE_FROM_NOW', schedule_start_time: ttTime(now.getTime() + 5 * 60_000),
+    smart_interest_behavior_enabled: false, creative_material_mode: 'CUSTOM', operation_status: 'ENABLE',
+  }
+  const ad = {
+    advertiser_id: advertiserId, adgroup_id: '<new adgroup_id>',
+    creatives: [{
+      ad_name: `${code} Spark - Download - ${audienceName}`.slice(0, 100), ad_format: 'SINGLE_VIDEO',
+      identity_type: 'BC_AUTH_TT', identity_id: identityId, identity_authorized_bc_id: bcId, tiktok_item_id: itemId, creative_authorized: false,
+      call_to_action: 'DOWNLOAD_NOW', landing_page_url: `https://clarendon.dev/get/${i.appId}?ct=${token}`,
+      operation_status: 'ENABLE',
+    }],
+  }
+  const pause_original = i.pauseOriginal === false ? undefined : { advertiser_id: advertiserId, campaign_ids: [i.campaignId], operation_status: 'DISABLE' }
+  const payloads = { campaign, adgroup, ad, ...(pause_original ? { pause_original } : {}) }
+  console.log(`[actions] duplicate_as_traffic ${i.dryRun ? 'DRY RUN' : 'LIVE'} ${i.appId}/${i.campaignId}:`, JSON.stringify(payloads))
+  if (i.dryRun) return { dry_run: true, payloads, notes }
+  if (!srcAd?.tiktok_item_id || !srcAd?.identity_id) throw new Error('The source campaign has no Spark ad with a TikTok post to reuse.')
+
+  // 3. Create, never leaving a half-built campaign spending.
+  const promo = await insertPromotion({
+    app_id: i.appId, post_id: null, network: 'tiktok', platform: 'tiktok', remote_id: String(srcAd.tiktok_item_id), permalink: null, goal: 'downloads',
+    daily_budget_cents: Math.round(budgetUsd * 100), start_at: now.toISOString(), end_at: new Date(now.getTime() + 30 * 86400000).toISOString(),
+    audience: { copied_from_adgroup: srcGroup?.adgroup_id, name: audienceName } as unknown as Promotion['audience'], status: 'creating', source: i.source ?? 'insights-duplicate',
+  })
+  const patch: Partial<Promotion> = {}
+  try {
+    const c = await tiktokCall('/campaign/create/', { method: 'POST', body: campaign })
+    patch.campaign_id = String(c.campaign_id)
+    const g = await tiktokCall('/adgroup/create/', { method: 'POST', body: { ...adgroup, campaign_id: patch.campaign_id } })
+    patch.adset_id = String(g.adgroup_id)
+    const a = await tiktokCall('/ad/create/', { method: 'POST', body: { ...ad, adgroup_id: patch.adset_id } })
+    patch.ad_id = String(a.ad_ids?.[0] ?? a.ad_id ?? '')
+    if (pause_original) await tiktokCall('/campaign/status/update/', { method: 'POST', body: pause_original })
+    await updatePromotion(promo.id, { ...patch, status: 'active', error: null })
+    return { dry_run: false, payloads, notes, result_ids: { campaign_id: patch.campaign_id, adgroup_id: patch.adset_id, ad_id: patch.ad_id, promotion_id: promo.id } }
+  } catch (e) {
+    const msg = (e as Error).message
+    if (patch.campaign_id) await setCampaignStatus(advertiserId, patch.campaign_id, 'DISABLE').catch(() => {})
+    await updatePromotion(promo.id, { ...patch, status: 'failed', error: msg }).catch(() => {})
+    throw new Error(msg)
+  }
+}

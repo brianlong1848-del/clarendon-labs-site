@@ -37,13 +37,15 @@ export type Metrics = {
 export type Insight = {
   verdict: Verdict
   reason: string
+  /** Another campaign on the account already running this post with a traffic / app objective. */
+  sibling?: { campaign_id: string; name: string; objective_kind: ObjectiveKind; same_post: boolean }
   weakest?: Stage
   objective_kind: ObjectiveKind
   grades: Partial<Record<Stage, Grade>>
   metrics: Metrics
 }
 
-export type ActionKind = 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_traffic' | 'creative' | 'wait'
+export type ActionKind = 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'open_in_manager' | 'creative' | 'wait'
 export type Action = {
   id: string
   kind: ActionKind
@@ -52,15 +54,32 @@ export type Action = {
   app_id: string | null
   campaign_name: string
   promotion_id?: string
+  /** Everything the runner needs: the ad account, the ad groups / ads, the post. */
+  advertiser_id?: string
+  adgroup_ids?: string[]
+  ad_ids?: string[]
+  /** The post the ads run: TikTok item id / Meta IG media or story id. */
+  item_id?: string
+  /** The Studio post behind a boost, when there is one. */
+  post_id?: string
+  manager_url?: string
   title: string
   detail: string
   /** Button text when the action changes an ad; absent = advice only. */
   button?: string
   confirm?: string
+  /** For duplicate_as_traffic: the confirm sheet's fields and defaults. */
+  confirm_fields?: { budget_cents?: number; pause_original?: boolean }
   /** New daily budget for raise/lower, cents. */
   amount_cents?: number
+  /** A link instead of a POST (reuse_angle → /post prefilled, open_in_manager → Ads Manager). */
+  href?: string
+  /** Small grey note under the button (e.g. "API permission pending"). */
+  note?: string
   /** Why the button may fail right now (TikTok scope review). */
   blocked?: string
+  /** Already done: by a sibling campaign, or logged in studio_ad_actions. */
+  done?: { at?: string; note: string; result_ids?: Record<string, unknown> }
   score: number
 }
 
@@ -265,6 +284,7 @@ export function analyze(rows: CampaignRow[], money: Map<string, MoneyFacts> = ne
   for (const { r, m, kind } of base) {
     const key = `${r.platform}:${r.campaign_id}`
     const insight = judge(m, r.platform, kind, med[r.platform], r.status)
+    insight.sibling = siblingOf(r, rows)
     campaigns[key] = insight
     for (const a of r.ads) {
       const am: Metrics = { ...metricsOf(adAsRow(a), r.platform), trend: undefined }
@@ -287,11 +307,30 @@ export function analyze(rows: CampaignRow[], money: Map<string, MoneyFacts> = ne
   return { campaigns, ads, actions: kept.slice(0, 5) }
 }
 
+/** The posts a campaign's ads run (TikTok item ids / Meta post ids), when known. */
+const postsOf = (r: CampaignRow) => new Set([...r.ads.map((a) => a.item_id).filter((x): x is string => !!x)])
+/** A traffic / app-promotion campaign on the same account that already runs this
+ *  campaign's post — "Duplicate as Traffic" is then done. When post ids aren't
+ *  readable yet (TikTok scope), a Traffic campaign on the same app counts as a
+ *  likely sibling and says so. */
+export function siblingOf(r: CampaignRow, rows: CampaignRow[]): Insight['sibling'] {
+  if (objectiveKind(r.objective) !== 'views') return undefined
+  const mine = postsOf(r)
+  const others = rows.filter((o) => o !== r && o.platform === r.platform && o.app_id === r.app_id && objectiveKind(o.objective) !== 'views')
+  const exact = others.find((o) => { const theirs = postsOf(o); return [...mine].some((p) => theirs.has(p)) })
+  if (exact) return { campaign_id: exact.campaign_id, name: exact.name, objective_kind: objectiveKind(exact.objective), same_post: true }
+  if (!mine.size) {
+    const likely = others.find((o) => /traffic|download/i.test(o.name) && (!o.created || !r.created || o.created >= r.created))
+    if (likely) return { campaign_id: likely.campaign_id, name: likely.name, objective_kind: objectiveKind(likely.objective), same_post: false }
+  }
+  return undefined
+}
+
 const adAsRow = (a: CampaignAd) => ({ spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows,
   reach: undefined, cpm_cents: undefined, video_views: undefined, views2s: undefined })
 
 const TIKTOK_WRITE_NOTE = 'TikTok writes answer 40001 until TikTok approves the Ads Management scope (requested 2026-10-27) — the button will say so if it fails.'
-const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, duplicate_traffic: 30, resume: 20, lower_budget: 20, creative: 10, wait: 0 }
+const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, duplicate_as_traffic: 30, resume: 20, lower_budget: 20, reuse_angle: 15, creative: 10, open_in_manager: 5, wait: 0 }
 
 const dayKey = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 
@@ -318,7 +357,9 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   if (ended) return out   // nothing to do on a campaign that's over
   const stake = stakeCents(r)
   const score = (kind: ActionKind) => stake / 100 + KIND_BONUS[kind]
-  const base = { platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, campaign_name: name, promotion_id: r.promotion_id }
+  const base = { platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, campaign_name: name, promotion_id: r.promotion_id,
+    adgroup_ids: Array.from(new Set(r.ads.map((a) => a.adgroup_id).filter((x): x is string => !!x))), ad_ids: r.ads.map((a) => a.ad_id),
+    item_id: r.ads.map((a) => a.item_id).find((x): x is string => !!x), manager_url: r.url }
   const blocked = r.platform === 'tiktok' ? TIKTOK_WRITE_NOTE : undefined
   const id = (kind: ActionKind) => `${kind}:${r.platform}:${r.campaign_id}`
 
@@ -334,15 +375,20 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
     out.push({ ...base, id: id('raise_budget'), kind: 'raise_budget', title: `Raise ${name} by 25%`, button: current ? `Raise to ${usd(next)}/day` : 'Raise budget 25%', amount_cents: next, blocked, score: score('raise_budget'),
       detail: `${i.reason} Give it more room: ${current ? `${usd(current)} → ${usd(next)} a day` : '+25% a day'}, then re-check in 3 days.`,
       confirm: `Raise "${name}" to ${current ? `${usd(next)} a day` : "125% of today’s daily budget"}? This spends more from tomorrow.` })
-    if (i.objective_kind !== 'views') out.push({ ...base, id: id('creative'), kind: 'creative', title: `Reuse ${name}’s angle`, score: score('creative') + 5,
-      detail: 'It converts. Cut the same hook for the other cuts / countries, and try it on the other apps whose audience overlaps.' })
+    if (i.objective_kind !== 'views') out.push({ ...base, id: id('reuse_angle'), kind: 'reuse_angle', title: `Reuse ${name}’s angle`, button: 'Open in Post', score: score('reuse_angle'),
+      detail: 'It converts. Open Post with this ad’s hook and media prefilled, cut it for the other cuts / countries, and try it on the apps whose audience overlaps.' })
   }
   // A weak views campaign: the clip holds attention but buys no taps — run it as Traffic with a Download button.
   if (i.objective_kind === 'views' && (i.verdict === 'needs_work' || (i.verdict === 'ok' && i.grades.click !== 'good'))) {
-    out.push({ ...base, id: id('duplicate_traffic'), kind: 'duplicate_traffic', title: `Duplicate ${name} as Traffic`,
-      button: r.promotion_id ? 'Duplicate as Traffic (paused)' : undefined, blocked: r.promotion_id ? blocked : undefined, score: score('duplicate_traffic'),
-      detail: `${i.metrics.hold_rate != null ? `People watch (hold ${rate(i.metrics.hold_rate)}) but don’t tap (CTR ${pct(i.metrics.ctr)}, CPC ${usd(i.metrics.cpc_cents)}). ` : ''}A views campaign has no button. Run the same post and audience as a Traffic campaign with a single Download button to clarendon.dev/get/<app>?ct=…${r.promotion_id ? ' Created paused — you switch it on.' : ' This one was made in Ads Manager, so duplicate it there (or boost the post from Studio as Downloads).'}`,
-      confirm: r.promotion_id ? `Create a paused Traffic copy of "${name}" with the same post, audience and daily budget? Nothing spends until you resume it.` : undefined })
+    const sib = i.sibling
+    const meta = r.platform === 'meta' && !r.promotion_id
+    out.push({ ...base, id: id('duplicate_as_traffic'), kind: 'duplicate_as_traffic', title: `Duplicate ${name} as Traffic`,
+      button: meta ? undefined : 'Duplicate as Traffic', blocked: r.platform === 'tiktok' ? blocked : undefined,
+      score: sib ? 1 : score('duplicate_as_traffic'),
+      confirm_fields: { budget_cents: Math.max(2000, r.budget_daily_cents ?? 2000), pause_original: true },
+      detail: `${i.metrics.hold_rate != null ? `People watch (hold ${rate(i.metrics.hold_rate)}) but don’t tap (CTR ${pct(i.metrics.ctr)}, CPC ${usd(i.metrics.cpc_cents)}). ` : ''}A views campaign has no button. Run the same post and audience as a Traffic campaign with a single Download button to clarendon.dev/get/<app>?ct=…${meta ? ' This Meta campaign wasn’t made in Studio — duplicate it in Ads Manager (or boost the post from Post → Queue as Downloads).' : ''}`,
+      confirm: meta ? undefined : `Create a Traffic copy of "${name}" (same post, same audience) with a Download button? It starts delivering at the budget below.`,
+      done: sib ? { note: sib.same_post ? `Done ✓ — ${sib.name} already runs this post as ${sib.objective_kind === 'traffic' ? 'Traffic' : 'App promotion'}.` : `Done ✓ (likely) — ${sib.name} is a Traffic campaign on this account; confirm it uses the same post in Ads Manager.` } : undefined })
   }
   if (i.verdict === 'needs_work' && i.weakest === 'hook') out.push({ ...base, id: id('creative'), kind: 'creative', title: `New first line for ${name}`, score: score('creative') + 8,
     detail: `Hook rate ${rate(i.metrics.hook_rate)}: the first second isn’t stopping the scroll. Re-cut with the loudest moment first and the text inside the safe box (FEAT-CLA-020).` })

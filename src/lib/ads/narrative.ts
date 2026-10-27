@@ -81,6 +81,7 @@ function campaignBlock(r: CampaignRow, i: Insight, p?: Input['promotions'][numbe
     `  verdict: ${VERDICT_LABEL[i.verdict]} | weakest stage: ${i.weakest ? STAGE_LABEL[i.weakest] : 'n/a'} | grades: ${Object.entries(i.grades).map(([k, v]) => `${k}=${v}`).join(', ')}`,
     `  reason: ${i.reason}`,
     p ? `  targeting (Studio boost): goal ${p.goal}, ${JSON.stringify(p.audience).slice(0, 600)}` : '',
+    i.sibling ? `  ALREADY DONE: "${i.sibling.name}" (${i.sibling.objective_kind}) ${i.sibling.same_post ? 'runs this same post' : 'is a Traffic campaign on this account, likely the same post'} — do NOT suggest duplicating as Traffic / adding a Download button again; judge the pair.` : '',
     r.ads.length ? `  ads: ${r.ads.map((a) => `"${a.name}" (${a.status ?? 'status n/a'}, ${usd(a.spend_cents)}, CTR ${a.ctr ?? 'n/a'}%)`).join('; ')}` : '',
   ]
   return lines.filter(Boolean).join('\n')

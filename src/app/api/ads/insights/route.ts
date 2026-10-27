@@ -6,9 +6,51 @@ import { rest } from '@/lib/publish/store'
 import { campaignsFor, RANGES, type Range } from '@/lib/ads/campaigns'
 import { analyze, type MoneyFacts } from '@/lib/ads/insights'
 import { cachedNarrative, chicagoDay, narrativeConfigured } from '@/lib/ads/narrative'
-import { runAction, type ActionRequest } from '@/lib/ads/actions'
+import { recentActions, runAction, type ActionRequest } from '@/lib/ads/actions'
 import { adsReportForSession } from '@/lib/money/adsReport'
+import { tiktokAdvertiserId, tiktokManagementScope } from '@/lib/analytics/tiktok'
+import { adsManagerUrl } from '@/lib/ads/tiktok'
+import { getPost } from '@/lib/publish/store'
+import type { Action } from '@/lib/ads/insights'
 import type { Promotion } from '@/lib/ads/meta'
+
+/** Ties each action to the world: "Done <date>" from the log, the Ads
+ *  Manager link while TikTok's scope is pending, /post prefilled for
+ *  reuse_angle. Never throws. */
+async function enrich(actions: Action[], promotions: Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]): Promise<Action[]> {
+  const log = await recentActions(30)
+  const scope = new Map<string, boolean>()
+  for (const a of actions) {
+    if (a.platform !== 'tiktok' || !a.app_id || scope.has(a.app_id)) continue
+    const adv = tiktokAdvertiserId(a.app_id)
+    scope.set(a.app_id, adv ? await tiktokManagementScope(adv) : false)
+  }
+  const promoBy = new Map(promotions.map((p) => [`${p.network}:${p.campaign_id}`, p]))
+  return Promise.all(actions.map(async (a) => {
+    const out: Action = { ...a }
+    const adv = a.platform === 'tiktok' && a.app_id ? tiktokAdvertiserId(a.app_id) : undefined
+    if (adv) { out.advertiser_id = adv; out.manager_url = adsManagerUrl(adv, a.campaign_id) }
+    const promo = promoBy.get(`${a.platform}:${a.campaign_id}`)
+    if (promo?.post_id) out.post_id = promo.post_id
+    if (!out.item_id && promo?.remote_id) out.item_id = promo.remote_id
+    const done = log.get(`${a.platform}:${a.campaign_id}:${a.kind}`)
+    if (done && !out.done) out.done = { at: done.created_at, note: `Done ${new Date(done.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, result_ids: done.result_ids ?? undefined }
+    if (a.kind === 'reuse_angle') {
+      const q = new URLSearchParams({ app: a.app_id ?? '', notes: `Reuse the angle of "${a.campaign_name}"` })
+      if (promo?.post_id) {
+        const post = await getPost(promo.post_id).catch(() => null)
+        if (post) { if (post.caption) q.set('caption', post.caption); const m = post.media[0]; if (m?.url) q.set('media', m.url) }
+      }
+      out.href = `/post?${q}`; out.button = 'Open in Post'
+    }
+    // TikTok writes need the Ads Management scope: until then the button opens Ads Manager instead of erroring.
+    if (a.platform === 'tiktok' && out.button && !out.href && a.kind !== 'reuse_angle' && scope.get(a.app_id ?? '') === false) {
+      out.href = out.manager_url; out.button = 'Open in Ads Manager'; out.note = 'API permission pending — TikTok is reviewing the Ads Management scope (requested 2026-10-27); do it in Ads Manager for now.'
+      delete out.blocked; delete out.confirm; delete out.confirm_fields
+    }
+    return out
+  }))
+}
 
 // ─── /api/ads/insights?app=&range=&fresh=1&narrative=0 ───────────────────────
 //
@@ -33,11 +75,12 @@ export async function GET(req: Request) {
   const [{ campaigns, errors }, money, promotions] = await Promise.all([
     campaignsFor(app, range, fresh),
     adsReportForSession(await supabaseServer(), range === '7d' ? 7 : range === '90d' ? 90 : 30).catch(() => null),
-    rest<Pick<Promotion, 'campaign_id' | 'network' | 'goal' | 'audience' | 'daily_budget_cents' | 'start_at' | 'end_at'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,goal,audience,daily_budget_cents,start_at,end_at').catch(() => []),
+    rest<Pick<Promotion, 'campaign_id' | 'network' | 'goal' | 'audience' | 'daily_budget_cents' | 'start_at' | 'end_at' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,goal,audience,daily_budget_cents,start_at,end_at,post_id,remote_id').catch(() => []),
   ])
   const facts = new Map<string, MoneyFacts>()
   for (const c of money?.campaigns ?? []) facts.set(`${c.platform}:${c.campaign_id}`, { installs: c.installs || undefined, cpi_cents: c.cpi_cents ?? undefined, est_roas: c.est_roas ?? undefined, platform_roas: c.platform_roas ?? undefined })
   const analysis = analyze(campaigns, facts, range)
+  analysis.actions = await enrich(analysis.actions, promotions)
 
   let narrative = null, narrativeError: string | undefined
   if (wantNarrative && campaigns.length) {
@@ -64,7 +107,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Partial<ActionRequest>
   if (!body.kind || (body.platform !== 'tiktok' && body.platform !== 'meta') || !body.campaign_id) return NextResponse.json({ error: 'kind, platform and campaign_id are required.' }, { status: 400 })
   try {
-    const message = await runAction({ ...body, kind: body.kind, platform: body.platform, campaign_id: body.campaign_id, source: req.headers.get('x-studio-client') === 'ios' ? 'ios' : 'web' })
-    return NextResponse.json({ ok: true, message })
+    const out = await runAction({ ...body, kind: body.kind, platform: body.platform, campaign_id: body.campaign_id, source: req.headers.get('x-studio-client') === 'ios' ? 'ios' : 'web' })
+    return NextResponse.json({ ok: true, ...out })
   } catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 400 }) }
 }

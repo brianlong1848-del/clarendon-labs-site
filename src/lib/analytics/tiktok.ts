@@ -116,6 +116,14 @@ export async function tiktokCall<T = any>(path: string, opts: { method?: 'GET' |
   return (out.data ?? {}) as T
 }
 
+/** True when the token can read campaigns on this account (the Ads Management
+ *  scope). One probe per account per 10 minutes; a 40001 is remembered the
+ *  same way every other scope refusal is. */
+export async function tiktokManagementScope(advertiserId: string): Promise<boolean> {
+  try { await tiktokCall('/campaign/get/', { query: { advertiser_id: advertiserId, page_size: '1', fields: JSON.stringify(['campaign_id']) } }); return true }
+  catch (e) { return !/code 40001/.test((e as Error).message) }
+}
+
 /** Memoizes an async result for 10 minutes per key, sharing one in-flight
  *  promise between concurrent callers. `fresh` recomputes and replaces the
  *  entry (the Refresh button). A rejected promise is dropped at once. */
