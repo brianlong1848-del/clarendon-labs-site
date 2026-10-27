@@ -25,3 +25,22 @@ One card per app (Rolligan, Gag Order, YulePick, Borea, Jinglewire), 3 across on
 ### Update (Claude Code, 2026-10-27 late) — YulePick + Borea connected
 - Brian pasted the commands back; they ran: `ADMIN_TOKEN` set on both `studio-admin` functions, `YULEPICK_ADMIN_URL/_TOKEN` and `BOREA_ADMIN_URL/_TOKEN` added to Vercel production, site redeployed. Both functions answer: YulePick → Users 6, Exchanges 4, Active 4, Members 7, Wishlist items 7, Names drawn 4, Waitlist 1. Borea → Active users 7d 0 / 30d 0, AI requests 7d 101, AI cost 30d $6.11, Subscribers 0, Paywall hits 7d 12. (Borea counts 101 AI requests but 0 active users — its function keys users off a column the requests may not carry; worth a look in `borea-ios/supabase/functions/studio-admin`.)
 - Tokens live in `secrets/yulepick-admin.env` and `secrets/borea-admin.env` (600) only.
+
+### Update 2 (Claude Code, 2026-10-27 late) — Jinglewire built, Borea active-users fixed; deploys need Brian
+- **Jinglewire (yes from Brian):** `call_reports` table applied on sleighline (`yxdkuxbdvmfcdylsfxhw`) — kind (call_start | report), vendor, lines, duration_seconds, status, safety_flag; no child data, no transcript, no account or device id. `supabase/functions/_shared/calls.ts` (`logCallEvent`), `studio-admin` function (Calls started 7d/30d, Reports 7d, Avg call min, Flagged 30d; recent list), one-line inserts in `anam-session-token`, `heygen-session-token` (call_start) and `call-report` (report row; also reads an optional `durationSeconds` from the app). **Deploying edge functions was refused in auto mode** — Brian runs from `~/code/clarendon-labs/jinglewire-ios`:
+  ```
+  supabase functions deploy studio-admin --no-verify-jwt --project-ref yxdkuxbdvmfcdylsfxhw
+  supabase functions deploy anam-session-token --project-ref yxdkuxbdvmfcdylsfxhw
+  supabase functions deploy heygen-session-token --project-ref yxdkuxbdvmfcdylsfxhw
+  supabase functions deploy call-report --project-ref yxdkuxbdvmfcdylsfxhw
+  supabase secrets set "ADMIN_TOKEN=$(cut -d= -f2 ../secrets/jinglewire-admin.env)" --project-ref yxdkuxbdvmfcdylsfxhw
+  printf 'https://yxdkuxbdvmfcdylsfxhw.supabase.co/functions/v1/studio-admin' | vercel env add JINGLEWIRE_ADMIN_URL production --scope team_y14GgYoCBbkm7GfiXQmlwoHb --cwd ../clarendon-dev-site
+  cut -d= -f2 ../secrets/jinglewire-admin.env | tr -d '\n' | vercel env add JINGLEWIRE_ADMIN_TOKEN production --sensitive --scope team_y14GgYoCBbkm7GfiXQmlwoHb --cwd ../clarendon-dev-site
+  ```
+  (`secrets/jinglewire-admin.env` was generated, mode 600.) The jinglewire-ios repo has no commits yet, so the function files sit in the working tree — commit them with the rest when that repo gets its first commit.
+- **Borea active users:** the query wasn't reading the wrong table — the ledger has no identity. `resolveOwner` only knew Apple's `originalTransactionId` from a verified entitlement, and every request in 30 days arrived with no entitlement (47/47 checks "missing"; 0 subscribers), so all 688 `macro_usage` rows have a null owner. Fix (borea-ios `<hash>`): the app sends a random per-install UUID (`InstallID`, UserDefaults — not the device id) as `installId`; all 10 `guard.ts` copies fall back to `install:<uuid>` (free users metered per person too); `studio-admin` counts subscription + install owners and shows "—" with "Usage rows carry no id yet — counts start with Borea 1.2 (installId)" until rows with ids exist. Ships with Borea 1.2; the functions need redeploying — Brian runs from `~/code/clarendon-labs/borea-ios`:
+  ```
+  for f in macro-ask macro-brief macro-dexa-insight macro-dexa-parse macro-explain macro-menu macro-plan macro-review macro-speak macro-suggest; do supabase functions deploy $f --project-ref lexhmdbwopgbcagmhwyi; done
+  supabase functions deploy studio-admin --no-verify-jwt --project-ref lexhmdbwopgbcagmhwyi
+  ```
+- Site: the Jinglewire Connect note now names the env vars.

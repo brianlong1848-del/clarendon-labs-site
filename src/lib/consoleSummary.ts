@@ -41,7 +41,7 @@ const CONNECT_HOW: Record<string, string> = {
   yulepick: 'Set YULEPICK_ADMIN_URL (the studio-admin edge function) and YULEPICK_ADMIN_TOKEN on Vercel; the token must match the function’s ADMIN_TOKEN secret.',
   borea: 'Set BOREA_ADMIN_URL (the studio-admin edge function) and BOREA_ADMIN_TOKEN on Vercel; the token must match the function’s ADMIN_TOKEN secret.',
   gagorder: 'Set GAGORDER_ADMIN_URL and GAGORDER_ADMIN_TOKEN on Vercel.',
-  jinglewire: 'Jinglewire has no admin endpoint yet (its Supabase project holds no tables to count). Proposal in HANDOFF-console.md.',
+  jinglewire: 'Set JINGLEWIRE_ADMIN_URL (the studio-admin edge function on sleighline) and JINGLEWIRE_ADMIN_TOKEN on Vercel; the token must match the function’s ADMIN_TOKEN secret.',
 }
 
 /** One app's admin API; reachability is the health signal. */
