@@ -14,7 +14,7 @@ import { rest } from '@/lib/publish/store'
 import { adsManagerUrl } from './tiktok'
 
 export type CampaignAd = {
-  ad_id: string; name: string; status?: string; status_detail?: string; review?: string; item_id?: string
+  ad_id: string; name: string; status?: string; status_detail?: string; status_note?: string; review?: string; item_id?: string
   spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
 
@@ -27,6 +27,8 @@ export type CampaignRow = {
   /** running | paused | in_review | rejected | scheduled | ended | budget_spent | no_funds | unknown */
   status?: string
   status_detail?: string
+  /** Shown as the status chip's tooltip when there is no status (e.g. TikTok hasn't approved the scope yet). */
+  status_note?: string
   review?: string
   budget_daily_cents?: number
   spend_cents: number; impressions?: number; reach?: number; clicks?: number
@@ -55,8 +57,9 @@ export const INSTALLS_NOTE = 'Installs and cost per install arrive from App Stor
 
 /** Every campaign for one app (or all apps), both platforms. Per-platform
  *  failures are reported, not thrown, so one platform being down never
- *  blanks the other. */
-export async function campaignsFor(appId: string | 'all', range: Range): Promise<{ campaigns: CampaignRow[]; errors: string[] }> {
+ *  blanks the other. TikTok answers come from a 10-minute cache per app and
+ *  window unless `fresh` (the Refresh button). */
+export async function campaignsFor(appId: string | 'all', range: Range, fresh = false): Promise<{ campaigns: CampaignRow[]; errors: string[] }> {
   const { start, end } = rangeDates(range)
   const apps = PUBLISH_APPS.filter((a) => appId === 'all' || a.id === appId)
   const errors: string[] = []
@@ -67,16 +70,16 @@ export async function campaignsFor(appId: string | 'all', range: Range): Promise
     const advertiserId = tiktokAdvertiserId(app.id)
     if (!advertiserId || !tiktokToken()) return []
     try {
-      const rows = await tiktokCampaigns(advertiserId, start, end)
+      const rows = await tiktokCampaigns(advertiserId, start, end, true, fresh)
       return rows.map((c) => ({
         platform: 'tiktok' as const, app_id: app.id, campaign_id: c.campaign_id, name: c.name, objective: c.objective,
-        status: tiktokStatusWord(c.status_detail, c.operation_status), status_detail: c.status_detail,
+        status: c.status_detail || c.operation_status ? tiktokStatusWord(c.status_detail, c.operation_status) : undefined, status_detail: c.status_detail, status_note: c.status_note,
         budget_daily_cents: c.budget_mode === 'BUDGET_MODE_DAY' ? c.budget_cents : undefined,
         spend_cents: c.spend_cents, impressions: c.impressions, reach: c.reach, clicks: c.clicks, ctr: c.ctr, cpc_cents: c.cpc_cents, cpm_cents: c.cpm_cents,
         video_views: c.video_views, views2s: c.views2s, views6s: c.views6s, views15s: c.views15s, views100: c.views100,
         follows: c.follows, profile_visits: c.profile_visits, likes: c.likes, comments: c.comments, shares: c.shares,
         daily: c.daily,
-        ads: c.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: tiktokStatusWord(a.status_detail), status_detail: a.status_detail, review: a.review, item_id: a.item_id,
+        ads: c.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: a.status_detail ? tiktokStatusWord(a.status_detail) : undefined, status_detail: a.status_detail, status_note: a.status_note, review: a.review, item_id: a.item_id,
                                  spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows })),
         promotion_id: promoByCampaign.get(`tiktok:${c.campaign_id}`)?.id,
         url: adsManagerUrl(advertiserId),

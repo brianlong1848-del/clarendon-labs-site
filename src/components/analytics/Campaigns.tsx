@@ -12,12 +12,12 @@ import { PlatformGlyph } from '@/components/post/shared'
 // once App Store Connect campaign tokens are wired (/get/<app>?ct=).
 
 export type CampaignAd = {
-  ad_id: string; name: string; status?: string; status_detail?: string; review?: string; item_id?: string
+  ad_id: string; name: string; status?: string; status_detail?: string; status_note?: string; review?: string; item_id?: string
   spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
 export type CampaignRow = {
   platform: 'tiktok' | 'meta'; app_id: string | null; campaign_id: string; name: string; objective?: string
-  status?: string; status_detail?: string; review?: string; budget_daily_cents?: number
+  status?: string; status_detail?: string; status_note?: string; review?: string; budget_daily_cents?: number
   spend_cents: number; impressions?: number; reach?: number; clicks?: number; ctr?: number; cpc_cents?: number; cpm_cents?: number
   video_views?: number; views2s?: number; views6s?: number; views15s?: number; views100?: number
   follows?: number; profile_visits?: number; likes?: number; comments?: number; shares?: number
@@ -41,9 +41,17 @@ const STATUS: Record<string, { text: string; color: string; bg: string }> = {
   budget_spent: { text: 'Budget spent', color: C.ink2, bg: C.card2 }, no_funds: { text: 'Needs payment', color: C.red, bg: '#FBE4E4' },
   deleted: { text: 'Deleted', color: C.ink2, bg: C.card2 }, unknown: { text: '—', color: C.soft, bg: C.card2 },
 }
-const StatusChip = ({ s }: { s?: string }) => {
+/** No status yet (TikTok hasn't approved the Ads Management scope) shows
+ *  "—" with the reason as a tooltip, not a bare dash. */
+const StatusChip = ({ s, note }: { s?: string; note?: string }) => {
   const v = STATUS[s ?? 'unknown'] ?? STATUS.unknown
-  return <span style={{ fontSize: 11.5, fontWeight: 700, color: v.color, background: v.bg, borderRadius: 99, padding: '2px 9px', whiteSpace: 'nowrap' }}>{v.text}</span>
+  const tip = !s || s === 'unknown' ? (note ?? 'Status pending TikTok approval') : undefined
+  return (
+    <span title={tip} aria-label={tip ? `Status: ${tip}` : undefined} tabIndex={tip ? 0 : undefined}
+      style={{ fontSize: 11.5, fontWeight: 700, color: v.color, background: v.bg, borderRadius: 99, padding: '2px 9px', whiteSpace: 'nowrap', cursor: tip ? 'help' : undefined, borderBottom: tip ? `1px dotted ${C.soft}` : undefined }}>
+      {v.text}
+    </span>
+  )
 }
 const PLATFORM_NAME = { tiktok: 'TikTok', meta: 'Meta' }
 
@@ -65,10 +73,10 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
 
-  const load = useCallback(async (r: Range) => {
+  const load = useCallback(async (r: Range, fresh = false) => {
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`/api/analytics/campaigns?app=${encodeURIComponent(app)}&range=${r}`)
+      const res = await fetch(`/api/analytics/campaigns?app=${encodeURIComponent(app)}&range=${r}${fresh ? '&fresh=1' : ''}`)
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       setData(body)
@@ -99,7 +107,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                        background: range === r ? C.card : 'transparent', color: range === r ? C.ink : C.soft, boxShadow: range === r ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{RANGE_LABEL[r]}</button>
           ))}
         </div>
-        <button style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} disabled={loading} onClick={() => load(range)}>Refresh</button>
+        <button style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} disabled={loading} onClick={() => load(range, true)} title="Fetch again from TikTok and Meta (skips the 10-minute cache)">Refresh</button>
       </div>
       {error && <p style={{ margin: 0, fontSize: 13, color: C.red }}>{error}</p>}
       {data?.errors.map((e, i) => <p key={i} style={{ margin: 0, fontSize: 12.5, color: C.amber }}>{e}</p>)}
@@ -136,7 +144,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                         {r.url && <a href={r.url} target="_blank" rel="noreferrer" style={{ color: C.ink2 }}>Ads Manager ↗</a>}
                       </div>
                     </div>
-                    <div><StatusChip s={r.status} /></div>
+                    <div><StatusChip s={r.status} note={r.status_note} /></div>
                     {cell(usd(r.spend_cents), true)}{cell(num(r.impressions))}{cell(pct(r.ctr))}{cell(usd(r.cpc_cents))}{cell(num(r.views15s))}{cell(num(r.follows))}
                     <span style={{ textAlign: 'right', fontFamily: C.mono, fontSize: 12, color: C.faint }} title={data?.notes.installs}>{r.installs != null ? `${num(r.installs)} · ${usd(r.cpi_cents)}` : 'soon'}</span>
                     {!compact && <Bars daily={r.daily} color={app?.accent ?? C.mint} />}
@@ -164,7 +172,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                             {a.name}{a.item_id && r.platform === 'tiktok' && <span style={{ color: C.soft }}> · video {a.item_id}</span>}
                             {a.review && <span style={{ color: C.red }}> · {a.review}</span>}
                           </span>
-                          <div><StatusChip s={a.status} /></div>
+                          <div><StatusChip s={a.status} note={a.status_note ?? r.status_note} /></div>
                           {cell(usd(a.spend_cents))}{cell(num(a.impressions))}{cell(pct(a.ctr))}{cell(usd(a.cpc_cents))}{cell(num(a.views15s))}{cell(num(a.follows))}
                         </div>
                       )) : <span style={{ fontSize: 12.5, color: C.soft }}>{r.platform === 'meta' ? 'Ad-level figures for Meta campaigns live in Ads Manager.' : 'No ads reported in this window.'}</span>}

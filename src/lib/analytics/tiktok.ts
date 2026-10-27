@@ -13,6 +13,16 @@
 // fetchTikTok()      — the 30-day spend / impressions / clicks tile.
 // tiktokCampaigns()  — one row per campaign with its ads, for the Campaigns
 //                      card (/api/analytics/campaigns, FEAT-CLA-022).
+//
+// Rate limit: the developer app is on TikTok's Basic tier — 10 requests a
+// second, app-wide, every ad account and every route on clarendon.dev
+// together. Every call to business-api.tiktok.com (analytics, ads, money,
+// publish) goes through tiktokFetch() below: one limiter per process (kept on
+// globalThis so each bundle shares it), a 40100 "QPS limit" retry with
+// backoff, and a 10-minute memo of scope refusals (40001) so a missing
+// permission costs one request, not one per page per load. Vercel may run
+// routes in separate functions that can't share a limiter, so the budget
+// here sits under the ceiling and the retry covers the overlap.
 
 export type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
 
@@ -20,28 +30,114 @@ export const TIKTOK_API = 'https://business-api.tiktok.com/open_api/v1.3'
 export const tiktokToken = () => process.env.TIKTOK_ACCESS_TOKEN
 export const tiktokAdvertiserId = (appId: string) => process.env[`${appId.toUpperCase()}_TIKTOK_ADVERTISER_ID`] || undefined
 
+// ── Shared limiter, retry, caches ────────────────────────────────────────────
+
+const RATE_PER_SEC = 5          // of the app's 10/s, leaving room for a second function instance
+const MAX_IN_FLIGHT = 3
+const RETRY_DELAYS_MS = [500, 1000, 2000]
+export const TIKTOK_CACHE_MS = 10 * 60_000
+
+type Limiter = { inFlight: number; started: number[]; queue: (() => void)[]; timer?: ReturnType<typeof setTimeout> }
+type CacheEntry = { at: number; value: Promise<unknown> }
+const g = globalThis as unknown as { __tiktokLimiter?: Limiter; __tiktokCache?: Map<string, CacheEntry>; __tiktokDenied?: Map<string, { at: number; message: string }> }
+const limiter = (g.__tiktokLimiter ??= { inFlight: 0, started: [], queue: [] })
+const cache = (g.__tiktokCache ??= new Map())
+const denied = (g.__tiktokDenied ??= new Map())
+
+function pump() {
+  const now = Date.now()
+  limiter.started = limiter.started.filter((t) => now - t < 1000)
+  while (limiter.queue.length && limiter.inFlight < MAX_IN_FLIGHT) {
+    if (limiter.started.length >= RATE_PER_SEC) {
+      if (!limiter.timer) limiter.timer = setTimeout(() => { limiter.timer = undefined; pump() }, Math.max(20, 1000 - (now - limiter.started[0]) + 5))
+      return
+    }
+    limiter.inFlight++; limiter.started.push(now)
+    limiter.queue.shift()!()
+  }
+}
+/** Runs `fn` once the shared TikTok budget allows (≤ RATE_PER_SEC starts a
+ *  second, ≤ MAX_IN_FLIGHT at once). */
+export async function tiktokLimited<T>(fn: () => Promise<T>): Promise<T> {
+  await new Promise<void>((resolve) => { limiter.queue.push(resolve); pump() })
+  try { return await fn() } finally { limiter.inFlight--; pump() }
+}
+
+export const isTikTokQps = (code: unknown, message?: unknown) => code === 40100 || /QPS limit|rate limit|too many requests/i.test(String(message ?? ''))
+export const isTikTokScope = (code: unknown, message?: unknown) => code === 40001 && /scope|permission/i.test(String(message ?? ''))
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+export type TikTokRaw = { code?: number; message?: string; data?: any; request_id?: string }
+
+/** One HTTP round trip to business-api.tiktok.com through the limiter. A
+ *  40100 (QPS) answer is retried after 0.5 s, 1 s, 2 s; the last answer is
+ *  returned as-is for the caller to turn into an error. Network and timeout
+ *  failures throw. */
+export async function tiktokFetch(url: string | URL, init: RequestInit & { timeoutMs?: number }): Promise<{ out: TikTokRaw; status: number }> {
+  const { timeoutMs, ...rest } = init
+  for (let attempt = 0; ; attempt++) {
+    const r = await tiktokLimited(async () => {
+      // The timeout starts when the request leaves, not while it waits its turn.
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs ?? 20000), ...rest })
+      const out = (await res.json().catch(() => ({}))) as TikTokRaw
+      return { out, status: res.status }
+    })
+    if (r.out?.code === 0 || !isTikTokQps(r.out?.code, r.out?.message) || attempt >= RETRY_DELAYS_MS.length) return r
+    await sleep(RETRY_DELAYS_MS[attempt])
+  }
+}
+
 /** One Marketing API call. GET params are query-string; POST bodies are JSON.
- *  TikTok answers HTTP 200 with its own `code`; anything but 0 is an error. */
+ *  TikTok answers HTTP 200 with its own `code`; anything but 0 is an error.
+ *  A GET refused for a missing scope (40001) is remembered for 10 minutes
+ *  per endpoint + advertiser and fails straight away until then. */
 export async function tiktokCall<T = any>(path: string, opts: { method?: 'GET' | 'POST'; query?: Record<string, string>; body?: unknown; timeout?: number } = {}): Promise<T> {
   const token = tiktokToken()
   if (!token) throw new Error('TIKTOK_ACCESS_TOKEN is not set')
+  const method = opts.method ?? 'GET'
+  const deniedKey = method === 'GET' ? `${path}|${opts.query?.advertiser_id ?? opts.query?.advertiser_ids ?? ''}` : null
+  if (deniedKey) {
+    const d = denied.get(deniedKey)
+    if (d && Date.now() - d.at < TIKTOK_CACHE_MS) throw new Error(d.message)
+    if (d) denied.delete(deniedKey)
+  }
   const u = new URL(`${TIKTOK_API}${path}`)
   for (const [k, v] of Object.entries(opts.query ?? {})) u.searchParams.set(k, v)
-  const res = await fetch(u, {
-    method: opts.method ?? 'GET', cache: 'no-store', signal: AbortSignal.timeout(opts.timeout ?? 20000),
+  const { out, status } = await tiktokFetch(u, {
+    method, timeoutMs: opts.timeout ?? 20000,
     headers: { 'Access-Token': token, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   })
-  const out = await res.json().catch(() => ({}))
-  if (out?.code !== 0) throw new Error(`TikTok: ${out?.message ?? `HTTP ${res.status}`} (code ${out?.code ?? res.status})`)
+  if (out?.code !== 0) {
+    const message = `TikTok: ${out?.message ?? `HTTP ${status}`} (code ${out?.code ?? status})`
+    if (deniedKey && isTikTokScope(out?.code, out?.message)) denied.set(deniedKey, { at: Date.now(), message })
+    throw new Error(message)
+  }
   return (out.data ?? {}) as T
+}
+
+/** Memoizes an async result for 10 minutes per key, sharing one in-flight
+ *  promise between concurrent callers. `fresh` recomputes and replaces the
+ *  entry (the Refresh button). A rejected promise is dropped at once. */
+export async function tiktokCached<T>(key: string, fresh: boolean | undefined, fn: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key)
+  if (hit && !fresh && Date.now() - hit.at < TIKTOK_CACHE_MS) return hit.value as Promise<T>
+  const value = fn()
+  cache.set(key, { at: Date.now(), value })
+  value.catch(() => { if (cache.get(key)?.value === value) cache.delete(key) })
+  if (cache.size > 500) for (const [k, v] of cache) if (Date.now() - v.at >= TIKTOK_CACHE_MS) cache.delete(k)
+  return value
 }
 
 const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 const iso = (d: Date) => d.toISOString().slice(0, 10)
 
-export async function fetchTikTok(advertiserId?: string): Promise<TikTokMetrics> {
+export async function fetchTikTok(advertiserId?: string, fresh = false): Promise<TikTokMetrics> {
   if (!advertiserId || !tiktokToken()) return null
+  return tiktokCached(`tile:${advertiserId}`, fresh, () => fetchTikTokNow(advertiserId))
+}
+
+async function fetchTikTokNow(advertiserId: string): Promise<TikTokMetrics> {
   const end = new Date()
   const start = new Date(end.getTime() - 29 * 86400000)
   try {
@@ -75,12 +171,16 @@ export type TikTokAd = TikTokStats & {
   status_detail?: string
   review?: string
   item_id?: string
+  /** Why there's no status (e.g. the token's scopes don't cover ad/get yet). */
+  status_note?: string
 }
 
 export type TikTokCampaign = TikTokStats & {
   campaign_id: string; name: string; objective?: string
   operation_status?: string; status_detail?: string
   budget_cents?: number; budget_mode?: string; created?: string
+  /** Why there's no status (e.g. the token's scopes don't cover campaign/get yet). */
+  status_note?: string
   daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
   ads: TikTokAd[]
 }
@@ -140,16 +240,21 @@ const STATUS_FROM_SECONDARY: Record<string, string> = {
 export const tiktokStatusWord = (secondary?: string, operation?: string) =>
   (secondary && STATUS_FROM_SECONDARY[secondary]) || (operation === 'DISABLE' ? 'paused' : operation === 'ENABLE' ? 'running' : 'unknown')
 
+export const SCOPE_PENDING_NOTE = 'Status pending TikTok approval — campaign and ad status need the Ads Management scope on the Clarendon Labs Analytics app (requested 2026-10-27).'
+
 /** Campaigns on one ad account over [start, end] (YYYY-MM-DD), with their
  *  ads and a daily series. Campaigns with no spend and no impressions in the
- *  window are left out unless `includeIdle`. */
-export async function tiktokCampaigns(advertiserId: string, start: string, end: string, includeIdle = true): Promise<TikTokCampaign[]> {
-  const [camp, daily, ads] = await Promise.all([
-    tiktokReport(advertiserId, 'AUCTION_CAMPAIGN', ['campaign_id'], start, end, ['campaign_name', 'objective_type']),
-    tiktokReport(advertiserId, 'AUCTION_CAMPAIGN', ['campaign_id', 'stat_time_day'], start, end).catch(() => [] as ReportRow[]),
-    // (tiktok_item_id isn't a report metric — the item id comes from ad/get when that scope is granted.)
-    tiktokReport(advertiserId, 'AUCTION_AD', ['ad_id'], start, end, ['ad_name', 'campaign_id', 'adgroup_id']).catch(() => [] as ReportRow[]),
-  ])
+ *  window are left out unless `includeIdle`. Results are cached for 10
+ *  minutes per account + window; `fresh` bypasses the cache. */
+export function tiktokCampaigns(advertiserId: string, start: string, end: string, includeIdle = true, fresh = false): Promise<TikTokCampaign[]> {
+  return tiktokCached(`campaigns:${advertiserId}:${start}:${end}:${includeIdle ? 1 : 0}`, fresh, () => tiktokCampaignsNow(advertiserId, start, end, includeIdle))
+}
+
+async function tiktokCampaignsNow(advertiserId: string, start: string, end: string, includeIdle: boolean): Promise<TikTokCampaign[]> {
+  // 1. The campaign-level report alone. An account with nothing in the
+  //    window stops here (one request), instead of fetching daily and
+  //    ad-level rows for nothing.
+  const camp = await tiktokReport(advertiserId, 'AUCTION_CAMPAIGN', ['campaign_id'], start, end, ['campaign_name', 'objective_type'])
   const byId = new Map<string, TikTokCampaign>()
   for (const r of camp) {
     const id = String(r.dimensions.campaign_id ?? '')
@@ -157,8 +262,11 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
     byId.set(id, { campaign_id: id, name: String(r.metrics.campaign_name ?? id), objective: r.metrics.objective_type ? String(r.metrics.objective_type) : undefined,
                    ...stats(r.metrics), daily: [], ads: [] })
   }
-  // Names, status, budget — campaign/get covers campaigns the report didn't
-  // mention (not started, paused all window), so the card still lists them.
+  // 2. Names, status, budget — campaign/get also covers campaigns the report
+  //    didn't mention (not started, paused all window), so the card still
+  //    lists them. Until the Ads Management scope is approved this answers
+  //    40001; the rows then carry a note instead of a status.
+  let statusNote: string | undefined
   try {
     for (let page = 1, pages = 1; page <= pages && page <= 5; page++) {
       const data = await tiktokCall('/campaign/get/', { query: { advertiser_id: advertiserId, page: String(page), page_size: '100',
@@ -175,7 +283,18 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
         byId.set(id, row)
       }
     }
-  } catch { /* names from the report are enough */ }
+  } catch (e) {
+    statusNote = /code 40001/.test((e as Error).message) ? SCOPE_PENDING_NOTE : `Status unavailable: ${(e as Error).message}`
+  }
+  if (!byId.size) return []
+  for (const row of byId.values()) if (!row.operation_status && !row.status_detail) row.status_note = statusNote ?? 'TikTok reported no status for this campaign.'
+
+  // 3. Daily series and ad-level rows, only now that there is something to attach them to.
+  const [daily, ads] = await Promise.all([
+    tiktokReport(advertiserId, 'AUCTION_CAMPAIGN', ['campaign_id', 'stat_time_day'], start, end).catch(() => [] as ReportRow[]),
+    // (tiktok_item_id isn't a report metric — the item id comes from ad/get when that scope is granted.)
+    tiktokReport(advertiserId, 'AUCTION_AD', ['ad_id'], start, end, ['ad_name', 'campaign_id', 'adgroup_id']).catch(() => [] as ReportRow[]),
+  ])
   for (const r of daily) {
     const row = byId.get(String(r.dimensions.campaign_id ?? ''))
     if (!row) continue
@@ -185,6 +304,7 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
   for (const row of byId.values()) row.daily.sort((a, b) => a.day.localeCompare(b.day))
   // Ads: report rows first, then ad/get for the review status.
   const adStatus = new Map<string, { secondary?: string; name?: string; item?: string; adgroup?: string; campaign?: string }>()
+  let adNote: string | undefined
   try {
     for (let page = 1, pages = 1; page <= pages && page <= 5; page++) {
       const data = await tiktokCall('/ad/get/', { query: { advertiser_id: advertiserId, page: String(page), page_size: '100',
@@ -192,7 +312,9 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
       pages = n(data.page_info?.total_page) || 1
       for (const a of data.list ?? []) adStatus.set(String(a.ad_id), { secondary: a.secondary_status, name: a.ad_name, item: a.tiktok_item_id, adgroup: a.adgroup_id, campaign: a.campaign_id })
     }
-  } catch { /* optional */ }
+  } catch (e) {
+    adNote = /code 40001/.test((e as Error).message) ? SCOPE_PENDING_NOTE : `Status unavailable: ${(e as Error).message}`
+  }
   const reviews = await tiktokReviewInfo(advertiserId, Array.from(adStatus.keys()).slice(0, 100)).catch(() => new Map<string, string>())
   const seen = new Set<string>()
   for (const r of ads) {
@@ -203,7 +325,8 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
     if (!row || !adId) continue
     seen.add(adId)
     row.ads.push({ ad_id: adId, adgroup_id: String(r.metrics.adgroup_id ?? st?.adgroup ?? ''), name: String(r.metrics.ad_name ?? st?.name ?? adId),
-                   status_detail: st?.secondary, review: reviews.get(adId), item_id: r.metrics.tiktok_item_id ? String(r.metrics.tiktok_item_id) : st?.item, ...stats(r.metrics) })
+                   status_detail: st?.secondary, status_note: st?.secondary ? undefined : adNote, review: reviews.get(adId),
+                   item_id: r.metrics.tiktok_item_id ? String(r.metrics.tiktok_item_id) : st?.item, ...stats(r.metrics) })
   }
   for (const [adId, st] of adStatus) {
     if (seen.has(adId) || !st.campaign) continue
@@ -217,7 +340,7 @@ export async function tiktokCampaigns(advertiserId: string, start: string, end: 
  *  every account, and a missing reason just leaves the row's status word. */
 export async function tiktokReviewInfo(advertiserId: string, adIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>()
-  if (!adIds.length) return out
+  if (!adIds.length || process.env.TIKTOK_REVIEW_INFO !== '1') return out   // 404 on v1.3 as of 2026-10-27; opt back in with TIKTOK_REVIEW_INFO=1
   const data = await tiktokCall('/ad/review_info/get/', { query: { advertiser_id: advertiserId, ad_ids: JSON.stringify(adIds.slice(0, 100)) } })
   for (const r of data.list ?? data.review_info ?? []) {
     const id = String(r.ad_id ?? '')

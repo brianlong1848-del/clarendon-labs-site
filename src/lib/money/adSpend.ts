@@ -24,7 +24,8 @@ export type CampaignDay = {
   currency: string
 }
 
-const API = 'https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/'
+import { tiktokCall, tiktokToken } from '@/lib/analytics/tiktok'
+
 const METRICS = ['campaign_name', 'spend', 'impressions', 'clicks', 'conversion', 'app_install', 'skan_app_install', 'total_purchase_value', 'skan_total_purchase_value', 'currency']
 
 const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
@@ -44,26 +45,24 @@ function windows(start: string, end: string): [string, string][] {
 }
 
 export async function tiktokCampaignDays(advertiserId: string, start: string, end: string): Promise<CampaignDay[] | { error: string }> {
-  const token = process.env.TIKTOK_ACCESS_TOKEN
-  if (!token) return { error: 'TIKTOK_ACCESS_TOKEN is not set' }
+  if (!tiktokToken()) return { error: 'TIKTOK_ACCESS_TOKEN is not set' }
   const rows: CampaignDay[] = []
   for (const [from, to] of windows(start, end)) {
     for (let page = 1, pages = 1; page <= pages && page <= 20; page++) {
-      const params = new URLSearchParams({
-        advertiser_id: advertiserId, report_type: 'BASIC', data_level: 'AUCTION_CAMPAIGN',
-        dimensions: JSON.stringify(['campaign_id', 'stat_time_day']), metrics: JSON.stringify(METRICS),
-        start_date: from, end_date: to, page: String(page), page_size: '1000',
-      })
+      // Through the shared limiter + 40100 retry in src/lib/analytics/tiktok.ts.
       let data: any
       try {
-        const res = await fetch(`${API}?${params}`, { headers: { 'Access-Token': token }, cache: 'no-store', signal: AbortSignal.timeout(20000) })
-        data = await res.json()
+        data = await tiktokCall('/report/integrated/get/', { query: {
+          advertiser_id: advertiserId, report_type: 'BASIC', data_level: 'AUCTION_CAMPAIGN',
+          dimensions: JSON.stringify(['campaign_id', 'stat_time_day']), metrics: JSON.stringify(METRICS),
+          start_date: from, end_date: to, page: String(page), page_size: '1000',
+        } })
       } catch (e) {
-        return { error: `TikTok report failed: ${(e as Error).message}` }
+        const m = (e as Error).message
+        return { error: m.startsWith('TikTok') ? m : `TikTok report failed: ${m}` }
       }
-      if (data?.code !== 0) return { error: `TikTok: ${data?.message ?? 'unknown error'} (code ${data?.code})` }
-      pages = Number(data.data?.page_info?.total_page ?? 1)
-      for (const r of data.data?.list ?? []) {
+      pages = Number(data?.page_info?.total_page ?? 1)
+      for (const r of data?.list ?? []) {
         const m = r.metrics ?? {}
         const spend = n(m.spend), impressions = n(m.impressions)
         if (spend === 0 && impressions === 0) continue

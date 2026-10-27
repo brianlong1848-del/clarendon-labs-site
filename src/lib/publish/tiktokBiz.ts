@@ -24,6 +24,7 @@ import { handleFits, wrongAccount } from './ownership'
 import { getToken, saveToken, signState, type StoredToken } from './tokens'
 import type { CreatorInfo, PublishStatus } from './tiktok'
 import type { TikTokSettings } from './rules'
+import { tiktokFetch } from '@/lib/analytics/tiktok'
 
 const API = 'https://business-api.tiktok.com/open_api/v1.3'
 export const BIZ_PLATFORM = 'tiktok-biz'
@@ -54,13 +55,14 @@ type BizToken = { access_token: string; expires_in: number; open_id: string; ref
 async function call<T = Record<string, unknown>>(method: 'GET' | 'POST', path: string, opts: { token?: string; body?: unknown; query?: Record<string, string> } = {}): Promise<T> {
   const u = new URL(`${API}${path}`)
   for (const [k, v] of Object.entries(opts.query ?? {})) u.searchParams.set(k, v)
-  const res = await fetch(u, {
-    method, cache: 'no-store', signal: AbortSignal.timeout(25000),
+  // Same developer app as /analytics → same 10 requests/second budget: go
+  // through the shared limiter and 40100 retry.
+  const { out, status } = await tiktokFetch(u, {
+    method, timeoutMs: 25000,
     headers: { ...(opts.token ? { 'Access-Token': opts.token } : {}), ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   })
-  const out = await res.json().catch(() => ({}))
-  if (out?.code !== 0) throw new Error(friendly(out?.code, out?.message) || `TikTok error (HTTP ${res.status})`)
+  if (out?.code !== 0) throw new Error(friendly(out?.code, out?.message) || `TikTok error (HTTP ${status})`)
   return (out.data ?? {}) as T
 }
 

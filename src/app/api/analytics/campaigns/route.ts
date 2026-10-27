@@ -10,6 +10,8 @@ import { campaignsFor, INSTALLS_NOTE, RANGES, rangeDates, type Range } from '@/l
 // (FEAT-CLA-022). `app` = an app id or "all" (default); `range` = 7d | 30d | 90d.
 // Figures a platform doesn't report are absent, never zero. Installs and
 // cost per install stay empty until App Store Connect campaign tokens land.
+// TikTok rows are served from a 10-minute cache; `fresh=1` (the Refresh
+// button) goes to TikTok again.
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -20,7 +22,8 @@ export async function GET(req: Request) {
   const app = u.searchParams.get('app') || 'all'
   const range = (RANGES.includes(u.searchParams.get('range') as Range) ? u.searchParams.get('range') : '30d') as Range
   if (app !== 'all' && !PUBLISH_APPS.some((a) => a.id === app)) return NextResponse.json({ error: 'Unknown app.' }, { status: 400 })
-  const { campaigns, errors } = await campaignsFor(app, range)
+  const fresh = u.searchParams.get('fresh') === '1'
+  const { campaigns, errors } = await campaignsFor(app, range, fresh)
   return NextResponse.json({
     range: { id: range, ...rangeDates(range) },
     apps: PUBLISH_APPS.map((a) => ({ id: a.id, name: a.name, accent: a.accent })),
