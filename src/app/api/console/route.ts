@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { registry, allApps, consoleAuthed, type ConsoleApp } from '@/lib/console'
+import { consoleCards } from '@/lib/consoleSummary'
 
 // ─── /api/console ────────────────────────────────────────────────────────────
 //
@@ -52,16 +53,14 @@ async function pull(app: ConsoleApp) {
 
 export async function GET(req: Request) {
   if (!(await consoleAuthed())) return deny()
+  void req
   const apps = registry()
   const missing = allApps().filter((a) => !apps.some((x) => x.id === a.id))
-  if (!apps.length) {
-    return NextResponse.json({
-      apps: [], missing,
-      hint: 'No apps configured. Set <APP>_ADMIN_URL and <APP>_ADMIN_TOKEN.',
-    })
-  }
-  // In parallel: one slow app shouldn't decide how fast the console loads.
-  return NextResponse.json({ apps: await Promise.all(apps.map(pull)), missing })
+  // `apps` / `missing` keep the old shape for the suggestion review + Studio
+  // builds already in the field; `cards` + `summary` are the one-card-per-app
+  // console (src/lib/consoleSummary.ts): store, ads, top action, server.
+  const [pulled, { cards, summary }] = await Promise.all([Promise.all(apps.map(pull)), consoleCards()])
+  return NextResponse.json({ apps: pulled, missing, cards, summary, hint: apps.length ? undefined : 'No apps configured. Set <APP>_ADMIN_URL and <APP>_ADMIN_TOKEN.' })
 }
 
 /** Forward an action to the app that owns it. This route deliberately does not

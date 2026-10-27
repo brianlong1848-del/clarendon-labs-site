@@ -82,15 +82,91 @@ export function WhyNext({ insight, narrative }: { insight?: Insight; narrative?:
   )
 }
 
+/** One action: title, app, detail, the button (confirm step, duplicate
+ *  sheet, link), result / Done. Used by This week and the Console cards. */
+export function ActionItem({ a, n, insight, compact = false, onDone }: { a: InsightAction; n?: number; insight?: Insight; compact?: boolean; onDone?: () => void }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [sheet, setSheet] = useState<{ budget: string; pause: boolean }>({ budget: String(Math.round((a.confirm_fields?.budget_cents ?? 2000) / 100)), pause: a.confirm_fields?.pause_original !== false })
+  const run = async () => {
+    setBusy(true); setConfirming(false)
+    try {
+      const options = a.kind === 'duplicate_as_traffic' ? { budget_cents: Math.round(Number(sheet.budget) * 100) || 2000, pause_original: sheet.pause } : undefined
+      const res = await fetch('/api/ads/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: a.kind, platform: a.platform, campaign_id: a.campaign_id, app_id: a.app_id, promotion_id: a.promotion_id, amount_cents: a.amount_cents, options,
+          source_ids: { advertiser_id: a.advertiser_id, adgroup_ids: a.adgroup_ids, ad_ids: a.ad_ids, item_id: a.item_id, post_id: a.post_id } }) })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
+      setResult({ ok: true, text: `${body.message ?? 'Done.'} · Done ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` })
+      onDone?.()
+    } catch (e) { setResult({ ok: false, text: (e as Error).message }) }
+    setBusy(false)
+  }
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+  return (
+    <div onClick={stop} style={{ display: 'grid', gridTemplateColumns: n != null ? '28px minmax(0,1fr) auto' : 'minmax(0,1fr) auto', gap: 12, alignItems: 'start', padding: compact ? '8px 10px' : '10px 12px', borderRadius: 12, background: C.card2 }}>
+      {n != null && <span style={{ ...labelStyle, fontSize: 12, paddingTop: 3 }}>{n}</span>}
+      <div style={{ minWidth: 0, display: 'grid', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <b style={{ fontSize: compact ? 13 : 13.5, ...(a.done ? { color: C.soft } : {}) }}>{a.title}</b>
+          {insight && <VerdictPill insight={insight} size={11} />}
+          {a.done && <span style={{ fontSize: 11.5, fontWeight: 800, color: C.teal, background: C.mintTint, borderRadius: 99, padding: '2px 9px' }}>{a.done.at ? `Done ${new Date(a.done.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ✓` : 'Done ✓'}</span>}
+        </div>
+        {!compact && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
+            {a.app_id && <AppTag id={a.app_id} name={a.app_id} size={14} />}
+            <PlatformGlyph platform={a.platform === 'tiktok' ? 'tiktok' : 'facebook'} size={13} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>{a.campaign_name}</span>
+          </div>
+        )}
+        <p style={{ margin: 0, fontSize: compact ? 12.5 : 13, lineHeight: 1.5, color: C.ink2, ...(compact ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }}>{a.detail}</p>
+        {a.done && <p style={{ margin: 0, fontSize: 12.5, color: C.teal }}>{a.done.note}</p>}
+        {a.note && <p style={{ margin: 0, fontSize: 12, color: C.soft }}>{a.note}</p>}
+        {a.blocked && a.button && !a.href && !result && <p style={{ margin: 0, fontSize: 12, color: C.amber }}>{a.blocked}</p>}
+        {confirming && (
+          <div role="alertdialog" aria-label="Confirm" style={{ marginTop: 4, padding: '10px 12px', borderRadius: 10, background: C.card, border: `1px solid ${C.rule2}`, display: 'grid', gap: 8 }}>
+            <p style={{ margin: 0, fontSize: 13 }}>{a.confirm}</p>
+            {a.kind === 'duplicate_as_traffic' && (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <span style={{ ...labelStyle, fontSize: 11 }}>Daily budget</span>
+                  <span style={{ color: C.soft }}>$</span>
+                  <input type="number" min={20} step={1} value={sheet.budget} onChange={(e) => setSheet((s) => ({ ...s, budget: e.target.value }))}
+                    style={{ width: 72, padding: '5px 8px', borderRadius: 8, border: `1px solid ${C.rule2}`, fontFamily: C.mono, fontSize: 13 }} />
+                  <span style={{ color: C.soft, fontSize: 12 }}>/day (TikTok minimum $20)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <input type="checkbox" checked={sheet.pause} onChange={(e) => setSheet((s) => ({ ...s, pause: e.target.checked }))} />
+                  Also pause the original views campaign
+                </label>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button style={{ ...btn(a.kind === 'pause' ? 'ghost' : 'mint'), padding: '6px 12px', fontSize: 12.5, ...(a.kind === 'pause' ? { color: C.red, borderColor: C.red } : {}) }} onClick={run}>{a.button}</button>
+              <button style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => setConfirming(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {result && <p style={{ margin: 0, fontSize: 12.5, color: result.ok ? C.teal : C.red }}>{result.text}</p>}
+      </div>
+      {a.href && a.button && (
+        <a href={a.href} target={a.href.startsWith('/') ? undefined : '_blank'} rel="noreferrer" style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5, whiteSpace: 'nowrap', textDecoration: 'none' }}>{a.button} ↗</a>
+      )}
+      {!a.href && a.button && !result?.ok && !a.done && (
+        <button style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5, whiteSpace: 'nowrap' }} disabled={busy || confirming} onClick={() => setConfirming(true)}>
+          {busy ? 'Working…' : a.button}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** The card at the top of /analytics and Money → Ads. */
 export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?: '7d' | '30d' | '90d' }) {
   const [data, setData] = useState<InsightsPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState<string | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [done, setDone] = useState<Record<string, { ok: boolean; text: string }>>({})
-  const [sheet, setSheet] = useState<{ budget: string; pause: boolean }>({ budget: '20', pause: true })
   const key = `insights:${app}:${range}`
 
   const load = useCallback(async (fresh = false) => {
@@ -108,24 +184,6 @@ export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?:
     try { const c = localStorage.getItem(key); if (c) setData(JSON.parse(c)) } catch { /* ignore */ }
     load()
   }, [load, key])
-
-  const openConfirm = (a: InsightAction) => {
-    setSheet({ budget: String(Math.round((a.confirm_fields?.budget_cents ?? 2000) / 100)), pause: a.confirm_fields?.pause_original !== false })
-    setConfirming(a.id)
-  }
-  const run = async (a: InsightAction) => {
-    setBusy(a.id); setConfirming(null)
-    try {
-      const options = a.kind === 'duplicate_as_traffic' ? { budget_cents: Math.round(Number(sheet.budget) * 100) || 2000, pause_original: sheet.pause } : undefined
-      const res = await fetch('/api/ads/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: a.kind, platform: a.platform, campaign_id: a.campaign_id, app_id: a.app_id, promotion_id: a.promotion_id, amount_cents: a.amount_cents, options,
-          source_ids: { advertiser_id: a.advertiser_id, adgroup_ids: a.adgroup_ids, ad_ids: a.ad_ids, item_id: a.item_id, post_id: a.post_id } }) })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
-      setDone((d) => ({ ...d, [a.id]: { ok: true, text: `${body.message ?? 'Done.'} · Done ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` } }))
-    } catch (e) { setDone((d) => ({ ...d, [a.id]: { ok: false, text: (e as Error).message } })) }
-    setBusy(null)
-  }
 
   const actions = data?.actions ?? []
   const when = data?.generated_at ? new Date(data.generated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
@@ -146,64 +204,9 @@ export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?:
           {!data.campaigns.length && <p style={{ margin: 0, fontSize: 13.5, color: C.soft }}>No campaigns in this window, so nothing to judge. Boost a post from Post → Queue to start one.</p>}
           {actions.length > 0 && (
             <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
-              {actions.map((a, i) => {
-                const campaign = data.campaigns.find((c) => c.platform === a.platform && c.campaign_id === a.campaign_id)
-                const result = done[a.id]
-                return (
-                  <li key={a.id} style={{ display: 'grid', gridTemplateColumns: '28px minmax(0,1fr) auto', gap: 12, alignItems: 'start', padding: '10px 12px', borderRadius: 12, background: C.card2 }}>
-                    <span style={{ ...labelStyle, fontSize: 12, paddingTop: 3 }}>{i + 1}</span>
-                    <div style={{ minWidth: 0, display: 'grid', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <b style={{ fontSize: 13.5, ...(a.done ? { color: C.soft } : {}) }}>{a.title}</b>
-                        {campaign && <VerdictPill insight={campaign.insight} size={11} />}
-                        {a.done && <span style={{ fontSize: 11.5, fontWeight: 800, color: C.teal, background: C.mintTint, borderRadius: 99, padding: '2px 9px' }}>{a.done.at ? `Done ${new Date(a.done.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ✓` : 'Done ✓'}</span>}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
-                        {a.app_id && <AppTag id={a.app_id} name={a.app_id} size={14} />}
-                        <PlatformGlyph platform={a.platform === 'tiktok' ? 'tiktok' : 'facebook'} size={13} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>{a.campaign_name}</span>
-                      </div>
-                      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: C.ink2 }}>{a.detail}</p>
-                      {a.done && <p style={{ margin: 0, fontSize: 12.5, color: C.teal }}>{a.done.note}</p>}
-                      {a.note && <p style={{ margin: 0, fontSize: 12, color: C.soft }}>{a.note}</p>}
-                      {a.blocked && a.button && !a.href && !result && <p style={{ margin: 0, fontSize: 12, color: C.amber }}>{a.blocked}</p>}
-                      {confirming === a.id && (
-                        <div role="alertdialog" aria-label="Confirm" style={{ marginTop: 4, padding: '10px 12px', borderRadius: 10, background: C.card, border: `1px solid ${C.rule2}`, display: 'grid', gap: 8 }}>
-                          <p style={{ margin: 0, fontSize: 13 }}>{a.confirm}</p>
-                          {a.kind === 'duplicate_as_traffic' && (
-                            <div style={{ display: 'grid', gap: 8 }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                                <span style={{ ...labelStyle, fontSize: 11 }}>Daily budget</span>
-                                <span style={{ color: C.soft }}>$</span>
-                                <input type="number" min={20} step={1} value={sheet.budget} onChange={(e) => setSheet((s) => ({ ...s, budget: e.target.value }))}
-                                  style={{ width: 72, padding: '5px 8px', borderRadius: 8, border: `1px solid ${C.rule2}`, fontFamily: C.mono, fontSize: 13 }} />
-                                <span style={{ color: C.soft, fontSize: 12 }}>/day (TikTok minimum $20)</span>
-                              </label>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                                <input type="checkbox" checked={sheet.pause} onChange={(e) => setSheet((s) => ({ ...s, pause: e.target.checked }))} />
-                                Also pause the original views campaign
-                              </label>
-                            </div>
-                          )}
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button style={{ ...btn(a.kind === 'pause' ? 'ghost' : 'mint'), padding: '6px 12px', fontSize: 12.5, ...(a.kind === 'pause' ? { color: C.red, borderColor: C.red } : {}) }} onClick={() => run(a)}>{a.button}</button>
-                            <button style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => setConfirming(null)}>Cancel</button>
-                          </div>
-                        </div>
-                      )}
-                      {result && <p style={{ margin: 0, fontSize: 12.5, color: result.ok ? C.teal : C.red }}>{result.text}</p>}
-                    </div>
-                    {a.href && a.button && (
-                      <a href={a.href} target={a.href.startsWith('/') ? undefined : '_blank'} rel="noreferrer" style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5, whiteSpace: 'nowrap', textDecoration: 'none' }}>{a.button} ↗</a>
-                    )}
-                    {!a.href && a.button && !result?.ok && !a.done && (
-                      <button style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5, whiteSpace: 'nowrap' }} disabled={busy === a.id || confirming === a.id} onClick={() => openConfirm(a)}>
-                        {busy === a.id ? 'Working…' : a.button}
-                      </button>
-                    )}
-                  </li>
-                )
-              })}
+              {actions.map((a, i) => (
+                <li key={a.id}><ActionItem a={a} n={i + 1} insight={data.campaigns.find((c) => c.platform === a.platform && c.campaign_id === a.campaign_id)?.insight} /></li>
+              ))}
             </ol>
           )}
           {data.ideas.length > 0 && (

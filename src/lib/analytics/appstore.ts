@@ -389,3 +389,43 @@ async function appHistory(appleAppId: string, sku: string | null, jwt: string, v
     allTime: { installs: all.installs, proceeds: r2(all.proceeds) },
   }
 }
+
+// ─── Ratings + reviews (App Store Connect customerReviews) ──────────────────
+//
+// The app's average rating over its latest 50 reviews and how many arrived in
+// the last 7 days, for the Console card. Cached 10 minutes per app.
+
+export type AppReviews = { rating: number | null; count: number; new7: number; latest?: { title?: string; rating: number; at: string } }
+const reviewCache = new Map<string, { at: number; v: Promise<AppReviews | null> }>()
+
+export function fetchReviews(appleAppId: string): Promise<AppReviews | null> {
+  const hit = reviewCache.get(appleAppId)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
+  const v = (async () => {
+    const jwt = signAppStoreJWT()
+    if (!jwt) return null
+    try {
+      const res = await fetch(`${API}/v1/apps/${appleAppId}/customerReviews?sort=-createdDate&limit=50`, { headers: { Authorization: `Bearer ${jwt}` }, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) return null
+      const body = await res.json()
+      const rows = (body.data ?? []) as { attributes: { rating: number; title?: string; createdDate: string } }[]
+      if (!rows.length) return { rating: null, count: 0, new7: 0 }
+      const since = Date.now() - 7 * 86400000
+      const avg = rows.reduce((s, r) => s + Number(r.attributes.rating ?? 0), 0) / rows.length
+      const l = rows[0].attributes
+      return { rating: Math.round(avg * 10) / 10, count: rows.length, new7: rows.filter((r) => Date.parse(r.attributes.createdDate) >= since).length, latest: { title: l.title, rating: l.rating, at: l.createdDate } }
+    } catch { return null }
+  })()
+  reviewCache.set(appleAppId, { at: Date.now(), v })
+  return v
+}
+
+/** fetchAppStore, memoized 10 minutes per app (the Console and /api/analytics both ask). */
+const storeCache = new Map<string, { at: number; v: Promise<AppStoreMetrics> }>()
+export function fetchAppStoreCached(appleAppId: string): Promise<AppStoreMetrics> {
+  const hit = storeCache.get(appleAppId)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
+  const v = fetchAppStore(appleAppId).catch(() => null as AppStoreMetrics)
+  storeCache.set(appleAppId, { at: Date.now(), v })
+  return v
+}

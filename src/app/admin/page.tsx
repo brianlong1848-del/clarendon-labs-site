@@ -1,8 +1,10 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { AdminShell, AppTag, C, appAccent, btn, labelStyle } from '@/components/AdminNav'
+import { ActionItem, type InsightAction } from '@/components/analytics/Insights'
 
 // ─── /admin — the studio console ─────────────────────────────────────────────
 //
@@ -28,6 +30,15 @@ type AppState = {
   pending: Suggestion[]; live: LiveCard[]; stats?: Stat[]; recent?: Recent[]
 }
 type Missing = { id: string; name: string; accent: string }
+type ServerState = { connected: boolean; ok?: boolean; ms?: number; error?: string; stats?: Stat[]; recent?: Recent[]; note?: string; connect?: string }
+type Card = {
+  id: string; name: string; accent: string
+  store: { installs7: number; installs_prev7: number; proceeds7: number; proceeds_prev7: number; report_date?: string; rating: number | null; new_reviews7: number; on_store: boolean } | null
+  ads: { spend7_cents: number; active_campaigns: number; campaigns: number } | null
+  action: InsightAction | null
+  server: ServerState
+}
+type Summary = { apps: number; servers_connected: number; last_sync: string }
 type Draft = {
   text: string; pack: string; tier: string; format: string
   /** Thank-you note for the suggester. Follows the card text/pack until edited by hand. */
@@ -40,13 +51,6 @@ const PACKS = [['base', 'Everyone'], ['afterdark', 'After Dark'], ['gay', 'Gay']
 const TIERS = [['free', 'Free'], ['core', 'Core'], ['afterdark', 'After Dark']] as const
 const FORMATS = [['vote', 'Vote'], ['action', 'Action']] as const
 const ORDER = ['rolligan', 'gagorder', 'yulepick', 'borea', 'jinglewire']
-const NOTES: Record<string, string> = {
-  rolligan: 'Rolligan has no server of its own — games stay on players’ phones. Its downloads, money, reviews and social live under Analytics and Inbox; in-app feedback arrives in the Inbox once the “Send feedback” screen ships.',
-  yulepick: 'Connect YulePick to see users, exchanges, names drawn and the waitlist here.',
-  borea: 'Connect Borea to see active users, AI usage and cost, subscribers and paywall hits here.',
-  gagorder: 'Connect Gag Order to review card suggestions here.',
-  jinglewire: 'Jinglewire’s numbers show here once its admin API is connected (JINGLEWIRE_ADMIN_URL + JINGLEWIRE_ADMIN_TOKEN).',
-}
 
 // The app drafts the note against the suggestion as submitted. While Brian hasn't
 // touched the note, keep it in step with edits to the card text and pack so the
@@ -80,8 +84,11 @@ export default function ConsolePage() {
   const [pw, setPw] = useState('')
   const [authed, setAuthed] = useState(false)
   const [entry, setEntry] = useState('')
+  const router = useRouter()
   const [apps, setApps] = useState<AppState[]>([])
   const [missing, setMissing] = useState<Missing[]>([])
+  const [cards, setCards] = useState<Card[]>([])
+  const [summary, setSummary] = useState<Summary | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +109,7 @@ export default function ConsolePage() {
     if (!res) { setError('Could not reach the console API.'); return }
     if (res.status === 401) { setError('Wrong password.'); setAuthed(false); (window.location.href = '/login'); return }
     const data = await res.json()
-    setApps(data.apps ?? []); setMissing(data.missing ?? []); setLoaded(true)
+    setApps(data.apps ?? []); setMissing(data.missing ?? []); setCards(data.cards ?? []); setSummary(data.summary ?? null); setLoaded(true)
     setDrafts((prev) => {
       const next: Record<string, Draft> = {}
       for (const app of (data.apps ?? []) as AppState[]) for (const s of app.pending) {
@@ -139,9 +146,6 @@ export default function ConsolePage() {
     load(pw)
   }
 
-  // Connected apps get a full card; the rest share one compact row.
-  const tiles = useMemo(() => [...apps].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)), [apps])
-  const notConnected = useMemo(() => [...missing].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)), [missing])
   const pending = apps.flatMap((a) => a.pending.map((s) => ({ app: a, s })))
   const live = apps.flatMap((a) => a.live.filter((c) => c.active !== false).map((c) => ({ app: a, c })))
     .filter(({ c }) => !query || c.text.toLowerCase().includes(query.toLowerCase()))
@@ -183,7 +187,7 @@ export default function ConsolePage() {
   return (
     <AdminShell
       title="Console"
-      subtitle={`Each app’s live numbers and anything waiting on you${loaded ? ` · ${apps.length} of ${apps.length + missing.length} apps connected` : ''}`}
+      subtitle={summary ? `${summary.apps} apps · ${summary.servers_connected} server${summary.servers_connected === 1 ? '' : 's'} connected · last sync ${new Date(summary.last_sync).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : 'Each app’s numbers and anything waiting on you'}
       actions={<>
         <button style={btn('ghost')} disabled={loading} onClick={() => load(pw)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
         <button style={btn('ghost')} onClick={() => { fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' }) }}>Sign out</button>
@@ -199,74 +203,61 @@ export default function ConsolePage() {
       )}
       {error && <p style={{ color: C.red, margin: 0 }}>{error}</p>}
 
-      {/* Apps at a glance */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(420px,100%),1fr))', gap: 18 }}>
-        {!loaded ? [0, 1].map((i) => <div key={i} style={{ height: 220, borderRadius: 18, background: C.card, border: `1px solid ${C.rule}` }} />)
-          : tiles.map((app) => {
-            const stats: Stat[] = app.stats ?? [
-              { label: 'Suggestions waiting', value: app.pending.length },
-              { label: 'Live community cards', value: app.live.filter((c) => c.active !== false).length },
-            ]
+      {/* One card per app: store, ads, the top action, and the app's own server when it has one */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(340px,100%),1fr))', gap: 18 }}>
+        {!loaded ? [0, 1, 2].map((i) => <div key={i} style={{ height: 300, borderRadius: 18, background: C.card, border: `1px solid ${C.rule}` }} />)
+          : [...cards].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)).map((c) => {
+            const d = c.store
+            const pct = (now: number, prev: number) => prev > 0 ? `${now >= prev ? '+' : ''}${Math.round(((now - prev) / prev) * 100)}% vs prior 7d` : now > 0 ? 'new this week' : '—'
+            const usd = (v: number) => v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: v % 1 ? 2 : 0 })
+            const stat = (l: string, v: string, sub?: string, tone?: string) => (
+              <div key={l} style={{ background: C.card2, borderRadius: 12, padding: '10px 12px', minWidth: 0 }}>
+                <div style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 900, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
+                <div style={{ ...label, marginTop: 4 }}>{l}</div>
+                {sub && <div style={{ fontSize: 11.5, color: tone ?? C.soft, fontWeight: 700, marginTop: 3 }}>{sub}</div>}
+              </div>
+            )
+            const s = c.server
             return (
-              <section key={app.id} style={{ background: C.card, border: `1px solid ${C.rule}`, borderTop: `4px solid ${app.accent ?? appAccent(app.id)}`,
-                                             borderRadius: 18, padding: 20, display: 'grid', gap: 16, alignContent: 'start' }}>
+              <section key={c.id} role="link" tabIndex={0} aria-label={`${c.name} analytics`}
+                onClick={() => router.push(`/analytics/${c.id}`)} onKeyDown={(e) => { if (e.key === 'Enter') router.push(`/analytics/${c.id}`) }}
+                style={{ background: C.card, border: `1px solid ${C.rule}`, borderTop: `4px solid ${c.accent ?? appAccent(c.id)}`, borderRadius: 18, padding: 18, display: 'grid', gap: 14, alignContent: 'start', cursor: 'pointer' }}>
                 <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 4 }}>
-                    <AppTag id={app.id} name={app.name} size={32} style={{ fontSize: 20, fontWeight: 700 }} />
-                    <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, color: C.soft }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 99, background: app.ok ? C.mint : C.red }} />
-                      {app.ok ? `Connected · ${app.ms}ms` : app.error}
-                    </div>
-                  </div>
-                  <Link href={`/analytics/${app.id}`} style={{ ...btn('ghost'), textDecoration: 'none', fontSize: 12.5 }}>Analytics</Link>
+                  <AppTag id={c.id} name={c.name} size={28} style={{ fontSize: 18, fontWeight: 700, flex: 1, minWidth: 0 }} />
+                  <span style={{ fontSize: 12.5, color: C.mint, fontWeight: 700 }}>Analytics →</span>
                 </header>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 10 }}>
-                  {stats.map((s) => (
-                    <div key={s.label} title={s.hint} style={{ background: C.card2, borderRadius: 12, padding: '12px 14px' }}>
-                      <div style={{ fontFamily: C.serif, fontSize: 24, fontWeight: 900, lineHeight: 1.1 }}>{fmtNum(s.value, s.format)}</div>
-                      <div style={{ ...label, marginTop: 5 }}>{s.label}</div>
-                      {s.delta && <div style={{ fontSize: 11.5, color: C.mint, fontWeight: 700, marginTop: 4 }}>{s.delta}</div>}
-                    </div>
-                  ))}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8 }}>
+                  {d && d.on_store ? <>
+                    {stat('Downloads · 7d', d.installs7.toLocaleString('en-US'), pct(d.installs7, d.installs_prev7), d.installs7 >= d.installs_prev7 ? C.mint : C.loss)}
+                    {stat('Proceeds · 7d', usd(d.proceeds7), pct(d.proceeds7, d.proceeds_prev7), d.proceeds7 >= d.proceeds_prev7 ? C.mint : C.loss)}
+                  </> : stat('App Store', d ? 'no data' : 'not yet', d ? 'Sales reports not returned' : 'Not on the App Store yet')}
+                  {stat('Ad spend · 7d', usd((c.ads?.spend7_cents ?? 0) / 100), c.ads ? `${c.ads.active_campaigns} active of ${c.ads.campaigns} campaign${c.ads.campaigns === 1 ? '' : 's'}` : undefined)}
+                  {d && d.on_store && stat('Rating', d.rating != null ? `${d.rating.toFixed(1)} ★` : '—', `${d.new_reviews7} new review${d.new_reviews7 === 1 ? '' : 's'} · 7d`)}
                 </div>
-                {app.recent && app.recent.length > 0 && (
-                  <div style={{ display: 'grid', gap: 2 }}>
-                    <div style={{ ...label, marginBottom: 4 }}>Latest</div>
-                    {app.recent.slice(0, 5).map((r, i) => (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'baseline', fontSize: 13, padding: '5px 0', borderTop: i ? `1px solid ${C.rule}` : 'none' }}>
-                        <span aria-hidden style={{ color: C.soft }}>{ICON[r.icon ?? ''] ?? '•'}</span>
-                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <b style={{ fontWeight: 650 }}>{r.title}</b>{r.detail && <span style={{ color: C.soft }}> · {r.detail}</span>}
-                        </span>
-                        <span style={{ fontSize: 11.5, color: C.faint, whiteSpace: 'nowrap' }}>{ago(r.at)}</span>
-                      </div>
-                    ))}
+                {c.action
+                  ? <div style={{ display: 'grid', gap: 6 }}><div style={label}>This week</div><ActionItem a={c.action} compact /></div>
+                  : <p style={{ margin: 0, fontSize: 12.5, color: C.soft }}>{c.ads?.campaigns ? 'No action needed this week.' : 'No campaigns this week.'}</p>}
+                {s.connected && s.ok && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ ...label, display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 7, height: 7, borderRadius: 99, background: C.mint }} />Server · {s.ms}ms</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8 }}>
+                      {(s.stats ?? (c.id === 'gagorder' ? [{ label: 'Suggestions waiting', value: (apps.find((a) => a.id === c.id)?.pending.length ?? 0) }, { label: 'Live community cards', value: (apps.find((a) => a.id === c.id)?.live.filter((x) => x.active !== false).length ?? 0) }] : [])).slice(0, 4)
+                        .map((x) => stat(x.label, fmtNum(x.value, x.format), x.delta, C.mint))}
+                    </div>
+                    {s.recent?.[0] && <div style={{ fontSize: 12.5, color: C.ink2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ fontWeight: 650 }}>{s.recent[0].title}</b>{s.recent[0].detail ? <span style={{ color: C.soft }}> · {s.recent[0].detail}</span> : null} <span style={{ color: C.faint }}>{ago(s.recent[0].at)}</span></div>}
+                    {c.id === 'gagorder' && (apps.find((a) => a.id === c.id)?.pending.length ?? 0) > 0 && <a href="#review" onClick={(e) => e.stopPropagation()} style={{ fontSize: 13, fontWeight: 700, color: C.mint, textDecoration: 'none' }}>Review {apps.find((a) => a.id === c.id)!.pending.length} suggestion{apps.find((a) => a.id === c.id)!.pending.length === 1 ? '' : 's'}</a>}
                   </div>
                 )}
-                {app.id === 'gagorder' && (app.pending.length > 0
-                  ? <a href="#review" style={{ fontSize: 13, fontWeight: 700, color: C.mint, textDecoration: 'none' }}>Review {app.pending.length} suggestion{app.pending.length === 1 ? '' : 's'}</a>
-                  : <p style={{ margin: 0, fontSize: 13, color: C.soft }}>No suggestions waiting</p>)}
+                {s.connected && !s.ok && <p style={{ margin: 0, fontSize: 12.5, color: C.loss }}>Server: {s.error}</p>}
+                {!s.connected && (
+                  <p style={{ margin: 0, fontSize: 12.5, color: C.soft }} onClick={(e) => e.stopPropagation()}>
+                    {s.note ?? <>Server stats: not connected{s.connect && <> · <details style={{ display: 'inline' }}><summary style={{ display: 'inline', cursor: 'pointer', color: C.mint, fontWeight: 700 }}>Connect</summary><span style={{ display: 'block', marginTop: 6, lineHeight: 1.5 }}>{s.connect}</span></details></>}</>}
+                  </p>
+                )}
               </section>
             )
           })}
       </div>
-
-      {/* Apps without an admin API yet: one row, how to connect each on hover / tap */}
-      {loaded && notConnected.length > 0 && (
-        <div data-card style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: '14px 18px',
-                                display: 'flex', alignItems: 'flex-start', gap: '10px 22px', flexWrap: 'wrap' }}>
-          <span style={{ ...label, paddingTop: 4 }}>Not connected</span>
-          {notConnected.map((m) => (
-            <details key={m.id} title={NOTES[m.id]} style={{ fontSize: 14, fontWeight: 600, maxWidth: 360 }}>
-              <summary style={{ cursor: 'pointer', listStyle: 'none', display: 'inline-flex' }}>
-                <AppTag id={m.id} name={m.name} />
-              </summary>
-              <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 400, color: C.ink2, lineHeight: 1.5 }}>{NOTES[m.id]}</p>
-            </details>
-          ))}
-        </div>
-      )}
 
       {/* Waiting on you */}
       {loaded && (
