@@ -30,6 +30,8 @@ export type Narrative = {
   ideas: { app_id?: string; title: string; detail: string }[]
   model: string
   generated_at: string
+  /** True when a safety decline was re-run on the fallback model (usage.iterations has a fallback_message). */
+  fallback?: boolean
 }
 
 /** Chicago's date — the cache is per Brian's day, not UTC's. */
@@ -111,7 +113,7 @@ export async function writeNarrative(input: Input): Promise<Narrative> {
           summary: { type: 'string' },
           campaigns: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['campaign_id', 'why', 'try_next'],
             properties: { campaign_id: { type: 'string' }, why: { type: 'string' }, try_next: { type: 'string' } } } },
-          ideas: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['title', 'detail'],
+          ideas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'detail'],
             properties: { app_id: { type: 'string' }, title: { type: 'string' }, detail: { type: 'string' } } } },
         } }, strict: true }],
       tool_choice: { type: 'auto' },
@@ -130,11 +132,13 @@ export async function writeNarrative(input: Input): Promise<Narrative> {
   }
   if (!out || typeof out.summary !== 'string') throw new Error('Claude didn’t return insights.')
   const known = new Set(input.rows.map((r) => r.campaign_id))
+  const fallback = Array.isArray(body.usage?.iterations) && body.usage.iterations.some((e: { type?: string }) => e?.type === 'fallback_message')
+  console.log(`[insights] narrative for ${input.app}/${input.range} by ${body.model ?? MODEL()}${fallback ? ' (FALLBACK model)' : ''}, ${body.usage?.input_tokens ?? '?'} in / ${body.usage?.output_tokens ?? '?'} out`)
   return {
     summary: String(out.summary).trim(),
     campaigns: (Array.isArray(out.campaigns) ? out.campaigns : []).filter((c: any) => known.has(String(c?.campaign_id))).map((c: any) => ({ campaign_id: String(c.campaign_id), why: String(c.why ?? '').trim(), try_next: String(c.try_next ?? '').trim() })),
     ideas: (Array.isArray(out.ideas) ? out.ideas : []).slice(0, 3).map((i: any) => ({ app_id: i?.app_id ? String(i.app_id) : undefined, title: String(i?.title ?? '').trim(), detail: String(i?.detail ?? '').trim() })).filter((i: { title: string }) => i.title),
-    model: String(body.model ?? MODEL()), generated_at: new Date().toISOString(),
+    model: String(body.model ?? MODEL()), generated_at: new Date().toISOString(), fallback,
   }
 }
 

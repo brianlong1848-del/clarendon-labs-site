@@ -29,6 +29,8 @@ export type Metrics = {
   /** impressions ÷ reach. */
   frequency?: number
   installs?: number; cpi_cents?: number; est_roas?: number; platform_roas?: number
+  /** Why CPI / ROAS aren't judged yet ("Installs too few to judge (6 of 20)"). */
+  installs_note?: string
   trend?: { ctr_change?: number; frequency_change?: number; days: number; fatigue: boolean }
 }
 
@@ -96,7 +98,14 @@ export function objectiveKind(objective?: string): ObjectiveKind {
   if (/TRAFFIC|LINK|DOWNLOAD/.test(o)) return 'traffic'
   return 'views'   // VIDEO_VIEWS, REACH, ENGAGEMENT, OUTCOME_AWARENESS, …
 }
-const PRIMARY: Record<ObjectiveKind, Stage[]> = { views: ['hook', 'hold', 'cost'], traffic: ['click', 'cost'], installs: ['click', 'cost', 'install'] }
+/** Installs (and so CPI / est. ROAS) count only from this many — under it the stage is "too few to judge". */
+export const MIN_INSTALLS = 20
+/** The objective's primary stages. Install joins once there are MIN_INSTALLS; app promotion falls back to click + cost until then. */
+function primaryStages(kind: ObjectiveKind, platform: 'tiktok' | 'meta', installsJudged: boolean): Stage[] {
+  if (kind === 'views') return platform === 'tiktok' ? ['hook', 'hold', 'cost'] : ['cost']
+  if (kind === 'traffic') return installsJudged ? ['click', 'cost', 'install'] : ['click', 'cost']
+  return installsJudged ? ['install'] : ['click', 'cost']
+}
 
 // ── Numbers ─────────────────────────────────────────────────────────────────
 
@@ -106,7 +115,9 @@ const div = (a?: number, b?: number) => (a != null && b != null && b > 0 ? a / b
 const r2 = (v?: number) => (v == null ? undefined : Math.round(v * 100) / 100)
 
 function metricsOf(r: Pick<CampaignRow, 'spend_cents' | 'impressions' | 'reach' | 'clicks' | 'ctr' | 'cpc_cents' | 'cpm_cents' | 'video_views' | 'views2s' | 'views15s' | 'follows'>, platform: 'tiktok' | 'meta', money?: MoneyFacts): Metrics {
-  const starts = r.views2s ?? (platform === 'meta' ? r.video_views : undefined)
+  // Meta's "video_play_actions" and 15-s watched aren't TikTok's 2-s / 15-s views like for like,
+  // so hook and hold are TikTok-only until Meta's numbers are mapped (FEAT-CLA-023 fix 2).
+  const starts = platform === 'tiktok' ? r.views2s : undefined
   const impressions = r.impressions
   return {
     spend_cents: r.spend_cents, impressions,
@@ -171,15 +182,19 @@ function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med
   const grades: Partial<Record<Stage, Grade>> = {}
   const costKey: keyof Metrics = kind === 'views' ? (m.cost_per_view15_cents != null ? 'cost_per_view15_cents' : 'cpm_cents') : 'cpc_cents'
   const costVal = m[costKey] as number | undefined
-  grades.hook = nudge(grade(m.hook_rate, bench.hook_rate), m.hook_rate, med.hook_rate, bench.hook_rate)
-  grades.hold = nudge(grade(m.hold_rate, bench.hold_rate), m.hold_rate, med.hold_rate, bench.hold_rate)
+  if (platform === 'tiktok') grades.hook = nudge(grade(m.hook_rate, bench.hook_rate), m.hook_rate, med.hook_rate, bench.hook_rate)
+  if (platform === 'tiktok' && kind === 'views') grades.hold = nudge(grade(m.hold_rate, bench.hold_rate), m.hold_rate, med.hold_rate, bench.hold_rate)
   // Click = the worse of CTR and CPC: a views campaign that nobody taps still "needs work" (Brian's rule).
   const ctrG = nudge(grade(m.ctr, bench.ctr), m.ctr, med.ctr, bench.ctr)
   const cpcG = nudge(grade(m.cpc_cents, bench.cpc_cents), m.cpc_cents, med.cpc_cents, bench.cpc_cents)
   grades.click = ctrG && cpcG ? ORDER[Math.min(ORDER.indexOf(ctrG), ORDER.indexOf(cpcG))] : ctrG ?? cpcG
   grades.cost = nudge(grade(costVal, bench[costKey]), costVal, med[costKey] as number | undefined, bench[costKey])
-  if (m.cpi_cents != null) grades.install = nudge(grade(m.cpi_cents, bench.cpi_cents), m.cpi_cents, med.cpi_cents, bench.cpi_cents)
-  else if (m.est_roas != null) grades.install = grade(m.est_roas, bench.est_roas)
+  // CPI / est. ROAS only count from MIN_INSTALLS; under that they're a note, never a mark against.
+  const installsJudged = (m.installs ?? 0) >= MIN_INSTALLS
+  if (installsJudged) {
+    if (m.cpi_cents != null) grades.install = nudge(grade(m.cpi_cents, bench.cpi_cents), m.cpi_cents, med.cpi_cents, bench.cpi_cents)
+    else if (m.est_roas != null) grades.install = grade(m.est_roas, bench.est_roas)
+  } else m.installs_note = m.installs ? `Installs too few to judge CPI (${m.installs} of ${MIN_INSTALLS} needed)` : 'Not enough installs yet to judge CPI'
   if (trend && trend.days >= FATIGUE.days * 2) grades.fatigue = trend.fatigue ? 'poor' : (m.frequency != null && m.frequency > bench.frequency.ok ? 'ok' : 'good')
   for (const k of Object.keys(grades) as Stage[]) if (!grades[k]) delete grades[k]
 
@@ -187,11 +202,12 @@ function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med
     return { verdict: 'too_early', objective_kind: kind, grades, metrics: m,
       reason: `Too early to judge: ${usd(m.spend_cents)} spent and ${(m.impressions ?? 0).toLocaleString('en-US')} impressions so far (it needs ${usd(TOO_EARLY.spend_cents)} and ${TOO_EARLY.impressions.toLocaleString('en-US')}).` }
   }
-  const primary = PRIMARY[kind].filter((s) => grades[s])
+  const primaryAll = primaryStages(kind, platform, installsJudged)
+  const primary = primaryAll.filter((s) => grades[s])
   const poor = (Object.keys(grades) as Stage[]).filter((s) => grades[s] === 'poor')
   const verdict: Verdict = primary.length && primary.every((s) => grades[s] === 'good') && !poor.length && !trend?.fatigue ? 'winning'
     : primary.some((s) => grades[s] === 'poor') || grades.click === 'poor' || poor.length >= 2 || trend?.fatigue ? 'needs_work' : 'ok'
-  const stageOrder: Stage[] = [...PRIMARY[kind], 'hook', 'hold', 'click', 'cost', 'install', 'fatigue']
+  const stageOrder: Stage[] = [...primaryAll, 'click', 'cost', 'hook', 'hold', 'install', 'fatigue']
   const ranked = (Object.keys(grades) as Stage[]).sort((a, b) => ORDER.indexOf(grades[a]!) - ORDER.indexOf(grades[b]!) || stageOrder.indexOf(a) - stageOrder.indexOf(b))
   const weakest = ranked[0]
 
@@ -200,11 +216,11 @@ function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med
     switch (s) {
       case 'hook': return `hook rate ${rate(m.hook_rate)} (${PLATFORM_NAME[platform]} range ${rate(bench.hook_rate.ok)}–${rate(bench.hook_rate.good)}+${own('hook_rate', rate)})`
       case 'hold': return `hold rate ${rate(m.hold_rate)} (range ${rate(bench.hold_rate.ok)}–${rate(bench.hold_rate.good)}+${own('hold_rate', rate)})`
-      case 'click': return `CTR ${pct(m.ctr)} (range ${pct(bench.ctr.ok, 1)}–${pct(bench.ctr.good, 1)}+${own('ctr', (v) => pct(v))})${m.cpc_cents != null && kind !== 'traffic' && kind !== 'installs' ? ` and CPC ${usd(m.cpc_cents)} (range ${usd(bench.cpc_cents.good)}–${usd(bench.cpc_cents.ok)}${own('cpc_cents', usd)})` : ''}`
+      case 'click': return `CTR ${pct(m.ctr)} (range ${pct(bench.ctr.ok, 1)}–${pct(bench.ctr.good, 1)}+${own('ctr', (v) => pct(v))})${m.cpc_cents != null && kind === 'views' ? ` and CPC ${usd(m.cpc_cents)} (range ${usd(bench.cpc_cents.good)}–${usd(bench.cpc_cents.ok)}${own('cpc_cents', usd)})` : ''}`
       case 'cost': return costKey === 'cpc_cents' ? `CPC ${usd(m.cpc_cents)} (range ${usd(bench.cpc_cents.good)}–${usd(bench.cpc_cents.ok)}${own('cpc_cents', usd)})`
         : costKey === 'cost_per_view15_cents' ? `cost per 15-s view ${usd(m.cost_per_view15_cents)} (range ${usd(bench.cost_per_view15_cents.good)}–${usd(bench.cost_per_view15_cents.ok)}${own('cost_per_view15_cents', usd)})`
         : `CPM ${usd(m.cpm_cents)} (range ${usd(bench.cpm_cents.good)}–${usd(bench.cpm_cents.ok)}${own('cpm_cents', usd)})`
-      case 'install': return m.cpi_cents != null ? `cost per install ${usd(m.cpi_cents)} (range ${usd(bench.cpi_cents.good)}–${usd(bench.cpi_cents.ok)})` : `est. ROAS ${m.est_roas?.toFixed(2)}×`
+      case 'install': return m.cpi_cents != null ? `cost per install ${usd(m.cpi_cents)} over ${m.installs} installs (range ${usd(bench.cpi_cents.good)}–${usd(bench.cpi_cents.ok)})` : `est. ROAS ${m.est_roas?.toFixed(2)}×`
       case 'fatigue': return trend?.fatigue ? `CTR down ${Math.round(Math.abs(trend.ctr_change ?? 0) * 100)}% over ${FATIGUE.days} days while frequency rose ${Math.round((trend.frequency_change ?? 0) * 100)}% (now ${m.frequency?.toFixed(1)}×)` : `frequency ${m.frequency?.toFixed(1)}×`
     }
   }
@@ -213,9 +229,12 @@ function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med
   if (verdict === 'winning') reason = `${primary.map(describe).join(' and ')} beat ${PLATFORM_NAME[platform]}'s range for ${objectiveWord}.`
   else if (verdict === 'needs_work') {
     const worst = ranked.filter((s) => grades[s] === 'poor').slice(0, 2)
-    reason = `${worst.map(describe).join(' and ')} ${worst.length > 1 ? 'are' : 'is'} under ${PLATFORM_NAME[platform]}'s range${kind === 'views' && worst.every((s) => s === 'click' || s === 'cost') ? ' — fine for a views objective only if nobody is meant to tap' : ''}.`
+    const plural = worst.length > 1 || (worst[0] === 'click' && kind === 'views' && m.cpc_cents != null)
+    reason = `${worst.map(describe).join(' and ')} ${plural ? 'are' : 'is'} under ${PLATFORM_NAME[platform]}'s range${kind === 'views' && worst.every((s) => s === 'click') ? ' — a views campaign has no button, so if taps are the point run it as Traffic' : ''}.`
   } else reason = `${(ranked.slice(0, 2)).map(describe).join('; ')} — inside the range, not ahead of it.`
+  if (m.installs_note && kind !== 'views') reason += ` ${m.installs_note}.`
   if (status === 'paused') reason += ' (Paused.)'
+  if (status === 'ended') reason += ' (Ended.)'
   return { verdict, reason, weakest, objective_kind: kind, grades, metrics: m }
 }
 
@@ -254,51 +273,83 @@ export function analyze(rows: CampaignRow[], money: Map<string, MoneyFacts> = ne
     actions.push(...actionsFor(r, insight, range))
   }
   actions.sort((a, b) => b.score - a.score)
-  return { campaigns, ads, actions: actions.slice(0, 5) }
+  // One Pause per app per week, unless a second campaign is clearly wasting money.
+  const pausedApps = new Set<string>()
+  const kept = actions.filter((a) => {
+    if (a.kind !== 'pause') return true
+    const app = a.app_id ?? 'shared'
+    const i = campaigns[`${a.platform}:${a.campaign_id}`]
+    const wasted = i.metrics.spend_cents >= 5000 && i.grades.click === 'poor' && (i.metrics.ctr ?? 0) < 0.3
+    if (pausedApps.has(app) && !wasted) return false
+    pausedApps.add(app)
+    return true
+  })
+  return { campaigns, ads, actions: kept.slice(0, 5) }
 }
 
 const adAsRow = (a: CampaignAd) => ({ spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows,
   reach: undefined, cpm_cents: undefined, video_views: undefined, views2s: undefined })
 
 const TIKTOK_WRITE_NOTE = 'TikTok writes answer 40001 until TikTok approves the Ads Management scope (requested 2026-10-27) — the button will say so if it fails.'
+const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, duplicate_traffic: 30, resume: 20, lower_budget: 20, creative: 10, wait: 0 }
+
+const dayKey = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+
+/** Still spending: money went out in the last two days (or no daily data and the platform says it's running). */
+function spendingNow(r: CampaignRow): boolean {
+  if (r.status === 'ended' || r.status === 'deleted' || r.status === 'paused' || r.status === 'budget_spent') return false
+  if (!r.daily.length) return r.status === 'running' || r.status === undefined ? r.spend_cents > 0 : false
+  const since = dayKey(new Date(Date.now() - 2 * 86400000))
+  return r.daily.some((d) => d.day >= since && d.spend_cents > 0)
+}
+/** Money at stake for the next week, cents: the daily budget, else the average of the last 7 spending days. */
+function stakeCents(r: CampaignRow): number {
+  if (r.budget_daily_cents) return r.budget_daily_cents * 7
+  const last = r.daily.slice(-7)
+  const avg = last.length ? last.reduce((s, d) => s + d.spend_cents, 0) / last.length : 0
+  return Math.round(avg * 7)
+}
 
 function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   const out: Action[] = []
   const name = r.name
-  const live = r.status === 'running' || r.status === undefined
-  const spendWeight = Math.min(30, (r.budget_daily_cents ?? r.spend_cents / 7) / 100)
+  const live = spendingNow(r)
+  const ended = r.status === 'ended' || r.status === 'deleted' || (!live && r.daily.length > 0 && r.status !== 'paused')
+  if (ended) return out   // nothing to do on a campaign that's over
+  const stake = stakeCents(r)
+  const score = (kind: ActionKind) => stake / 100 + KIND_BONUS[kind]
   const base = { platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, campaign_name: name, promotion_id: r.promotion_id }
   const blocked = r.platform === 'tiktok' ? TIKTOK_WRITE_NOTE : undefined
   const id = (kind: ActionKind) => `${kind}:${r.platform}:${r.campaign_id}`
-  if (i.verdict === 'needs_work' && live && r.status !== 'paused' && r.status !== 'ended') {
+
+  if (i.verdict === 'needs_work' && live) {
     const fatigue = i.weakest === 'fatigue'
-    out.push({ ...base, id: id('pause'), kind: 'pause', title: `Pause ${name}`, button: 'Pause', blocked, score: 80 + spendWeight + (fatigue ? 5 : 0),
+    out.push({ ...base, id: id('pause'), kind: 'pause', title: `Pause ${name}`, button: 'Pause', blocked, score: score('pause') + (fatigue ? 5 : 0),
       detail: fatigue ? `${i.reason} Pause it and swap the creative before spending more.` : `${i.reason} Pause it while the creative or targeting changes.`,
       confirm: `Pause "${name}"? It stops delivering until you resume it (here or in Ads Manager). Spend to date stays.` })
   }
-  if (i.verdict === 'winning' && live && r.status !== 'paused') {
+  if (i.verdict === 'winning' && live) {
     const current = r.budget_daily_cents
     const next = current ? Math.round(current * 1.25) : undefined
-    out.push({ ...base, id: id('raise_budget'), kind: 'raise_budget', title: `Raise ${name} by 25%`, button: current ? `Raise to ${usd(next)}/day` : 'Raise budget 25%', amount_cents: next, blocked, score: 70 + spendWeight,
+    out.push({ ...base, id: id('raise_budget'), kind: 'raise_budget', title: `Raise ${name} by 25%`, button: current ? `Raise to ${usd(next)}/day` : 'Raise budget 25%', amount_cents: next, blocked, score: score('raise_budget'),
       detail: `${i.reason} Give it more room: ${current ? `${usd(current)} → ${usd(next)} a day` : '+25% a day'}, then re-check in 3 days.`,
       confirm: `Raise "${name}" to ${current ? `${usd(next)} a day` : "125% of today’s daily budget"}? This spends more from tomorrow.` })
-    if (i.objective_kind === 'views' && r.promotion_id) {
-      out.push({ ...base, id: id('duplicate_traffic'), kind: 'duplicate_traffic', title: `Duplicate ${name} as Traffic`, button: 'Duplicate as Traffic (paused)', blocked, score: 60 + spendWeight,
-        detail: 'The hook holds; add a Download button by running the same post and audience as a Traffic campaign to /get/<app>?ct=. Created paused — you switch it on.',
-        confirm: `Create a paused Traffic copy of "${name}" with the same post, audience and daily budget? Nothing spends until you resume it.` })
-    }
-    if (i.objective_kind !== 'views') out.push({ ...base, id: id('creative'), kind: 'creative', title: `Reuse ${name}'s angle`, score: 45 + spendWeight / 2,
+    if (i.objective_kind !== 'views') out.push({ ...base, id: id('creative'), kind: 'creative', title: `Reuse ${name}’s angle`, score: score('creative') + 5,
       detail: 'It converts. Cut the same hook for the other cuts / countries, and try it on the other apps whose audience overlaps.' })
   }
-  if (i.verdict === 'needs_work' && i.weakest === 'hook') out.push({ ...base, id: id('creative'), kind: 'creative', title: `New first line for ${name}`, score: 55 + spendWeight / 2,
-    detail: `Hook rate ${rate(i.metrics.hook_rate)}: the first second isn't stopping the scroll. Re-cut with the loudest moment first and the text inside the safe box (FEAT-CLA-020).` })
-  if (i.verdict === 'needs_work' && (i.weakest === 'click' || i.weakest === 'cost') && i.objective_kind === 'views') out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name}: views are fine, taps aren't`, score: 50 + spendWeight / 2,
-    detail: `People watch (hold ${rate(i.metrics.hold_rate)}) but don't tap (CTR ${pct(i.metrics.ctr)}, CPC ${usd(i.metrics.cpc_cents)}). A views campaign has no button — if you want installs, run it as Traffic with a Download button instead of paying for views.` })
-  if (i.verdict === 'ok' && i.weakest && i.weakest !== 'fatigue' && live) out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name}: lift the ${STAGE_LABEL[i.weakest].toLowerCase()} stage`, score: 30 + spendWeight / 2,
+  // A weak views campaign: the clip holds attention but buys no taps — run it as Traffic with a Download button.
+  if (i.objective_kind === 'views' && (i.verdict === 'needs_work' || (i.verdict === 'ok' && i.grades.click !== 'good'))) {
+    out.push({ ...base, id: id('duplicate_traffic'), kind: 'duplicate_traffic', title: `Duplicate ${name} as Traffic`,
+      button: r.promotion_id ? 'Duplicate as Traffic (paused)' : undefined, blocked: r.promotion_id ? blocked : undefined, score: score('duplicate_traffic'),
+      detail: `${i.metrics.hold_rate != null ? `People watch (hold ${rate(i.metrics.hold_rate)}) but don’t tap (CTR ${pct(i.metrics.ctr)}, CPC ${usd(i.metrics.cpc_cents)}). ` : ''}A views campaign has no button. Run the same post and audience as a Traffic campaign with a single Download button to clarendon.dev/get/<app>?ct=…${r.promotion_id ? ' Created paused — you switch it on.' : ' This one was made in Ads Manager, so duplicate it there (or boost the post from Studio as Downloads).'}`,
+      confirm: r.promotion_id ? `Create a paused Traffic copy of "${name}" with the same post, audience and daily budget? Nothing spends until you resume it.` : undefined })
+  }
+  if (i.verdict === 'needs_work' && i.weakest === 'hook') out.push({ ...base, id: id('creative'), kind: 'creative', title: `New first line for ${name}`, score: score('creative') + 8,
+    detail: `Hook rate ${rate(i.metrics.hook_rate)}: the first second isn’t stopping the scroll. Re-cut with the loudest moment first and the text inside the safe box (FEAT-CLA-020).` })
+  if (i.verdict === 'ok' && i.weakest && i.weakest !== 'fatigue' && live && !(i.objective_kind === 'views' && i.grades.click !== 'good')) out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name}: lift the ${STAGE_LABEL[i.weakest].toLowerCase()} stage`, score: score('creative'),
     detail: `${i.reason} One change at a time: ${i.weakest === 'hook' ? 'a new first line' : i.weakest === 'hold' ? 'cut the middle, get to the payoff sooner' : i.weakest === 'click' ? 'a clearer reason to tap in the caption / CTA' : i.weakest === 'cost' ? 'narrow the audience or lower the budget until the cost settles' : 'check installs attribution'}.` })
-  if (i.verdict === 'too_early' && live && r.spend_cents > 0) out.push({ ...base, id: id('wait'), kind: 'wait', title: `Let ${name} run`, score: 10 + spendWeight / 4,
-    detail: i.reason })
-  if (i.verdict === 'needs_work' && r.status === 'paused') out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name} is paused — fix before resuming`, score: 35,
+  if (i.verdict === 'too_early' && live) out.push({ ...base, id: id('wait'), kind: 'wait', title: `Let ${name} run`, score: score('wait'), detail: i.reason })
+  if (i.verdict === 'needs_work' && r.status === 'paused') out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name} is paused — fix before resuming`, score: score('creative'),
     detail: `${i.reason} Resume only with a new cut or audience.` })
   void range
   return out

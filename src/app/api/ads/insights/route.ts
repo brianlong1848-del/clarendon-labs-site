@@ -54,7 +54,7 @@ export async function GET(req: Request) {
       narrative: byId.get(r.campaign_id) ? { why: byId.get(r.campaign_id)!.why, try_next: byId.get(r.campaign_id)!.try_next } : undefined,
     })),
     actions: analysis.actions,
-    summary: narrative?.summary, ideas: narrative?.ideas ?? [], model: narrative?.model, generated_at: narrative?.generated_at,
+    summary: narrative?.summary, ideas: narrative?.ideas ?? [], model: narrative?.model, generated_at: narrative?.generated_at, fallback: narrative?.fallback ?? false,
     installs_visible: !!money, errors: [...errors, ...(narrativeError ? [narrativeError] : [])],
   })
 }
