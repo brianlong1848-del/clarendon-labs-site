@@ -8,17 +8,24 @@
 // (/get/<app>?ct=) are wired (APP_STORE_PROVIDER_TOKEN).
 
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
-import { tiktokAdvertiserId, tiktokCampaigns, tiktokStatusWord, tiktokToken } from '@/lib/analytics/tiktok'
-import { adAccountId, metaCampaignDays, metaCampaignInfo, type Promotion } from './meta'
+import { tiktokAdvertiserId, tiktokCached, tiktokCampaigns, tiktokStatusWord, tiktokToken } from '@/lib/analytics/tiktok'
+import { adAccountId, metaAdInsights, metaCampaignAds, metaCampaignDays, metaCampaignInfo, metaStatusWord, type Promotion } from './meta'
 import { rest } from '@/lib/publish/store'
 import { adsManagerUrl } from './tiktok'
+import { campaignMedia, mediaFields, type AdMedia } from './media'
 
-export type CampaignAd = {
+/** Which post / video an ad shows (./media.ts). All optional: a platform that
+ *  can't say leaves them out, and older Studio builds still decode. */
+export type MediaFields = {
+  media_kind?: AdMedia['kind']; thumbnail_url?: string; video_url?: string; permalink?: string; media_note?: string
+}
+
+export type CampaignAd = MediaFields & {
   ad_id: string; name: string; status?: string; status_detail?: string; status_note?: string; review?: string; item_id?: string
   spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
 
-export type CampaignRow = {
+export type CampaignRow = MediaFields & {
   platform: 'tiktok' | 'meta'
   app_id: string | null
   campaign_id: string
@@ -42,7 +49,12 @@ export type CampaignRow = {
   /** Set when a Studio boost created it. */
   promotion_id?: string
   url?: string
+  /** Ads on the campaign (the thumbnail shows the first one, "+N" the rest). */
+  ad_count?: number
 }
+
+const cached = tiktokCached
+const HOUR = 60 * 60_000
 
 export type Range = '7d' | '30d' | '90d'
 export const RANGES: Range[] = ['7d', '30d', '90d']
@@ -53,7 +65,7 @@ export function rangeDates(r: Range) {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), days }
 }
 
-export const INSTALLS_NOTE = 'Installs and cost per install arrive from App Store Connect campaign tokens (/get/<app>?ct=) once APP_STORE_PROVIDER_TOKEN is set.'
+export const INSTALLS_NOTE = 'Installs and cost per install per ad appear once Apple has counted 5+ installs through that campaign’s link (/get/<app>?ct=…, App Store Connect campaign tokens).'
 
 /** Every campaign for one app (or all apps), both platforms. Per-platform
  *  failures are reported, not thrown, so one platform being down never
@@ -116,7 +128,29 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
       r.daily.sort((a, b) => a.day.localeCompare(b.day))
     }
     meta = Array.from(by.values())
+    // Ads per Meta campaign: names + status from the ads list (hourly cache),
+    // figures from ad-level insights (10 minutes). Best effort per campaign.
+    await Promise.all(meta.map(async (r) => {
+      try {
+        const [list, ins] = await Promise.all([
+          cached(`meta-ads:${r.campaign_id}`, fresh, () => metaCampaignAds(r.campaign_id), HOUR),
+          cached(`meta-ad-insights:${r.campaign_id}:${start}:${end}`, fresh, () => metaAdInsights(r.campaign_id, start, end)),
+        ])
+        const byAd = new Map(ins.map((a) => [a.ad_id, a]))
+        r.ads = list.map((a) => { const s = byAd.get(a.ad_id); return { ad_id: a.ad_id, name: a.name, status: metaStatusWord(a.effective_status), status_detail: a.effective_status,
+          spend_cents: s?.spend_cents ?? 0, impressions: s?.impressions, clicks: s?.clicks, ctr: s?.ctr, cpc_cents: s?.cpc_cents, views15s: s?.views15s } })
+        for (const s of ins) if (!list.some((a) => a.ad_id === s.ad_id)) r.ads.push({ ad_id: s.ad_id, name: s.name ?? s.ad_id, spend_cents: s.spend_cents, impressions: s.impressions, clicks: s.clicks, ctr: s.ctr, cpc_cents: s.cpc_cents, views15s: s.views15s })
+      } catch { /* the campaign row stands on its own */ }
+    }))
   }
   const campaigns = [...tiktok.flat(), ...meta].sort((a, b) => b.spend_cents - a.spend_cents || a.name.localeCompare(b.name))
+  // Which video each one is — thumbnails for the card and the Studio app.
+  await Promise.all(campaigns.map(async (r) => {
+    const m = await campaignMedia(r.platform, r.campaign_id, r.app_id, fresh).catch(() => null)
+    if (!m) return
+    Object.assign(r, mediaFields(m.media))
+    r.ad_count = Math.max(r.ads.length, m.ad_count)
+    for (const a of r.ads) Object.assign(a, mediaFields(m.ads[a.ad_id] ?? (r.ads.length === 1 ? m.media : null)))
+  }))
   return { campaigns, errors }
 }

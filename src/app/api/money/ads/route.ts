@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { supabaseServer } from '@/lib/supabase/server'
+import { campaignMedia, mediaFields } from '@/lib/ads/media'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,6 +62,9 @@ export async function GET(req: Request) {
   }
   const ratio = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) / 100 : null)
 
+  // Which video each campaign is (thumbnail + player; ./lib/ads/media.ts). Hourly cache, best effort.
+  const media = new Map(await Promise.all(Array.from(camps.values()).map(async (c) =>
+    [`${c.platform}:${c.campaign_id}`, c.platform === 'tiktok' || c.platform === 'meta' ? await campaignMedia(c.platform, c.campaign_id, c.app_slug).catch(() => null) : null] as const)))
   const campaigns = Array.from(camps.values()).map((c) => {
     const app = byApp[c.app_slug ?? 'shared']
     const appProceeds = proceeds[c.app_slug ?? ''] ?? 0
@@ -74,6 +78,7 @@ export async function GET(req: Request) {
       platform_value_cents: c.value, platform_roas: ratio(c.value, c.spend),
       est_proceeds_cents: estProceeds, est_roas: ratio(estProceeds, c.spend),
       daily_spend: Object.entries(c.daily).sort(([a], [b]) => a.localeCompare(b)).map(([day, cents]) => ({ day, cents })),
+      ...mediaFields(media.get(`${c.platform}:${c.campaign_id}`)?.media), ad_count: media.get(`${c.platform}:${c.campaign_id}`)?.ad_count,
     }
   }).sort((a, b) => b.spend_cents - a.spend_cents)
 

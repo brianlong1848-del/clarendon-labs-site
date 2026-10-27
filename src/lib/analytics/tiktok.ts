@@ -119,9 +119,9 @@ export async function tiktokCall<T = any>(path: string, opts: { method?: 'GET' |
 /** Memoizes an async result for 10 minutes per key, sharing one in-flight
  *  promise between concurrent callers. `fresh` recomputes and replaces the
  *  entry (the Refresh button). A rejected promise is dropped at once. */
-export async function tiktokCached<T>(key: string, fresh: boolean | undefined, fn: () => Promise<T>): Promise<T> {
+export async function tiktokCached<T>(key: string, fresh: boolean | undefined, fn: () => Promise<T>, ttl = TIKTOK_CACHE_MS): Promise<T> {
   const hit = cache.get(key)
-  if (hit && !fresh && Date.now() - hit.at < TIKTOK_CACHE_MS) return hit.value as Promise<T>
+  if (hit && !fresh && Date.now() - hit.at < ttl) return hit.value as Promise<T>
   const value = fn()
   cache.set(key, { at: Date.now(), value })
   value.catch(() => { if (cache.get(key)?.value === value) cache.delete(key) })
@@ -173,6 +173,8 @@ export type TikTokAd = TikTokStats & {
   item_id?: string
   /** Why there's no status (e.g. the token's scopes don't cover ad/get yet). */
   status_note?: string
+  /** Spark Ads: the TikTok post + the identity it runs as; other ads: the uploaded video. */
+  identity_id?: string; identity_type?: string; video_id?: string
 }
 
 export type TikTokCampaign = TikTokStats & {
@@ -303,14 +305,15 @@ async function tiktokCampaignsNow(advertiserId: string, start: string, end: stri
   }
   for (const row of byId.values()) row.daily.sort((a, b) => a.day.localeCompare(b.day))
   // Ads: report rows first, then ad/get for the review status.
-  const adStatus = new Map<string, { secondary?: string; name?: string; item?: string; adgroup?: string; campaign?: string }>()
+  const adStatus = new Map<string, { secondary?: string; name?: string; item?: string; adgroup?: string; campaign?: string; identity?: string; identityType?: string; video?: string }>()
   let adNote: string | undefined
   try {
     for (let page = 1, pages = 1; page <= pages && page <= 5; page++) {
       const data = await tiktokCall('/ad/get/', { query: { advertiser_id: advertiserId, page: String(page), page_size: '100',
-        fields: JSON.stringify(['ad_id', 'ad_name', 'adgroup_id', 'campaign_id', 'secondary_status', 'tiktok_item_id']) } })
+        fields: JSON.stringify(['ad_id', 'ad_name', 'adgroup_id', 'campaign_id', 'secondary_status', 'tiktok_item_id', 'identity_id', 'identity_type', 'video_id']) } })
       pages = n(data.page_info?.total_page) || 1
-      for (const a of data.list ?? []) adStatus.set(String(a.ad_id), { secondary: a.secondary_status, name: a.ad_name, item: a.tiktok_item_id, adgroup: a.adgroup_id, campaign: a.campaign_id })
+      for (const a of data.list ?? []) adStatus.set(String(a.ad_id), { secondary: a.secondary_status, name: a.ad_name, item: a.tiktok_item_id, adgroup: a.adgroup_id, campaign: a.campaign_id,
+                                                                       identity: a.identity_id, identityType: a.identity_type, video: a.video_id })
     }
   } catch (e) {
     adNote = /code 40001/.test((e as Error).message) ? SCOPE_PENDING_NOTE : `Status unavailable: ${(e as Error).message}`
@@ -326,12 +329,13 @@ async function tiktokCampaignsNow(advertiserId: string, start: string, end: stri
     seen.add(adId)
     row.ads.push({ ad_id: adId, adgroup_id: String(r.metrics.adgroup_id ?? st?.adgroup ?? ''), name: String(r.metrics.ad_name ?? st?.name ?? adId),
                    status_detail: st?.secondary, status_note: st?.secondary ? undefined : adNote, review: reviews.get(adId),
-                   item_id: r.metrics.tiktok_item_id ? String(r.metrics.tiktok_item_id) : st?.item, ...stats(r.metrics) })
+                   item_id: r.metrics.tiktok_item_id ? String(r.metrics.tiktok_item_id) : st?.item, identity_id: st?.identity, identity_type: st?.identityType, video_id: st?.video, ...stats(r.metrics) })
   }
   for (const [adId, st] of adStatus) {
     if (seen.has(adId) || !st.campaign) continue
     const row = byId.get(String(st.campaign))
-    if (row) row.ads.push({ ad_id: adId, adgroup_id: st.adgroup, name: st.name ?? adId, status_detail: st.secondary, review: reviews.get(adId), item_id: st.item, spend_cents: 0 })
+    if (row) row.ads.push({ ad_id: adId, adgroup_id: st.adgroup, name: st.name ?? adId, status_detail: st.secondary, review: reviews.get(adId), item_id: st.item,
+                            identity_id: st.identity, identity_type: st.identityType, video_id: st.video, spend_cents: 0 })
   }
   return Array.from(byId.values()).sort((a, b) => b.spend_cents - a.spend_cents || (b.created ?? '').localeCompare(a.created ?? ''))
 }

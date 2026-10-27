@@ -56,6 +56,40 @@ const post = (path: string, params: Record<string, unknown>) => {
 }
 const get = (path: string, params: Record<string, string> = {}) =>
   call(`${G}/${path}?${new URLSearchParams({ ...params, access_token: token() ?? '' })}`)
+/** One Graph API GET (server only) — for the ad-media resolver in ./media.ts. */
+export const metaGet = get
+export const metaConfigured = () => !!token()
+
+const STATUS_WORD: Record<string, string> = { ACTIVE: 'running', PAUSED: 'paused', PENDING_REVIEW: 'in_review', DISAPPROVED: 'rejected', PREAPPROVED: 'in_review',
+  PENDING_BILLING_INFO: 'no_funds', CAMPAIGN_PAUSED: 'paused', ADSET_PAUSED: 'paused', ARCHIVED: 'ended', DELETED: 'ended', WITH_ISSUES: 'running', IN_PROCESS: 'in_review' }
+/** Meta's effective_status → the one-word status the Campaigns card colours. */
+export const metaStatusWord = (effective?: string) => (effective && STATUS_WORD[effective]) || 'unknown'
+
+export type MetaAdCreative = {
+  thumbnail_url?: string; video_id?: string; effective_instagram_media_id?: string; effective_object_story_id?: string; instagram_permalink_url?: string; object_type?: string
+}
+export type MetaCampaignAd = { ad_id: string; name: string; effective_status?: string; creative?: MetaAdCreative }
+
+/** The ads of one campaign with their creatives (which post / video each one
+ *  shows). Creatives don't change, so callers cache this for an hour. */
+export async function metaCampaignAds(campaignId: string): Promise<MetaCampaignAd[]> {
+  if (!token()) return []
+  const body = await get(`${campaignId}/ads`, { fields: 'id,name,effective_status,creative{thumbnail_url,video_id,effective_instagram_media_id,effective_object_story_id,instagram_permalink_url,object_type}', limit: '50' })
+  return (body.data ?? []).map((a: any) => ({ ad_id: String(a.id), name: a.name ?? String(a.id), effective_status: a.effective_status, creative: a.creative }))
+}
+
+export type MetaAdStats = { ad_id: string; name?: string; spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number }
+/** Ad-level figures for one campaign over [start, end]. */
+export async function metaAdInsights(campaignId: string, start: string, end: string): Promise<MetaAdStats[]> {
+  if (!token()) return []
+  const body = await get(`${campaignId}/insights`, { level: 'ad', fields: 'ad_id,ad_name,spend,impressions,clicks,ctr,cpc,video_15_sec_watched_actions', time_range: JSON.stringify({ since: start, until: end }), limit: '100' })
+  return (body.data ?? []).map((r: any) => ({
+    ad_id: String(r.ad_id), name: r.ad_name, spend_cents: Math.round(Number(r.spend ?? 0) * 100),
+    impressions: r.impressions != null ? Number(r.impressions) : undefined, clicks: r.clicks != null ? Number(r.clicks) : undefined,
+    ctr: r.ctr != null ? Number(r.ctr) : undefined, cpc_cents: r.cpc != null ? Math.round(Number(r.cpc) * 100) : undefined,
+    views15s: r.video_15_sec_watched_actions ? (r.video_15_sec_watched_actions as any[]).filter((a) => a.action_type === 'video_view').reduce((s, a) => s + Number(a.value ?? 0), 0) : undefined,
+  }))
+}
 
 // ── Readiness ────────────────────────────────────────────────────────────────
 
@@ -424,12 +458,10 @@ export function toAdSpendRow(r: MetaCampaignDay) {
 export async function metaCampaignInfo(): Promise<Map<string, { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number }>> {
   const out = new Map<string, { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number }>()
   if (!token()) return out
-  const word: Record<string, string> = { ACTIVE: 'running', PAUSED: 'paused', PENDING_REVIEW: 'in_review', DISAPPROVED: 'rejected', PREAPPROVED: 'in_review',
-    PENDING_BILLING_INFO: 'no_funds', CAMPAIGN_PAUSED: 'paused', ADSET_PAUSED: 'paused', ARCHIVED: 'ended', DELETED: 'ended', WITH_ISSUES: 'running', IN_PROCESS: 'in_review' }
   let url: string | null = `${G}/${act()}/campaigns?${new URLSearchParams({ fields: 'id,name,effective_status,objective,daily_budget', limit: '200', access_token: token()! })}`
   for (let pages = 0; url && pages < 5; pages++) {
     const body: any = await call(url)
-    for (const c of body.data ?? []) out.set(String(c.id), { name: c.name, status: word[c.effective_status] ?? 'unknown', effective_status: c.effective_status, objective: c.objective, daily_budget_cents: c.daily_budget ? Number(c.daily_budget) : undefined })
+    for (const c of body.data ?? []) out.set(String(c.id), { name: c.name, status: metaStatusWord(c.effective_status), effective_status: c.effective_status, objective: c.objective, daily_budget_cents: c.daily_budget ? Number(c.daily_budget) : undefined })
     url = body.paging?.next ?? null
   }
   return out

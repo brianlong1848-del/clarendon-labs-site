@@ -1,10 +1,10 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { AppTag, C, btn } from '@/components/AdminNav'
 import { PLATFORMS, FORMAT_LABEL, type Format } from '@/lib/publish/rules'
 import { PlatformGlyph, allMediaOf, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
+import { MediaViewer, Thumb } from './MediaViewer'
 import { describeRule } from '@/lib/publish/recur'
 import { PromoteSheet, Promotions, promotable, type AdsData, type PromotionRow } from './Promote'
 import { TikTokVideoPicker, tiktokTarget, type AccountVideo, type TikTokAdsData } from './PromoteTikTok'
@@ -546,62 +546,4 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
       </>)}
     </div>
   )
-}
-
-type Media = QueuedPost['media'][number]
-
-/** Queue thumbnail: shows the first frame (preload metadata + #t) and opens
- *  the full player on click. Videos get a ▶ badge so it reads as playable. */
-function Thumb({ item, onOpen }: { item: Media; onOpen: () => void }) {
-  return (
-    <button onClick={onOpen} aria-label={item.kind === 'video' ? 'Play video' : 'View image'}
-      style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%', height: '100%', position: 'relative' }}>
-      {item.kind === 'video'
-        ? <video src={`${item.url}#t=0.1`} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
-        : <img src={item.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-      {item.kind === 'video' && (
-        <span aria-hidden style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-          <span style={{ width: 30, height: 30, borderRadius: 99, background: 'rgba(0,0,0,.55)', display: 'grid', placeItems: 'center' }}>
-            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1.5v9l7.5-4.5z" fill="#fff" /></svg>
-          </span>
-        </span>
-      )}
-    </button>
-  )
-}
-
-/** Full-size player for a post's media: video with controls (autoplays with
- *  sound — the click is the user gesture), images, arrows for carousels,
- *  Esc / ← / → on the keyboard. */
-function MediaViewer({ media, start, onClose }: { media: Media[]; start: number; onClose: () => void }) {
-  const [i, setI] = useState(start)
-  const m = media[i]
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowRight') setI((x) => Math.min(media.length - 1, x + 1))
-      if (e.key === 'ArrowLeft') setI((x) => Math.max(0, x - 1))
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [media.length, onClose])
-  if (!m) return null
-  const arrow = (dir: -1 | 1) => (
-    <button onClick={(e) => { e.stopPropagation(); setI((x) => x + dir) }} aria-label={dir < 0 ? 'Previous' : 'Next'}
-      style={{ border: 0, width: 40, height: 40, borderRadius: 99, background: 'rgba(255,255,255,.9)', cursor: 'pointer', fontSize: 18 }}>{dir < 0 ? '‹' : '›'}</button>
-  )
-  return createPortal(
-    <div role="dialog" aria-modal="true" aria-label="Post media" onClick={onClose}
-      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(10,10,12,.82)', display: 'grid', placeItems: 'center', padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: '100%' }}>
-        {media.length > 1 && (i > 0 ? arrow(-1) : <span style={{ width: 40 }} />)}
-        {m.kind === 'video'
-          ? <video key={m.url} src={m.url} controls autoPlay playsInline style={{ maxHeight: '86vh', maxWidth: 'min(90vw, 720px)', borderRadius: 12, background: '#000' }} />
-          : <img key={m.url} src={m.url} alt="" style={{ maxHeight: '86vh', maxWidth: 'min(90vw, 900px)', borderRadius: 12 }} />}
-        {media.length > 1 && (i < media.length - 1 ? arrow(1) : <span style={{ width: 40 }} />)}
-      </div>
-      <button onClick={onClose} style={{ position: 'fixed', top: 16, right: 16, ...btn('ghost') }}>Close</button>
-      {media.length > 1 && <span style={{ position: 'fixed', bottom: 18, color: '#fff', fontSize: 13 }}>{i + 1} / {media.length}</span>}
-    </div>
-  , document.body)
 }

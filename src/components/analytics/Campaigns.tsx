@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AppTag, C, Label, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph } from '@/components/post/shared'
+import { AdThumb, type AdThumbMedia } from './AdThumb'
 
 // ─── Campaigns card (FEAT-CLA-022) ───────────────────────────────────────────
 //
@@ -11,11 +12,11 @@ import { PlatformGlyph } from '@/components/post/shared'
 // "—", never 0. Installs / cost per install have their column now and fill in
 // once App Store Connect campaign tokens are wired (/get/<app>?ct=).
 
-export type CampaignAd = {
+export type CampaignAd = AdThumbMedia & {
   ad_id: string; name: string; status?: string; status_detail?: string; status_note?: string; review?: string; item_id?: string
   spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number; follows?: number
 }
-export type CampaignRow = {
+export type CampaignRow = AdThumbMedia & {
   platform: 'tiktok' | 'meta'; app_id: string | null; campaign_id: string; name: string; objective?: string
   status?: string; status_detail?: string; status_note?: string; review?: string; budget_daily_cents?: number
   spend_cents: number; impressions?: number; reach?: number; clicks?: number; ctr?: number; cpc_cents?: number; cpm_cents?: number
@@ -23,7 +24,7 @@ export type CampaignRow = {
   follows?: number; profile_visits?: number; likes?: number; comments?: number; shares?: number
   installs?: number; cpi_cents?: number
   daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
-  ads: CampaignAd[]; promotion_id?: string; url?: string
+  ads: CampaignAd[]; promotion_id?: string; url?: string; ad_count?: number
 }
 type Payload = { range: { id: string; start: string; end: string; days: number }; apps: { id: string; name: string; accent: string }[]; campaigns: CampaignRow[]; errors: string[]; notes: { installs: string } }
 
@@ -129,7 +130,9 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
               return (
                 <div key={key} style={{ borderTop: `1px solid ${C.rule}` }}>
                   <div style={{ display: 'grid', gridTemplateColumns: grid, gap: 10, padding: '10px 10px', alignItems: 'center', minHeight: 48 }}>
-                    <div style={{ minWidth: 0, display: 'grid', gap: 3 }}>
+                    <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <AdThumb platform={r.platform} campaignId={r.campaign_id} appId={r.app_id} media={r} badge={(r.ad_count ?? r.ads.length) > 1 ? `+${(r.ad_count ?? r.ads.length) - 1}` : undefined} />
+                      <div style={{ minWidth: 0, display: 'grid', gap: 3 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                         <PlatformGlyph platform={r.platform === 'tiktok' ? 'tiktok' : 'facebook'} size={15} />
                         <button onClick={() => toggle(key)} title={r.name} aria-expanded={isOpen}
@@ -141,7 +144,9 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                         {app && r.app_id ? <AppTag id={r.app_id} name={app.name} size={14} /> : <span>Shared</span>}
                         <span>{PLATFORM_NAME[r.platform]}{r.objective ? ` · ${r.objective.toLowerCase().replace(/_/g, ' ')}` : ''}{r.budget_daily_cents ? ` · ${usd(r.budget_daily_cents)}/day` : ''}</span>
                         {r.promotion_id && <span style={{ color: C.mint, fontWeight: 700 }}>Studio boost</span>}
+                        {r.permalink && <a href={r.permalink} target="_blank" rel="noreferrer" style={{ color: C.ink2 }}>Post ↗</a>}
                         {r.url && <a href={r.url} target="_blank" rel="noreferrer" style={{ color: C.ink2 }}>Ads Manager ↗</a>}
+                      </div>
                       </div>
                     </div>
                     <div><StatusChip s={r.status} note={r.status_note} /></div>
@@ -168,9 +173,12 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                       </div>
                       {r.ads.length > 0 ? r.ads.map((a) => (
                         <div key={a.ad_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 90px 80px 80px 70px 70px 76px 70px', gap: 10, alignItems: 'center', fontSize: 12.5, padding: '4px 0', borderTop: `1px solid ${C.rule}` }}>
-                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>
-                            {a.name}{a.item_id && r.platform === 'tiktok' && <span style={{ color: C.soft }}> · video {a.item_id}</span>}
-                            {a.review && <span style={{ color: C.red }}> · {a.review}</span>}
+                          <span style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <AdThumb platform={r.platform} campaignId={r.campaign_id} appId={r.app_id} adId={a.ad_id} media={a} size={34} />
+                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.name}>
+                              {a.permalink ? <a href={a.permalink} target="_blank" rel="noreferrer" style={{ color: C.ink }}>{a.name}</a> : a.name}{a.item_id && r.platform === 'tiktok' && <span style={{ color: C.soft }}> · video {a.item_id}</span>}
+                              {a.review && <span style={{ color: C.red }}> · {a.review}</span>}
+                            </span>
                           </span>
                           <div><StatusChip s={a.status} note={a.status_note ?? r.status_note} /></div>
                           {cell(usd(a.spend_cents))}{cell(num(a.impressions))}{cell(pct(a.ctr))}{cell(usd(a.cpc_cents))}{cell(num(a.views15s))}{cell(num(a.follows))}

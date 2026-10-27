@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
+import { AdThumb, type AdThumbMedia } from '@/components/analytics/AdThumb'
 
 // Money → Ads: every campaign on every app, with spend, installs, cost per
 // install and two ROAS figures (see /api/money/ads for the difference).
 // ROAS under 1× shows red: that campaign is spending more than it's bringing in.
 
-type Campaign = {
+type Campaign = AdThumbMedia & {
+  ad_count?: number
   platform: string; app_slug: string | null; campaign_id: string; name: string; first_day: string; last_day: string
   spend_cents: number; impressions: number; clicks: number; installs: number; ctr: number | null; cpi_cents: number | null
   platform_value_cents: number; platform_roas: number | null; est_proceeds_cents: number; est_roas: number | null
@@ -140,8 +142,13 @@ export default function Ads() {
                   {d.campaigns.map((c) => (
                     <tr key={c.platform + c.campaign_id}>
                       <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', minWidth: 220 }}>
-                        <b>{c.name}</b>
-                        <div style={{ color: C.soft, fontSize: 12 }}>{name(c.app_slug)} · {c.platform === 'tiktok' ? 'TikTok' : 'Meta'} · {c.first_day} → {c.last_day}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {(c.platform === 'tiktok' || c.platform === 'meta') && <AdThumb platform={c.platform} campaignId={c.campaign_id} appId={c.app_slug} media={c} badge={(c.ad_count ?? 0) > 1 ? `+${(c.ad_count ?? 0) - 1}` : undefined} />}
+                          <div>
+                            <b>{c.name}</b>
+                            <div style={{ color: C.soft, fontSize: 12 }}>{name(c.app_slug)} · {c.platform === 'tiktok' ? 'TikTok' : 'Meta'} · {c.first_day} → {c.last_day}{c.permalink && <> · <a href={c.permalink} target="_blank" rel="noreferrer" style={{ color: C.ink2 }}>Post ↗</a></>}</div>
+                          </div>
+                        </div>
                       </td>
                       <td style={td}>{usd(c.spend_cents)}</td><td style={td}><Spark points={c.daily_spend} /></td>
                       <td style={td}>{c.impressions.toLocaleString()}</td><td style={td}>{c.ctr == null ? '—' : `${c.ctr}%`}</td>
