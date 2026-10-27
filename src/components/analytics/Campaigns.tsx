@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppTag, C, Label, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph } from '@/components/post/shared'
 import { AdThumb, type AdThumbMedia } from './AdThumb'
+import { VerdictPill, WhyNext, type InsightsPayload } from './Insights'
 
 // ─── Campaigns card (FEAT-CLA-022) ───────────────────────────────────────────
 //
@@ -73,6 +74,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [insights, setInsights] = useState<InsightsPayload | null>(null)
 
   const load = useCallback(async (r: Range, fresh = false) => {
     setLoading(true); setError(null)
@@ -83,10 +85,13 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
       setData(body)
     } catch (e) { setError((e as Error).message) }
     setLoading(false)
+    // Verdicts + Claude's why / try next, after the rows (FEAT-CLA-023). Never blocks the table.
+    fetch(`/api/ads/insights?app=${encodeURIComponent(app)}&range=${r}`).then((x) => (x.ok ? x.json() : null)).then((j) => j && setInsights(j)).catch(() => undefined)
   }, [app])
   useEffect(() => { load(range) }, [load, range])
 
   const rows = data?.campaigns ?? []
+  const insightFor = (r: CampaignRow) => insights?.campaigns.find((c) => c.platform === r.platform && c.campaign_id === r.campaign_id)
   const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const grid = compact
     ? 'minmax(0,1.6fr) 90px 80px 80px 70px 70px 70px 70px 90px'
@@ -149,12 +154,13 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                       </div>
                       </div>
                     </div>
-                    <div><StatusChip s={r.status} note={r.status_note} /></div>
+                    <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}><StatusChip s={r.status} note={r.status_note} /><VerdictPill insight={insightFor(r)?.insight} /></div>
                     {cell(usd(r.spend_cents), true)}{cell(num(r.impressions))}{cell(pct(r.ctr))}{cell(usd(r.cpc_cents))}{cell(num(r.views15s))}{cell(num(r.follows))}
                     <span style={{ textAlign: 'right', fontFamily: C.mono, fontSize: 12, color: C.faint }} title={data?.notes.installs}>{r.installs != null ? `${num(r.installs)} · ${usd(r.cpi_cents)}` : 'soon'}</span>
                     {!compact && <Bars daily={r.daily} color={app?.accent ?? C.mint} />}
                   </div>
                   {r.review && <p style={{ margin: '0 10px 8px 33px', fontSize: 12.5, color: C.red }}>{PLATFORM_NAME[r.platform]}: {r.review}</p>}
+                  {insightFor(r) && <WhyNext insight={insightFor(r)!.insight} narrative={insightFor(r)!.narrative} />}
                   {isOpen && (
                     <div style={{ margin: '0 10px 10px 33px', background: C.card2, borderRadius: 12, padding: '8px 12px', display: 'grid', gap: 6 }}>
                       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12.5, color: C.ink2 }}>

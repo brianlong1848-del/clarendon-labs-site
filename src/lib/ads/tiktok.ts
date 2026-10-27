@@ -383,7 +383,7 @@ export function describeAudience(a: TikTokAudience) {
   return `${where} ${ages}${ints}${tags}`.trim()
 }
 
-const setCampaignStatus = (advertiserId: string, campaignId: string, operation: 'ENABLE' | 'DISABLE') =>
+export const setCampaignStatus = (advertiserId: string, campaignId: string, operation: 'ENABLE' | 'DISABLE') =>
   tiktokCall('/campaign/status/update/', { method: 'POST', body: { advertiser_id: advertiserId, campaign_ids: [campaignId], operation_status: operation } })
 
 export async function setTikTokPromotionStatus(id: string, action: 'pause' | 'resume' | 'stop') {

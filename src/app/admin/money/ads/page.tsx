@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, C, btn, labelStyle } from '@/components/AdminNav'
 import { AdThumb, type AdThumbMedia } from '@/components/analytics/AdThumb'
+import { ThisWeek } from '@/components/analytics/Insights'
 
 // Money → Ads: every campaign on every app, with spend, installs, cost per
 // install and two ROAS figures (see /api/money/ads for the difference).
@@ -99,6 +100,7 @@ export default function Ads() {
           ))}
         </div>
         {msg && <p style={{ color: msg.bad ? C.red : C.mint, fontSize: 13.5, margin: '0 0 14px' }}>{msg.text}</p>}
+        <div style={{ marginBottom: 16 }}><ThisWeek app="all" range={days <= 7 ? '7d' : days >= 90 ? '90d' : '30d'} /></div>
         {!d && <p style={{ color: C.soft }}>Loading…</p>}
         {d && (
           <>

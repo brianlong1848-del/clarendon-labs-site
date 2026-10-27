@@ -5,6 +5,7 @@ import { AdminShell, AppTag, C, Label, TILE, btn, labelStyle } from '@/component
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { GeoMap } from '@/components/GeoMap'
 import { Campaigns } from '@/components/analytics/Campaigns'
+import { ThisWeek } from '@/components/analytics/Insights'
 
 // ─── /analytics — per-app data ───────────────────────────────────────────────
 //
@@ -187,6 +188,8 @@ export default function AnalyticsPage() {
       </>}
     >
         {error && <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{error}</p>}
+
+        <ThisWeek app="all" />
 
         {/* Totals first — the number a business owner checks before any single
             app's breakdown. Shown only once at least one source is connected. */}

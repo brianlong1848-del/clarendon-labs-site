@@ -44,7 +44,7 @@ export type CampaignRow = MediaFields & {
   follows?: number; profile_visits?: number; likes?: number; comments?: number; shares?: number
   /** Not available yet — comes from App Store Connect campaign tokens. */
   installs?: number; cpi_cents?: number
-  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
+  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number; clicks?: number; reach?: number }[]
   ads: CampaignAd[]
   /** Set when a Studio boost created it. */
   promotion_id?: string
@@ -117,7 +117,7 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
       if (d.video_views != null) r.video_views = (r.video_views ?? 0) + d.video_views
       if (d.views15s != null) r.views15s = (r.views15s ?? 0) + d.views15s
       if (d.views100 != null) r.views100 = (r.views100 ?? 0) + d.views100
-      r.daily.push({ day: d.day, spend_cents: d.spend_cents, impressions: d.impressions, views15s: d.views15s })
+      r.daily.push({ day: d.day, spend_cents: d.spend_cents, impressions: d.impressions, views15s: d.views15s, clicks: d.clicks, reach: d.reach })
       by.set(d.campaign_id, r)
     }
     for (const r of by.values()) {

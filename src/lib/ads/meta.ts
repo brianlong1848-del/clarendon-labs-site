@@ -48,6 +48,7 @@ async function call(url: string, init: RequestInit = {}) {
   }
   return body
 }
+export const metaPost = (path: string, params: Record<string, unknown>) => post(path, params)
 const post = (path: string, params: Record<string, unknown>) => {
   const form = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) form.set(k, typeof v === 'string' ? v : JSON.stringify(v))

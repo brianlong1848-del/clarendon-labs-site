@@ -183,7 +183,7 @@ export type TikTokCampaign = TikTokStats & {
   budget_cents?: number; budget_mode?: string; created?: string
   /** Why there's no status (e.g. the token's scopes don't cover campaign/get yet). */
   status_note?: string
-  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number }[]
+  daily: { day: string; spend_cents: number; impressions?: number; views15s?: number; clicks?: number; reach?: number }[]
   ads: TikTokAd[]
 }
 
@@ -301,7 +301,7 @@ async function tiktokCampaignsNow(advertiserId: string, start: string, end: stri
     const row = byId.get(String(r.dimensions.campaign_id ?? ''))
     if (!row) continue
     const s = stats(r.metrics)
-    row.daily.push({ day: String(r.dimensions.stat_time_day ?? '').slice(0, 10), spend_cents: s.spend_cents, impressions: s.impressions, views15s: s.views15s })
+    row.daily.push({ day: String(r.dimensions.stat_time_day ?? '').slice(0, 10), spend_cents: s.spend_cents, impressions: s.impressions, views15s: s.views15s, clicks: s.clicks, reach: s.reach })
   }
   for (const row of byId.values()) row.daily.sort((a, b) => a.day.localeCompare(b.day))
   // Ads: report rows first, then ad/get for the review status.
