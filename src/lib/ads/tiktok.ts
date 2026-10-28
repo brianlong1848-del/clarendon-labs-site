@@ -462,7 +462,10 @@ export type DuplicateTrafficResult = {
 // Targeting + delivery settings copied from the source ad group (v1.3 adgroup/get → adgroup/create names).
 const COPY_ADGROUP_FIELDS = ['location_ids', 'zipcode_ids', 'age_groups', 'gender', 'languages', 'interest_category_ids', 'interest_keyword_ids', 'actions',
   'operating_systems', 'device_price_ranges', 'network_types', 'carrier_ids', 'spending_power', 'household_income', 'audience_ids', 'excluded_audience_ids',
-  'placements', 'placement_type', 'search_result_enabled', 'comment_disabled', 'video_download_disabled', 'share_disabled', 'tiktok_subplacements'] as const
+  'placements', 'placement_type', 'search_result_enabled', 'comment_disabled', 'video_download_disabled', 'share_disabled'] as const
+// Not copied: tiktok_subplacements — a Video Views ad group's SEARCH_FEED / LEMON8 made
+// adgroup/create answer 40002 "Invalid selection. Check placements" for a TRAFFIC ad
+// group (2026-10-28); TikTok picks the sub-placements for the objective when they're absent.
 
 export async function duplicateTikTokAsTraffic(i: DuplicateTrafficInput): Promise<DuplicateTrafficResult> {
   const app = PUBLISH_APPS.find((a) => a.id === i.appId)
@@ -496,7 +499,10 @@ export async function duplicateTikTokAsTraffic(i: DuplicateTrafficInput): Promis
   if (notes.length) notes.push('Placeholders in < > are filled from campaign/get, adgroup/get and ad/get once TikTok approves the Ads Management scope.')
 
   // 2. Payloads.
-  const campaign = { advertiser_id: advertiserId, campaign_name: name, objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_DAY', budget: budgetUsd, operation_status: 'ENABLE' }
+  // TikTok's campaign-level daily floor is $50 (campaign/create answered 40002
+  // "Your budget must be $50 or more" on 2026-10-28); the ad group's is $20, so
+  // the budget lives on the ad group and the campaign is uncapped.
+  const campaign = { advertiser_id: advertiserId, campaign_name: name, objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_INFINITE', operation_status: 'ENABLE' }
   const copied: Record<string, unknown> = {}
   // adgroup/get pads some lists with nulls (retired sub-placements) and sends
   // empty arrays for targeting that isn't set; adgroup/create accepts neither.
