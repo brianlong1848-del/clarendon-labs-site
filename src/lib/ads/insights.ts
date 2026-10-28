@@ -13,7 +13,7 @@
 import type { CampaignAd, CampaignRow, Range } from './campaigns'
 
 export type Stage = 'hook' | 'hold' | 'click' | 'cost' | 'install' | 'fatigue'
-export type Verdict = 'too_early' | 'winning' | 'ok' | 'needs_work'
+export type Verdict = 'too_early' | 'not_delivering' | 'winning' | 'ok' | 'needs_work'
 export type Grade = 'good' | 'ok' | 'poor'
 export type ObjectiveKind = 'views' | 'traffic' | 'installs'
 
@@ -45,7 +45,7 @@ export type Insight = {
   metrics: Metrics
 }
 
-export type ActionKind = 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'open_in_manager' | 'creative' | 'wait'
+export type ActionKind = 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'widen_audience' | 'open_in_manager' | 'creative' | 'wait'
 export type Action = {
   id: string
   kind: ActionKind
@@ -78,8 +78,8 @@ export type Action = {
   note?: string
   /** Why the button may fail right now (TikTok scope review). */
   blocked?: string
-  /** Already done: by a sibling campaign, or logged in studio_ad_actions. */
-  done?: { at?: string; note: string; result_ids?: Record<string, unknown> }
+  /** Already done: by a sibling campaign, logged in studio_ad_actions, or the platform says so (label "Paused ✓"). */
+  done?: { at?: string; note: string; label?: string; result_ids?: Record<string, unknown> }
   score: number
 }
 
@@ -105,11 +105,51 @@ export const BENCH: Record<'tiktok' | 'meta', Record<string, Band>> = {
   },
 }
 export const TOO_EARLY = { spend_cents: 1000, impressions: 1000 }
+/** Stalled: the platform says it's running, it's been live this long, and it still has under this many impressions. */
+export const STALLED = { min_age_hours: 24, max_impressions: 100 }
 /** Fatigue: CTR down this much (or more) over the last 3 days while frequency rises. */
 export const FATIGUE = { ctr_drop: 0.30, days: 3, min_spend_cents: 500 }
 
 export const STAGE_LABEL: Record<Stage, string> = { hook: 'Hook', hold: 'Hold', click: 'Click', cost: 'Cost', install: 'Install', fatigue: 'Fatigue' }
-export const VERDICT_LABEL: Record<Verdict, string> = { too_early: 'Too early', winning: 'Winning', ok: 'OK', needs_work: 'Needs work' }
+export const VERDICT_LABEL: Record<Verdict, string> = { too_early: 'Too early', not_delivering: 'Not delivering', winning: 'Winning', ok: 'OK', needs_work: 'Needs work' }
+
+// ── Live status ─────────────────────────────────────────────────────────────
+
+export type LiveStatus = 'running' | 'paused' | 'ended' | 'scheduled' | 'in_review' | 'rejected' | 'no_funds' | 'unknown'
+/** What the platform says right now (TikTok operation_status / secondary
+ *  status, Meta effective_status, normalized by campaigns.ts), with one
+ *  refinement: a "running" campaign whose every ad is paused, ended or
+ *  rejected isn't delivering either. `budget_spent` counts as running — it
+ *  spent its whole budget today. */
+export function liveStatus(r: Pick<CampaignRow, 'status' | 'ads'>): LiveStatus {
+  const s = r.status
+  const word: LiveStatus = s === 'deleted' ? 'ended' : s === 'budget_spent' ? 'running'
+    : s === 'running' || s === 'paused' || s === 'ended' || s === 'scheduled' || s === 'in_review' || s === 'rejected' || s === 'no_funds' ? s : 'unknown'
+  if (word === 'running' && r.ads.length && r.ads.every((a) => a.status && a.status !== 'running' && a.status !== 'budget_spent' && a.status !== 'unknown')) {
+    return r.ads.some((a) => a.status === 'paused') ? 'paused' : r.ads.some((a) => a.status === 'in_review' || a.status === 'scheduled') ? 'scheduled' : 'ended'
+  }
+  return word
+}
+/** Platform timestamps → ms. TikTok's create_time is "YYYY-MM-DD HH:MM:SS" (UTC+0); Meta's are ISO with a "-0500"-style offset. */
+function parseWhen(s?: string): number | undefined {
+  if (!s) return undefined
+  const iso = /[zZ]$|[+-]\d\d:?\d\d$/.test(s) ? s.replace(/([+-]\d\d)(\d\d)$/, '$1:$2') : `${s.replace(' ', 'T')}Z`
+  const t = Date.parse(iso)
+  return Number.isFinite(t) ? t : undefined
+}
+/** Hours since delivery was due to begin — the later of created and started. Unknown when neither is known. */
+export function liveHours(r: Pick<CampaignRow, 'created' | 'started'>, now = Date.now()): number | undefined {
+  const since = [parseWhen(r.created), parseWhen(r.started)].filter((t): t is number => t != null)
+  if (!since.length) return undefined
+  return (now - Math.max(...since)) / 3600000
+}
+/** Active for a day or more and still under 100 impressions: the audience is too narrow or the bid can't win. */
+export function stalledHours(r: Pick<CampaignRow, 'status' | 'ads' | 'created' | 'started' | 'impressions'>, now = Date.now()): number | undefined {
+  if (liveStatus(r) !== 'running') return undefined
+  const hours = liveHours(r, now)
+  if (hours == null || hours < STALLED.min_age_hours) return undefined
+  return (r.impressions ?? 0) < STALLED.max_impressions ? hours : undefined
+}
 
 export function objectiveKind(objective?: string): ObjectiveKind {
   const o = (objective ?? '').toUpperCase()
@@ -195,7 +235,7 @@ const PLATFORM_NAME = { tiktok: 'TikTok', meta: 'Meta' }
 
 type Medians = Partial<Record<keyof Metrics, number>>
 
-function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med: Medians, status?: string): Insight {
+function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med: Medians, status?: string, stalled?: number): Insight {
   const bench = BENCH[platform]
   const trend = m.trend
   const grades: Partial<Record<Stage, Grade>> = {}
@@ -217,6 +257,12 @@ function judge(m: Metrics, platform: 'tiktok' | 'meta', kind: ObjectiveKind, med
   if (trend && trend.days >= FATIGUE.days * 2) grades.fatigue = trend.fatigue ? 'poor' : (m.frequency != null && m.frequency > bench.frequency.ok ? 'ok' : 'good')
   for (const k of Object.keys(grades) as Stage[]) if (!grades[k]) delete grades[k]
 
+  // Running for a day or more with next to no impressions: not "too early", stuck.
+  if (stalled != null) {
+    const age = stalled >= 48 ? `${Math.floor(stalled / 24)} days` : `${Math.floor(stalled)} hours`
+    return { verdict: 'not_delivering', objective_kind: kind, grades, metrics: m,
+      reason: `Not delivering: ${PLATFORM_NAME[platform]} says it's running, it's been live ${age}, and it has ${(m.impressions ?? 0).toLocaleString('en-US')} impressions${m.spend_cents ? ` on ${usd(m.spend_cents)}` : ' and no spend'} — the audience is too narrow or the bid isn't winning auctions.` }
+  }
   if (m.spend_cents < TOO_EARLY.spend_cents || (m.impressions ?? 0) < TOO_EARLY.impressions) {
     return { verdict: 'too_early', objective_kind: kind, grades, metrics: m,
       reason: `Too early to judge: ${usd(m.spend_cents)} spent and ${(m.impressions ?? 0).toLocaleString('en-US')} impressions so far (it needs ${usd(TOO_EARLY.spend_cents)} and ${TOO_EARLY.impressions.toLocaleString('en-US')}).` }
@@ -283,7 +329,7 @@ export function analyze(rows: CampaignRow[], money: Map<string, MoneyFacts> = ne
   const actions: Action[] = []
   for (const { r, m, kind } of base) {
     const key = `${r.platform}:${r.campaign_id}`
-    const insight = judge(m, r.platform, kind, med[r.platform], r.status)
+    const insight = judge(m, r.platform, kind, med[r.platform], liveStatus(r), stalledHours(r))
     insight.sibling = siblingOf(r, rows)
     campaigns[key] = insight
     for (const a of r.ads) {
@@ -296,7 +342,7 @@ export function analyze(rows: CampaignRow[], money: Map<string, MoneyFacts> = ne
   // One Pause per app per week, unless a second campaign is clearly wasting money.
   const pausedApps = new Set<string>()
   const kept = actions.filter((a) => {
-    if (a.kind !== 'pause') return true
+    if (a.kind !== 'pause' || a.done) return true
     const app = a.app_id ?? 'shared'
     const i = campaigns[`${a.platform}:${a.campaign_id}`]
     const wasted = i.metrics.spend_cents >= 5000 && i.grades.click === 'poor' && (i.metrics.ctr ?? 0) < 0.3
@@ -330,17 +376,22 @@ const adAsRow = (a: CampaignAd) => ({ spend_cents: a.spend_cents, impressions: a
   reach: undefined, cpm_cents: undefined, video_views: undefined, views2s: undefined })
 
 const TIKTOK_WRITE_NOTE = 'TikTok writes answer 40001 until TikTok approves the Ads Management scope (requested 2026-10-27) — the button will say so if it fails.'
-const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, duplicate_as_traffic: 30, resume: 20, lower_budget: 20, reuse_angle: 15, creative: 10, open_in_manager: 5, wait: 0 }
+const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, widen_audience: 35, duplicate_as_traffic: 30, resume: 20, lower_budget: 20, reuse_angle: 15, creative: 10, open_in_manager: 5, wait: 0 }
 
 const dayKey = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 
-/** Still spending: money went out in the last two days (or no daily data and the platform says it's running). */
+/** Still spending: the platform says it's running (or can't say) and money
+ *  went out in the last two days. A paused, ended or scheduled campaign is
+ *  never "spending now", whatever yesterday's spend was. */
 function spendingNow(r: CampaignRow): boolean {
-  if (r.status === 'ended' || r.status === 'deleted' || r.status === 'paused' || r.status === 'budget_spent') return false
-  if (!r.daily.length) return r.status === 'running' || r.status === undefined ? r.spend_cents > 0 : false
+  const s = liveStatus(r)
+  if (s !== 'running' && s !== 'unknown') return false
+  if (!r.daily.length) return r.spend_cents > 0
   const since = dayKey(new Date(Date.now() - 2 * 86400000))
   return r.daily.some((d) => d.day >= since && d.spend_cents > 0)
 }
+/** Meta's Ads Manager URL for the campaign's ad sets (the campaign row links to the campaigns view). */
+const adSetsUrl = (url?: string) => url?.replace('/manage/campaigns?', '/manage/adsets?')
 /** Money at stake for the next week, cents: the daily budget, else the average of the last 7 spending days. */
 function stakeCents(r: CampaignRow): number {
   if (r.budget_daily_cents) return r.budget_daily_cents * 7
@@ -352,8 +403,11 @@ function stakeCents(r: CampaignRow): number {
 function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   const out: Action[] = []
   const name = r.name
+  const status = liveStatus(r)
   const live = spendingNow(r)
-  const ended = r.status === 'ended' || r.status === 'deleted' || (!live && r.daily.length > 0 && r.status !== 'paused')
+  // Over: the platform says ended / rejected, or it spent and then stopped on its own (an ad group past its schedule).
+  // A campaign that never spent isn't over — it's stuck (not_delivering), and gets its action below.
+  const ended = status === 'ended' || status === 'rejected' || (!live && r.spend_cents > 0 && r.daily.length > 0 && status !== 'paused' && status !== 'scheduled' && status !== 'in_review')
   if (ended) return out   // nothing to do on a campaign that's over
   const stake = stakeCents(r)
   const score = (kind: ActionKind) => stake / 100 + KIND_BONUS[kind]
@@ -365,8 +419,10 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
 
   if (i.verdict === 'needs_work' && live) {
     const fatigue = i.weakest === 'fatigue'
+    // Status unreadable (TikTok scope pending, no Studio record): the spend says it's live, but Brian may have paused it in Ads Manager.
+    const unsure = status === 'unknown' ? ' Its status isn’t readable yet — skip this if you already paused it in Ads Manager.' : ''
     out.push({ ...base, id: id('pause'), kind: 'pause', title: `Pause ${name}`, button: 'Pause', blocked, score: score('pause') + (fatigue ? 5 : 0),
-      detail: fatigue ? `${i.reason} Pause it and swap the creative before spending more.` : `${i.reason} Pause it while the creative or targeting changes.`,
+      detail: (fatigue ? `${i.reason} Pause it and swap the creative before spending more.` : `${i.reason} Pause it while the creative or targeting changes.`) + unsure,
       confirm: `Pause "${name}"? It stops delivering until you resume it (here or in Ads Manager). Spend to date stays.` })
   }
   if (i.verdict === 'winning' && live) {
@@ -375,8 +431,23 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
     out.push({ ...base, id: id('raise_budget'), kind: 'raise_budget', title: `Raise ${name} by 25%`, button: current ? `Raise to ${usd(next)}/day` : 'Raise budget 25%', amount_cents: next, blocked, score: score('raise_budget'),
       detail: `${i.reason} Give it more room: ${current ? `${usd(current)} → ${usd(next)} a day` : '+25% a day'}, then re-check in 3 days.`,
       confirm: `Raise "${name}" to ${current ? `${usd(next)} a day` : "125% of today’s daily budget"}? This spends more from tomorrow.` })
-    if (i.objective_kind !== 'views') out.push({ ...base, id: id('reuse_angle'), kind: 'reuse_angle', title: `Reuse ${name}’s angle`, button: 'Open in Post', score: score('reuse_angle'),
-      detail: 'It converts. Open Post with this ad’s hook and media prefilled, cut it for the other cuts / countries, and try it on the apps whose audience overlaps.' })
+    if (i.objective_kind !== 'views') {
+      // "It converts" only when the installs are there to prove it (MIN_INSTALLS); before that it's a cheap-clicks winner.
+      const m = i.metrics
+      const converts = (m.installs ?? 0) >= MIN_INSTALLS
+      const lead = converts ? `It converts: ${m.installs} installs${m.cpi_cents != null ? ` at ${usd(m.cpi_cents)} each` : ''}.`
+        : `It gets cheap clicks (CTR ${pct(m.ctr)}, CPC ${usd(m.cpc_cents)})${m.installs ? ` — ${m.installs} installs so far, under the ${MIN_INSTALLS} needed to call it converting` : ' — installs aren’t visible yet, so it isn’t proven to convert'}.`
+      out.push({ ...base, id: id('reuse_angle'), kind: 'reuse_angle', title: `Reuse ${name}’s angle`, button: 'Open in Post', score: score('reuse_angle'),
+        detail: `${lead} Open Post with this ad’s hook and media prefilled, cut it for the other cuts / countries, and try it on the apps whose audience overlaps.` })
+    }
+  }
+  // Running for a day or more with next to no impressions: widen the audience (TikTok: in Ads Manager until the API scope clears).
+  if (i.verdict === 'not_delivering') {
+    const tiktok = r.platform === 'tiktok'
+    const parents = r.app_id === 'jinglewire' ? ' Jinglewire stays parents-only (25+, no interest or behaviour targeting) — widen by country or age within that, never toward kids.' : ''
+    out.push({ ...base, id: id('widen_audience'), kind: 'widen_audience', title: `Widen ${name}’s audience`, button: tiktok ? 'Open ad group' : 'Open ad set', href: tiktok ? r.url : adSetsUrl(r.url), score: score('widen_audience'),
+      detail: `${i.reason} Open the ${tiktok ? 'ad group' : 'ad set'} and widen it: drop an interest layer, add a country or age band, or let the platform's automatic targeting run; check the bid / budget floor too.${parents} Check back tomorrow — it should have thousands of impressions by then.`,
+      note: tiktok ? 'Targeting edits through the API wait on TikTok’s Ads Management scope (requested 2026-10-27) — widen it in Ads Manager for now.' : undefined })
   }
   // A weak views campaign: the clip holds attention but buys no taps — run it as Traffic with a Download button.
   if (i.objective_kind === 'views' && (i.verdict === 'needs_work' || (i.verdict === 'ok' && i.grades.click !== 'good'))) {
@@ -395,8 +466,10 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   if (i.verdict === 'ok' && i.weakest && i.weakest !== 'fatigue' && live && !(i.objective_kind === 'views' && i.grades.click !== 'good')) out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name}: lift the ${STAGE_LABEL[i.weakest].toLowerCase()} stage`, score: score('creative'),
     detail: `${i.reason} One change at a time: ${i.weakest === 'hook' ? 'a new first line' : i.weakest === 'hold' ? 'cut the middle, get to the payoff sooner' : i.weakest === 'click' ? 'a clearer reason to tap in the caption / CTA' : i.weakest === 'cost' ? 'narrow the audience or lower the budget until the cost settles' : 'check installs attribution'}.` })
   if (i.verdict === 'too_early' && live) out.push({ ...base, id: id('wait'), kind: 'wait', title: `Let ${name} run`, score: score('wait'), detail: i.reason })
-  if (i.verdict === 'needs_work' && r.status === 'paused') out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name} is paused — fix before resuming`, score: score('creative'),
-    detail: `${i.reason} Resume only with a new cut or audience.` })
+  // Already paused on the platform: no Pause button — "Paused ✓" and the fix to make before resuming.
+  if (i.verdict === 'needs_work' && status === 'paused') out.push({ ...base, id: id('pause'), kind: 'pause', title: `Pause ${name}`, score: KIND_BONUS.creative,
+    detail: `${i.reason} Resume only with a new cut or audience.`,
+    done: { label: 'Paused ✓', note: `Paused ✓ — ${PLATFORM_NAME[r.platform]} says it’s already paused; nothing is spending.` } })
   void range
   return out
 }

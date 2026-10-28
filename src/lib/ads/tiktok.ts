@@ -435,6 +435,9 @@ export async function tiktokPromotionResults(p: Promotion): Promise<TikTokPromoR
 
 export const adsManagerUrl = (advertiserId: string, campaignId?: string) =>
   `https://ads.tiktok.com/i18n/perf/campaign?aadvid=${advertiserId}${campaignId ? `&keyword=${campaignId}` : ''}`
+/** The ad-group level of Ads Manager, searched by the campaign id (targeting lives on the ad group). */
+export const adGroupManagerUrl = (advertiserId: string, campaignId?: string) =>
+  `https://ads.tiktok.com/i18n/perf/adgroup?aadvid=${advertiserId}${campaignId ? `&keyword=${campaignId}` : ''}`
 
 // ── Duplicate as Traffic (FEAT-CLA-023 actions) ──────────────────────────────
 //

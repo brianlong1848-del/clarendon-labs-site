@@ -54,8 +54,23 @@ export type CampaignRow = MediaFields & {
   url?: string
   /** Ads on the campaign (the thumbnail shows the first one, "+N" the rest). */
   ad_count?: number
+  /** When the platform created it (TikTok create_time, UTC; Meta created_time). */
   created?: string
+  /** When delivery was due to begin: the Studio boost's start_at or Meta's start_time. Stall detection counts from the later of this and `created`. */
+  started?: string
 }
+
+/** The Studio boost record standing in for a platform status while TikTok's
+ *  Ads Management scope is pending: what Studio set it to, bounded by its window. */
+function promoStatus(p: Pick<Promotion, 'status' | 'start_at' | 'end_at'>, now = Date.now()): string | undefined {
+  if (p.status === 'paused' || p.status === 'ended') return p.status
+  if (p.status !== 'active') return undefined
+  const start = Date.parse(p.start_at), end = Date.parse(p.end_at)
+  if (Number.isFinite(end) && end < now) return 'ended'
+  if (Number.isFinite(start) && start > now) return 'scheduled'
+  return 'running'
+}
+const STUDIO_STATUS_NOTE = 'Status from Studio’s boost record — TikTok’s own status needs the Ads Management scope (requested 2026-10-27).'
 
 const cached = tiktokCached
 const HOUR = 60 * 60_000
@@ -79,7 +94,7 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
   const { start, end } = rangeDates(range)
   const apps = PUBLISH_APPS.filter((a) => appId === 'all' || a.id === appId)
   const errors: string[] = []
-  const promos = await rest<Pick<Promotion, 'id' | 'app_id' | 'campaign_id' | 'network'>[]>('studio_promotions?campaign_id=not.is.null&select=id,app_id,campaign_id,network').catch(() => [])
+  const promos = await rest<Pick<Promotion, 'id' | 'app_id' | 'campaign_id' | 'network' | 'status' | 'start_at' | 'end_at'>[]>('studio_promotions?campaign_id=not.is.null&select=id,app_id,campaign_id,network,status,start_at,end_at').catch(() => [])
   const promoByCampaign = new Map(promos.map((p) => [`${p.network}:${p.campaign_id}`, p]))
 
   const tiktok = await Promise.all(apps.map(async (app): Promise<CampaignRow[]> => {
@@ -87,19 +102,25 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
     if (!advertiserId || !tiktokToken()) return []
     try {
       const rows = await tiktokCampaigns(advertiserId, start, end, true, fresh)
-      return rows.map((c) => ({
+      return rows.map((c) => {
+        const promo = promoByCampaign.get(`tiktok:${c.campaign_id}`)
+        // The platform's live status (operation_status / secondary_status); while the
+        // scope is pending, the Studio boost record says what Studio set it to.
+        const live = c.status_detail || c.operation_status ? tiktokStatusWord(c.status_detail, c.operation_status) : undefined
+        const fromStudio = !live && promo ? promoStatus(promo) : undefined
+        return {
         platform: 'tiktok' as const, app_id: app.id, campaign_id: c.campaign_id, name: c.name, objective: c.objective,
-        status: c.status_detail || c.operation_status ? tiktokStatusWord(c.status_detail, c.operation_status) : undefined, status_detail: c.status_detail, status_note: c.status_note,
-        budget_daily_cents: c.budget_mode === 'BUDGET_MODE_DAY' ? c.budget_cents : undefined, created: c.created,
+        status: live ?? fromStudio, status_detail: c.status_detail, status_note: fromStudio ? STUDIO_STATUS_NOTE : c.status_note,
+        budget_daily_cents: c.budget_mode === 'BUDGET_MODE_DAY' ? c.budget_cents : undefined, created: c.created, started: promo?.start_at,
         spend_cents: c.spend_cents, impressions: c.impressions, reach: c.reach, clicks: c.clicks, ctr: c.ctr, cpc_cents: c.cpc_cents, cpm_cents: c.cpm_cents,
         video_views: c.video_views, views2s: c.views2s, views6s: c.views6s, views15s: c.views15s, views100: c.views100,
         follows: c.follows, profile_visits: c.profile_visits, likes: c.likes, comments: c.comments, shares: c.shares,
         daily: c.daily,
         ads: c.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: a.status_detail ? tiktokStatusWord(a.status_detail) : undefined, status_detail: a.status_detail, status_note: a.status_note, review: a.review, item_id: a.item_id, adgroup_id: a.adgroup_id,
                                  spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows })),
-        promotion_id: promoByCampaign.get(`tiktok:${c.campaign_id}`)?.id,
+        promotion_id: promo?.id,
         url: adsManagerUrl(advertiserId),
-      }))
+      } })
     } catch (e) { errors.push(`TikTok (${app.name}): ${(e as Error).message}`); return [] }
   }))
 
@@ -126,7 +147,8 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
     }
     for (const r of by.values()) {
       const i = info.get(r.campaign_id)
-      if (i) { r.name = i.name ?? r.name; r.status = i.status; r.status_detail = i.effective_status; r.objective = i.objective; r.budget_daily_cents = i.daily_budget_cents }
+      if (i) { r.name = i.name ?? r.name; r.status = i.status; r.status_detail = i.effective_status; r.objective = i.objective; r.budget_daily_cents = i.daily_budget_cents; r.created = i.created_time }
+      r.started = promoByCampaign.get(`meta:${r.campaign_id}`)?.start_at ?? i?.start_time
       if (r.impressions) { r.ctr = Math.round(((r.clicks ?? 0) / r.impressions) * 10000) / 100; r.cpm_cents = Math.round((r.spend_cents / r.impressions) * 1000) }
       if (r.clicks) r.cpc_cents = Math.round(r.spend_cents / r.clicks)
       r.daily.sort((a, b) => a.day.localeCompare(b.day))

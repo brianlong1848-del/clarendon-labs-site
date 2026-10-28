@@ -11,7 +11,7 @@ import { PlatformGlyph } from '@/components/post/shared'
 // Campaigns row. Reads /api/ads/insights; one Claude write-up a day, app and
 // range — Regenerate asks for a new one.
 
-export type Verdict = 'too_early' | 'winning' | 'ok' | 'needs_work'
+export type Verdict = 'too_early' | 'not_delivering' | 'winning' | 'ok' | 'needs_work'
 export type Stage = 'hook' | 'hold' | 'click' | 'cost' | 'install' | 'fatigue'
 export type Insight = {
   verdict: Verdict; reason: string; weakest?: Stage; objective_kind: 'views' | 'traffic' | 'installs'
@@ -19,11 +19,11 @@ export type Insight = {
   metrics: { spend_cents: number; impressions?: number; hook_rate?: number; hold_rate?: number; ctr?: number; cpc_cents?: number; cpm_cents?: number; cost_per_view15_cents?: number; follows_per_dollar?: number; frequency?: number; installs?: number; cpi_cents?: number; est_roas?: number; trend?: { ctr_change?: number; frequency_change?: number; days: number; fatigue: boolean } }
 }
 export type InsightAction = {
-  id: string; kind: 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'open_in_manager' | 'creative' | 'wait'
+  id: string; kind: 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'widen_audience' | 'open_in_manager' | 'creative' | 'wait'
   platform: 'tiktok' | 'meta'; campaign_id: string; app_id: string | null; campaign_name: string; promotion_id?: string
   advertiser_id?: string; adgroup_ids?: string[]; ad_ids?: string[]; item_id?: string; post_id?: string; manager_url?: string
   title: string; detail: string; button?: string; confirm?: string; confirm_fields?: { budget_cents?: number; pause_original?: boolean }
-  amount_cents?: number; href?: string; note?: string; blocked?: string; done?: { at?: string; note: string; result_ids?: Record<string, unknown> }; score: number
+  amount_cents?: number; href?: string; note?: string; blocked?: string; done?: { at?: string; note: string; label?: string; result_ids?: Record<string, unknown> }; score: number
 }
 export type InsightsPayload = {
   day: string; range: string; app: string
@@ -38,6 +38,7 @@ export const VERDICT: Record<Verdict, { text: string; color: string; bg: string 
   ok: { text: 'OK', color: C.ink2, bg: C.card2 },
   needs_work: { text: 'Needs work', color: C.loss, bg: '#FBEDE6' },
   too_early: { text: 'Too early', color: C.soft, bg: C.card2 },
+  not_delivering: { text: 'Not delivering', color: C.amber, bg: '#FBF0DD' },
 }
 const STAGE: Record<Stage, string> = { hook: 'hook', hold: 'hold', click: 'click', cost: 'cost', install: 'install', fatigue: 'fatigue' }
 
@@ -111,7 +112,7 @@ export function ActionItem({ a, n, insight, compact = false, onDone }: { a: Insi
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <b style={{ fontSize: compact ? 13 : 13.5, ...(a.done ? { color: C.soft } : {}) }}>{a.title}</b>
           {insight && <VerdictPill insight={insight} size={11} />}
-          {a.done && <span style={{ fontSize: 11.5, fontWeight: 800, color: C.teal, background: C.mintTint, borderRadius: 99, padding: '2px 9px' }}>{a.done.at ? `Done ${new Date(a.done.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ✓` : 'Done ✓'}</span>}
+          {a.done && <span style={{ fontSize: 11.5, fontWeight: 800, color: C.teal, background: C.mintTint, borderRadius: 99, padding: '2px 9px' }}>{a.done.label ?? (a.done.at ? `Done ${new Date(a.done.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ✓` : 'Done ✓')}</span>}
         </div>
         {!compact && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>

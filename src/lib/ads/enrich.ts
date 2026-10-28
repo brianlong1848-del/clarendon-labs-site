@@ -6,7 +6,7 @@
 
 import { recentActions } from './actions'
 import { tiktokAdvertiserId, tiktokManagementScope } from '@/lib/analytics/tiktok'
-import { adsManagerUrl } from './tiktok'
+import { adGroupManagerUrl, adsManagerUrl } from './tiktok'
 import { getPost } from '@/lib/publish/store'
 import type { Action } from './insights'
 import type { Promotion } from './meta'
@@ -26,7 +26,11 @@ export async function enrichActions(actions: Action[], promotions: Pick<Promotio
   return Promise.all(actions.map(async (a) => {
     const out: Action = { ...a }
     const adv = a.platform === 'tiktok' && a.app_id ? tiktokAdvertiserId(a.app_id) : undefined
-    if (adv) { out.advertiser_id = adv; out.manager_url = adsManagerUrl(adv, a.campaign_id) }
+    if (adv) {
+      out.advertiser_id = adv; out.manager_url = adsManagerUrl(adv, a.campaign_id)
+      // Widen audience edits the ad group's targeting: link straight to that level.
+      if (a.kind === 'widen_audience') { out.manager_url = adGroupManagerUrl(adv, a.campaign_id); out.href = out.manager_url }
+    }
     const promo = promoBy.get(`${a.platform}:${a.campaign_id}`)
     if (promo?.post_id) out.post_id = promo.post_id
     if (!out.item_id && promo?.remote_id) out.item_id = promo.remote_id

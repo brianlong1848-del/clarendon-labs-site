@@ -461,13 +461,15 @@ export function toAdSpendRow(r: MetaCampaignDay) {
 }
 
 /** Name, status, objective and daily budget per campaign on the shared account. */
-export async function metaCampaignInfo(): Promise<Map<string, { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number }>> {
-  const out = new Map<string, { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number }>()
+export type MetaCampaignInfo = { name: string; status: string; effective_status: string; objective?: string; daily_budget_cents?: number; created_time?: string; start_time?: string }
+export async function metaCampaignInfo(): Promise<Map<string, MetaCampaignInfo>> {
+  const out = new Map<string, MetaCampaignInfo>()
   if (!token()) return out
-  let url: string | null = `${G}/${act()}/campaigns?${new URLSearchParams({ fields: 'id,name,effective_status,objective,daily_budget', limit: '200', access_token: token()! })}`
+  let url: string | null = `${G}/${act()}/campaigns?${new URLSearchParams({ fields: 'id,name,effective_status,objective,daily_budget,created_time,start_time', limit: '200', access_token: token()! })}`
   for (let pages = 0; url && pages < 5; pages++) {
     const body: any = await call(url)
-    for (const c of body.data ?? []) out.set(String(c.id), { name: c.name, status: metaStatusWord(c.effective_status), effective_status: c.effective_status, objective: c.objective, daily_budget_cents: c.daily_budget ? Number(c.daily_budget) : undefined })
+    for (const c of body.data ?? []) out.set(String(c.id), { name: c.name, status: metaStatusWord(c.effective_status), effective_status: c.effective_status, objective: c.objective, daily_budget_cents: c.daily_budget ? Number(c.daily_budget) : undefined,
+      created_time: c.created_time, start_time: c.start_time })
     url = body.paging?.next ?? null
   }
   return out

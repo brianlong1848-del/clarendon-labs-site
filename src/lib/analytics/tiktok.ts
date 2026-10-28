@@ -244,11 +244,15 @@ const STATUS_FROM_SECONDARY: Record<string, string> = {
   AD_STATUS_BALANCE_EXCEED: 'no_funds', AD_STATUS_BUDGET_EXCEED: 'budget_spent', AD_STATUS_CAMPAIGN_EXCEED: 'budget_spent',
   CAMPAIGN_STATUS_ENABLE: 'running', CAMPAIGN_STATUS_DISABLE: 'paused', CAMPAIGN_STATUS_DELETE: 'deleted', CAMPAIGN_STATUS_ADVERTISER_AUDIT_DENY: 'rejected',
   CAMPAIGN_STATUS_ADVERTISER_AUDIT: 'in_review', CAMPAIGN_STATUS_BUDGET_EXCEED: 'budget_spent', CAMPAIGN_STATUS_NOT_START: 'scheduled',
-  CAMPAIGN_STATUS_ALL: 'running', CAMPAIGN_STATUS_TIME_DONE: 'ended',
+  CAMPAIGN_STATUS_ALL: 'running', CAMPAIGN_STATUS_TIME_DONE: 'ended', AD_STATUS_DELETE: 'deleted',
 }
-/** TikTok's secondary status → one word the UI can colour. */
+/** TikTok's secondary status → one word the UI can colour. The live switch
+ *  (operation_status DISABLE) wins over a stale secondary status: a campaign
+ *  Brian paused in Ads Manager is paused whatever the delivery status says. */
 export const tiktokStatusWord = (secondary?: string, operation?: string) =>
-  (secondary && STATUS_FROM_SECONDARY[secondary]) || (operation === 'DISABLE' ? 'paused' : operation === 'ENABLE' ? 'running' : 'unknown')
+  secondary === 'CAMPAIGN_STATUS_DELETE' || secondary === 'AD_STATUS_DELETE' ? 'deleted'
+  : operation === 'DISABLE' ? 'paused'
+  : (secondary && STATUS_FROM_SECONDARY[secondary]) || (operation === 'ENABLE' ? 'running' : 'unknown')
 
 export const SCOPE_PENDING_NOTE = 'Status pending TikTok approval — campaign and ad status need the Ads Management scope on the Clarendon Labs Analytics app (requested 2026-10-27).'
 
