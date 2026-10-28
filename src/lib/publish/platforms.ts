@@ -24,7 +24,7 @@ import type { Post, TargetState } from './store'
 import { clearTokenCache, connectedElsewhere, getToken } from './tokens'
 import { handleFits, wrongAccount } from './ownership'
 import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken, type CreatorInfo, type PublishStatus } from './tiktok'
-import { bizConfigured, bizCreatorInfo, bizPublish, bizStatus, bizToken } from './tiktokBiz'
+import { bizConfigured, bizCreatorInfo, bizPublish, bizStatus, bizToken, ensureMediaVerified } from './tiktokBiz'
 import type { StoredToken } from './tokens'
 
 const G = 'https://graph.facebook.com/v21.0'
@@ -108,9 +108,18 @@ export type Account = { platform: Platform; ready: boolean; handle?: string; ava
 // platform that doesn't answer within 8s is reported rather than holding up
 // the page.
 let accountsCache: { at: number; data: Awaited<ReturnType<typeof checkAccounts>> } | null = null
+// "Check again" also re-runs the TikTok media check (the studio-media URL
+// prefix TikTok pulls videos from); a problem there shows on every TikTok card.
+let mediaProblem: string | null = null
 export async function accounts(fresh = false) {
   if (!fresh && accountsCache && Date.now() - accountsCache.at < 180_000) return accountsCache.data
   if (fresh) clearTokenCache()
+  if (fresh && bizConfigured()) {
+    try {
+      const m = await ensureMediaVerified()
+      mediaProblem = m.status === 'verified' ? null : `TikTok hasn’t verified the video storage link yet (${m.status}${m.detail ? `: ${m.detail}` : ''}). Check again in a minute.`
+    } catch (e) { mediaProblem = `TikTok media check failed: ${(e as Error).message}` }
+  }
   const data = await checkAccounts()
   accountsCache = { at: Date.now(), data }
   return data
@@ -196,9 +205,11 @@ async function checkAccounts() {
       if (row) {
         try {
           const c = biz ? await bizCreatorInfo(row) : await creatorInfo(row.token)
-          out.push(handleFits(app.id, c.creator_username)
-            ? { platform: 'tiktok', ready: true, handle: c.creator_username, avatar: c.creator_avatar_url }
-            : { platform: 'tiktok', ready: false, connect: 'tiktok', handle: c.creator_username, reason: wrongAccount(app.id, c.creator_username, 'TikTok') })
+          out.push(!handleFits(app.id, c.creator_username)
+            ? { platform: 'tiktok', ready: false, connect: 'tiktok', handle: c.creator_username, reason: wrongAccount(app.id, c.creator_username, 'TikTok') }
+            : biz && mediaProblem
+            ? { platform: 'tiktok', ready: false, handle: c.creator_username, avatar: c.creator_avatar_url, reason: mediaProblem }
+            : { platform: 'tiktok', ready: true, handle: c.creator_username, avatar: c.creator_avatar_url })
         } catch (e) {
           out.push({ platform: 'tiktok', ready: false, connect: 'tiktok', reason: `TikTok sign-in expired (${(e as Error).message}). Reconnect it.` })
         }
@@ -336,7 +347,7 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
   if (!row) return { status: 'failed', error: 'TikTok isn’t connected for this app.' }
   // Never post an app's video to someone else's account (e.g. Brian's personal TikTok).
   if (!handleFits(p.app_id, row.username)) return { status: 'failed', error: wrongAccount(p.app_id, row.username!, 'TikTok') }
-  const settings = t.tiktok ?? { mode: 'draft' as const }
+  let settings = t.tiktok ?? { mode: 'draft' as const }
   const video = p.media.find((m) => m.kind === 'video')
   if (!video) return { status: 'failed', error: 'TikTok here posts one video.' }
 
@@ -345,7 +356,13 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
     // privacy choice that's no longer allowed before any upload happens.
     const c = await info(row)
     if (settings.mode === 'direct') {
-      if (!settings.privacy || !c.privacy_level_options.includes(settings.privacy)) return { status: 'failed', error: 'That privacy choice isn’t available for this TikTok account — pick again.' }
+      if (!settings.privacy || !c.privacy_level_options.includes(settings.privacy)) {
+        // The Business API posts to an account we own, publicly. A saved
+        // choice it no longer offers (SELF_ONLY from the private-only era,
+        // 2026-10-17/18) becomes Public instead of a dead post.
+        if (!biz) return { status: 'failed', error: 'That privacy choice isn’t available for this TikTok account — pick again.' }
+        settings = { ...settings, privacy: c.privacy_level_options.includes('PUBLIC_TO_EVERYONE') ? 'PUBLIC_TO_EVERYONE' : c.privacy_level_options[0] }
+      }
       if (video.duration && c.max_video_post_duration_sec && video.duration > c.max_video_post_duration_sec) {
         return { status: 'failed', error: `This account can post videos up to ${c.max_video_post_duration_sec}s on TikTok.` }
       }
@@ -354,7 +371,8 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
     const publishId = biz
       ? await bizPublish(row, video.url, caption, settings)
       : await startUpload(row.token, video.url, video.mime, caption, settings)
-    return { containerId: publishId, status: 'processing' }
+    // Keep what actually went out (e.g. the privacy fallback) on the target.
+    return { containerId: publishId, status: 'processing', tiktok: settings }
   }
 
   const st = await status(row, t.containerId)

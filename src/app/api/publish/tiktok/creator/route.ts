@@ -17,7 +17,8 @@ export async function GET(req: Request) {
     if (bizConfigured()) {
       const biz = await bizToken(appId)
       if (!biz) return NextResponse.json({ error: 'TikTok isn’t connected for this app.' }, { status: 404 })
-      return NextResponse.json({ creator: await bizCreatorInfo(biz), audited: true })
+      // biz: an owned business account on the Business API — the composer preselects Public.
+      return NextResponse.json({ creator: await bizCreatorInfo(biz), audited: true, biz: true })
     }
     const row = await tiktokToken(appId)
     if (!row) return NextResponse.json({ error: 'TikTok isn’t connected for this app.' }, { status: 404 })

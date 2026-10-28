@@ -243,7 +243,14 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     setCreator((c) => ({ ...c, loading: true, error: null }))
     setTt({ mode: 'direct' })
     fetch(`/api/publish/tiktok/creator?app=${appId}`).then((r) => r.json().then((b) => ({ ok: r.ok, b })))
-      .then(({ ok, b }) => { if (live) setCreator({ info: ok ? b.creator : null, audited: !!b.audited, loading: false, error: ok ? null : b.error }) })
+      .then(({ ok, b }) => {
+        if (!live) return
+        setCreator({ info: ok ? b.creator : null, audited: !!b.audited, loading: false, error: ok ? null : b.error })
+        // Business API (owned business account): it only posts publicly, so
+        // start on Public instead of making Brian pick it every time.
+        const opts: string[] = ok ? b.creator?.privacy_level_options ?? [] : []
+        if (ok && b.biz && opts.includes('PUBLIC_TO_EVERYONE')) setTt((t) => t.privacy && opts.includes(t.privacy) ? t : { ...t, privacy: 'PUBLIC_TO_EVERYONE' })
+      })
       .catch(() => { if (live) setCreator({ info: null, audited: false, loading: false, error: 'Couldn’t reach TikTok.' }) })
     return () => { live = false }
   }, [ttOn, appId])

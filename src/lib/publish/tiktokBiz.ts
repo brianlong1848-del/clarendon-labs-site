@@ -70,7 +70,7 @@ function friendly(code?: number, message?: string) {
   const m = String(message ?? '')
   if (/access.?token|expired|invalid.*token/i.test(m)) return 'The TikTok sign-in expired — reconnect TikTok for this app.'
   if (/scope|permission/i.test(m)) return `TikTok permission missing (${m}) — reconnect TikTok and allow everything.`
-  if (/url.*(verif|owner)|property/i.test(m)) return 'TikTok hasn’t verified the video storage link yet — run the one-time media check on Post › Accounts.'
+  if (/url.*(verif|owner)|property/i.test(m)) return 'TikTok hasn’t verified the video storage link yet — Studio re-checks it before each post; try again in a minute.'
   if (/limit|too many|frequen/i.test(m)) return 'TikTok’s posting limit for this account has been reached (15 a day). Try again later.'
   return m || (code ? `TikTok error ${code}` : '')
 }
@@ -144,6 +144,11 @@ export async function bizCreatorInfo(row: StoredToken): Promise<CreatorInfo> {
 export async function bizPublish(row: StoredToken, videoUrl: string, caption: string, s: TikTokSettings) {
   const prefix = bizMediaPrefix()
   if (!prefix || !videoUrl.startsWith(prefix)) throw new Error('TikTok can only take videos uploaded to Studio.')
+  // TikTok pulls the file from studio-media, which it only does once the URL
+  // prefix is verified as ours. Done here, before the first post, instead of
+  // asking Brian to run it by hand (it's a no-op once verified).
+  const media = await mediaVerified()
+  if (media.status !== 'verified') throw new Error(`TikTok hasn’t verified the video storage link yet${media.detail ? ` (${media.detail})` : ''} — Studio re-checks it before each post; try again in a minute.`)
   const draft = s.mode === 'draft'
   const out = await call<{ share_id: string }>('POST', '/business/video/publish/', {
     token: row.token,
@@ -172,10 +177,27 @@ export async function bizStatus(row: StoredToken, publishId: string): Promise<Pu
 
 type Property = { property_type: number; url: string; property_status: number; signature?: string; file_name?: string }
 
-/** Add the studio-media URL prefix as a TikTok URL property, put TikTok's
- *  signature file there, and ask TikTok to verify it. Safe to run again. */
-export async function ensureMediaVerified(): Promise<{ status: 'verified' | 'pending' | 'failed'; url: string; detail?: string }> {
+type MediaCheck = { status: 'verified' | 'pending' | 'failed'; url: string; detail?: string }
+let mediaOk: { url: string; at: number } | null = null
+
+/** ensureMediaVerified, remembered for a day once it says verified, so a
+ *  publish doesn't spend a property/list call every time. */
+export async function mediaVerified(): Promise<MediaCheck> {
   const url = bizMediaPrefix()
+  if (mediaOk && mediaOk.url === url && Date.now() - mediaOk.at < 86_400_000) return { status: 'verified', url }
+  return ensureMediaVerified()
+}
+
+/** Add the studio-media URL prefix as a TikTok URL property, put TikTok's
+ *  signature file there, and ask TikTok to verify it. Safe to run again:
+ *  runs before the first post (bizPublish) and on Accounts › Check again. */
+export async function ensureMediaVerified(): Promise<MediaCheck> {
+  const url = bizMediaPrefix()
+  const done = (r: MediaCheck) => { if (r.status === 'verified') mediaOk = { url, at: Date.now() }; return r }
+  return done(await verifyMedia(url))
+}
+
+async function verifyMedia(url: string): Promise<MediaCheck> {
   const auth = { app_id: appId(), secret: secret() }
   const list = await call<{ url_property_info_list?: Property[] }>('GET', '/business/property/list/', { query: auth })
   let prop = list.url_property_info_list?.find((p) => p.url === url)

@@ -122,11 +122,28 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
     return () => clearInterval(t)
   }, [posts, load])
 
+  // What the last retry / clear did, as a toast — a retry that fails again
+  // otherwise looks like nothing happened (the card already said "failed").
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  useEffect(() => {
+    if (!notice?.ok) return
+    const t = setTimeout(() => setNotice(null), 6000)
+    return () => clearTimeout(t)
+  }, [notice])
+  const pname = (id: string) => PLATFORMS.find((x) => x.id === id)?.name ?? id
+
   const act = async (id: string, method: 'DELETE' | 'PATCH', action?: string) => {
-    setBusy(id)
+    setBusy(id); setNotice(null)
     const res = await fetch(`/api/publish?id=${id}${action ? `&action=${action}` : ''}`, { method, headers: {} })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) setError(body.error ?? 'Something went wrong.')
+    if (!res.ok) { setError(body.error ?? 'Something went wrong.'); setNotice({ ok: false, text: `${method === 'PATCH' ? 'Retry' : 'Clear'} failed: ${body.error ?? `HTTP ${res.status}`}` }) }
+    else if (method === 'PATCH' && !action && body.post) {
+      const p = body.post as QueuedPost
+      const bad = p.targets.filter((t) => t.status === 'failed')
+      if (p.status === 'done') setNotice({ ok: true, text: 'Posted.' })
+      else if (p.status === 'publishing') setNotice({ ok: true, text: 'Still publishing — the platforms are processing the media; this updates on its own.' })
+      else if (bad.length) setNotice({ ok: false, text: `Retry failed — ${bad.map((t) => `${pname(t.platform)}: ${t.error ?? 'no reason given'}`).join(' · ')}` })
+    }
     setBusy(null); load()
   }
 
@@ -292,8 +309,11 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
             {p.targets.map((t) => <PlatformGlyph key={t.platform} platform={t.platform} size={13} color={t.status === 'failed' ? C.red : t.status === 'published' ? C.mint : C.soft} />)}
             {p.series_id && <span style={{ fontSize: 11, color: C.soft }}>↻ #{p.occurrence ?? '?'}</span>}
             {p.caption_by === 'ai' && <span style={{ fontSize: 11, fontWeight: 700, color: C.mint }}>✦ AI</span>}
-            {tone && <span style={{ fontSize: 11.5, color: C.red, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.targets.filter((t) => t.status === 'failed').map((t) => PLATFORMS.find((x) => x.id === t.platform)?.name).join(', ')} failed</span>}
+            {tone && <span style={{ fontSize: 11.5, color: C.red, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.targets.filter((t) => t.status === 'failed').map((t) => pname(t.platform)).join(', ')} failed</span>}
           </span>
+          {tone && p.targets.filter((t) => t.status === 'failed' && t.error).map((t) => (
+            <span key={t.platform} title={t.error} style={{ fontSize: 11.5, color: C.red, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pname(t.platform)}: {t.error}</span>
+          ))}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {tone && <button style={{ ...small, ...btn('solid'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? '…' : 'Retry'}</button>}
@@ -426,6 +446,13 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
   return (
     <div style={{ display: 'grid', gap: 28 }}>
       {error && <p style={{ color: C.red, margin: 0 }}>{error}</p>}
+      {notice && (
+        <div role="status" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', borderRadius: 12, fontWeight: 700, fontSize: 13.5, lineHeight: 1.45,
+                                    background: notice.ok ? C.mintTint : '#FBE7E5', color: notice.ok ? C.mint : C.red }}>
+          <span style={{ flex: 1, overflowWrap: 'anywhere' }}>{notice.text}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss" style={{ all: 'unset', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+      )}
       {appIds.length > 1 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {chip('all', 'All apps', posts.filter((p) => p.status === 'scheduled').length)}
