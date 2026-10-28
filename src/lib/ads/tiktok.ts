@@ -498,7 +498,14 @@ export async function duplicateTikTokAsTraffic(i: DuplicateTrafficInput): Promis
   // 2. Payloads.
   const campaign = { advertiser_id: advertiserId, campaign_name: name, objective_type: 'TRAFFIC', budget_mode: 'BUDGET_MODE_DAY', budget: budgetUsd, operation_status: 'ENABLE' }
   const copied: Record<string, unknown> = {}
-  if (srcGroup) { for (const k of COPY_ADGROUP_FIELDS) if (srcGroup[k] != null) copied[k] = srcGroup[k] }
+  // adgroup/get pads some lists with nulls (retired sub-placements) and sends
+  // empty arrays for targeting that isn't set; adgroup/create accepts neither.
+  if (srcGroup) {
+    for (const k of COPY_ADGROUP_FIELDS) {
+      const v = Array.isArray(srcGroup[k]) ? srcGroup[k].filter((x: unknown) => x != null) : srcGroup[k]
+      if (v != null && !(Array.isArray(v) && !v.length)) copied[k] = v
+    }
+  }
   else copied['<copied from the source ad group>'] = COPY_ADGROUP_FIELDS.join(', ')
   const adgroup = {
     advertiser_id: advertiserId, campaign_id: '<new campaign_id>', adgroup_name: `${audienceName} - Traffic`,

@@ -49,6 +49,8 @@ export async function enrichActions(actions: Action[], promotions: Pick<Promotio
       out.href = out.manager_url; out.button = 'Open in Ads Manager'; out.note = 'API permission pending — TikTok is reviewing the Ads Management scope (requested 2026-10-27); do it in Ads Manager for now.'
       delete out.blocked; delete out.confirm; delete out.confirm_fields
     }
+    // Scope approved (2026-10-28): the "pending" warnings no longer apply.
+    if (a.platform === 'tiktok' && scope.get(a.app_id ?? '') === true) { delete out.blocked; if (a.kind === 'widen_audience') delete out.note }
     return out
   }))
 }
