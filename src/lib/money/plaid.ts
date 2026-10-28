@@ -290,6 +290,54 @@ export async function itemStatuses(db: StudioDb) {
   }))
 }
 
+// ─── Keeping items in sync without anyone pressing Sync ──────────────────────
+
+export type WebhookCheck = { itemId: string; institution: string | null; webhook: 'ok' | 'updated' | 'error'; was?: string | null; error?: string }
+
+/**
+ * Plaid only learns the webhook URL at link time, so an item linked from a
+ * preview or an older build may still point somewhere else (or nowhere).
+ * Check /item/get and move it to PLAID_WEBHOOK_URL when it differs. Daily from
+ * the plaid-sync cron; one Plaid call per item, two when it has to fix one.
+ */
+export async function ensureWebhook(db: StudioDb, itemId: string, institution: string | null = null): Promise<WebhookCheck> {
+  try {
+    const tok = await db.rpc<string>('get_plaid_token', { p_item_id: itemId })
+    if (!tok.ok || !tok.data) throw new Error(tok.ok ? 'no access token stored' : tok.error)
+    const info = await plaid('/item/get', { access_token: tok.data })
+    const was: string | null = info.item?.webhook ?? null
+    if (was === PLAID_WEBHOOK_URL) return { itemId, institution, webhook: 'ok' }
+    await plaid('/item/webhook/update', { access_token: tok.data, webhook: PLAID_WEBHOOK_URL })
+    console.log(`[plaid] webhook for ${institution ?? itemId} moved from ${was ?? '(none)'} to ${PLAID_WEBHOOK_URL}`)
+    return { itemId, institution, webhook: 'updated', was }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    console.error(`[plaid] webhook check ${institution ?? itemId}: ${error}`)
+    return { itemId, institution, webhook: 'error', error }
+  }
+}
+
+/** Sync-on-open: an item with no clean sync in this long gets one in the background when Money is opened. */
+export const STALE_AFTER_MS = 12 * 3600_000
+/** ...but not more than once in this window, however many screens open (updated_at moves on every attempt). */
+const RETRY_AFTER_MS = 15 * 60_000
+
+/**
+ * Which items the Money screens should kick a background sync for: no clean
+ * sync in 12 h, not waiting on a re-login (a sync can't fix that), and no
+ * attempt in the last 15 min. Claims them by moving updated_at so a second
+ * request a moment later doesn't start the same sync again. The caller runs
+ * syncItem after responding (Next's after()).
+ */
+export async function claimStaleItems(db: StudioDb, items: { id: string; status: string; last_synced_at: string | null; updated_at: string }[]) {
+  const now = Date.now()
+  const due = items.filter((i) => i.status !== 'needs_reauth'
+    && (!i.last_synced_at || now - Date.parse(i.last_synced_at) > STALE_AFTER_MS)
+    && (!i.updated_at || now - Date.parse(i.updated_at) > RETRY_AFTER_MS))
+  await Promise.all(due.map((i) => markItem(db, i.id, {})))
+  return due.map((i) => i.id)
+}
+
 /** After a new link: store the token, create the account rows, run the first sync. */
 export async function connectItem(db: StudioDb, publicToken: string, ownership: 'business' | 'personal') {
   const ex = await plaid('/item/public_token/exchange', { public_token: publicToken })

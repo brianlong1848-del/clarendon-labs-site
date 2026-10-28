@@ -5,7 +5,7 @@ import { C, btn, labelStyle } from '@/components/AdminNav'
 // Cash card for the Money tab: business cash on hand (sum of business accounts'
 // available balance), one row per connected account, and sync health with a
 // "Sync now" button. Same data as the Studio app's Money screen
-// (GET/POST /api/money/plaid/sync).
+// (GET/POST /api/money/plaid/sync). Opening the page syncs stale banks on its own.
 
 type Account = {
   id: string; name: string | null; mask: string | null; ownership: string
@@ -45,12 +45,18 @@ export default function PlaidSyncStatus({ onSynced, refreshKey }: { onSynced?: (
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
 
-  const load = useCallback(async () => {
+  // Sync-on-open: the status call starts a background sync for any bank with
+  // no clean sync in 12 h (server-side, debounced). No spinner; the card just
+  // re-reads the status once that sync has had time to finish.
+  const load = useCallback(async (followUp = true) => {
     const r = await fetch('/api/money/plaid/sync').catch(() => null)
     const d = r ? await r.json().catch(() => ({})) : {}
     if (r?.ok) setItems(d.items ?? [])
     else setMsg({ text: d.error ?? 'Could not load bank status', bad: true })
-  }, [])
+    if (r?.ok && followUp && Array.isArray(d.syncing) && d.syncing.length) {
+      setTimeout(() => { load(false).then(() => onSynced?.()) }, 25_000)
+    }
+  }, [onSynced])
   useEffect(() => { load() }, [load, refreshKey])
 
   async function syncNow() {
