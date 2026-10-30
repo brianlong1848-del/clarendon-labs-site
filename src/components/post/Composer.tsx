@@ -12,6 +12,7 @@ import { TikTokPanel, type Creator } from './TikTokPanel'
 import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
 import { DAY_SHORT, checkRepeat, describeRule, upcoming, type RepeatSpec } from '@/lib/publish/recur'
 import { MARKETS, assignMedia, inZone, localTimeIn, marketsFor, wrongLanguage, type Assignment, type MarketId } from '@/lib/publish/markets'
+import { APP_STORE_IDS, campaignLink, campaignToken, ctSlug } from '@/lib/ads/store'
 
 // ─── Composer ────────────────────────────────────────────────────────────────
 //
@@ -168,6 +169,10 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const [dragOver, setDragOver] = useState(false)
   const [dragKey, setDragKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // Campaign link (FEAT-CLA-024): clarendon.dev/get/<app>?ct=<platform>-<yyyymmdd>-<slug>,
+  // one per platform, so App Store Connect → Campaigns shows installs per post.
+  const [ctWord, setCtWord] = useState('')
+  const [ctCopied, setCtCopied] = useState<Platform | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const mediaKey = useRef('')
   const [connecting, setConnecting] = useState(false)
@@ -514,6 +519,24 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const tags = (caption.match(/(^|\s)#\w/g) ?? []).length
   const previewTarget = targets.find((t) => t.platform === previewOn) ?? targets[0]
   const pname = (p: Platform) => PLATFORMS.find((x) => x.id === p)!.name
+  const ctDate = mode === 'later' && !isNaN(scheduleDate.getTime()) ? scheduleDate : new Date()
+  const ctSlugUsed = ctSlug(ctWord) || ctSlug(notes) || appId
+  const ctLinks = targets.map((t) => { const ct = campaignToken(t.platform, ctDate, ctSlugUsed); return { platform: t.platform, ct, url: campaignLink(appId, ct) } })
+  const onStore = !!APP_STORE_IDS[appId]
+  /** Append the platform's link to its own caption (tailor mode, seeded from the shared caption). */
+  const addCtLink = (list: { platform: Platform; url: string }[]) => {
+    setOverrides((o) => {
+      const next = { ...o }
+      for (const l of list) {
+        const base = captionFor(l.platform, caption, o)
+        if (base.includes(l.url)) continue
+        next[l.platform] = base.trim() ? `${base.trimEnd()}\n${l.url}` : l.url
+      }
+      return next
+    })
+    setTailor(true)
+  }
+  const copyCt = (p: Platform, url: string) => { navigator.clipboard?.writeText(url); setCtCopied(p); setTimeout(() => setCtCopied(null), 1800) }
 
   if (result) return <Result post={result} series={resultSeries} app={app} onNew={reset} />
   if (results) return <EditionsResult results={results} app={app} onNew={reset} />
@@ -801,6 +824,36 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
             <span style={{ color: tags > 30 ? C.red : C.soft }}>{tags} hashtag{tags === 1 ? '' : 's'}</span>
             <span style={{ flex: 1 }} /><span>⌘↵ to {mode === 'repeat' ? 'start repeating' : schedule ? 'schedule' : 'post'}</span>
           </div>
+          {targets.length > 0 && (
+            <div style={{ marginTop: 14, padding: '12px 14px', border: `1px solid ${C.rule}`, borderRadius: 12, background: C.card2, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ ...label, margin: 0 }}>Campaign link</span>
+                <input value={ctWord} onChange={(e) => setCtWord(e.target.value)} maxLength={30} placeholder={ctSlugUsed} aria-label="Campaign slug"
+                  style={{ width: 170, border: `1px solid ${C.rule2}`, borderRadius: 8, padding: '5px 9px', fontFamily: C.mono, fontSize: 12.5, color: C.ink, background: C.card }} />
+                <span style={{ flex: 1 }} />
+                <button onClick={() => addCtLink(ctLinks)} disabled={!onStore} title={onStore ? 'Append each platform’s link to its own caption' : 'Not on the App Store yet'}
+                  style={{ ...btn('ghost'), fontSize: 12.5, padding: '6px 11px', opacity: onStore ? 1 : 0.5 }}>Add to all captions</button>
+              </div>
+              {!onStore && <p style={{ margin: 0, fontSize: 12, color: C.amber }}>{app?.name ?? appId} has no App Store ID yet — clarendon.dev/get/{appId} answers 404 until it’s set in src/lib/ads/store.ts.</p>}
+              {ctLinks.map((l) => {
+                const inCaption = captionFor(l.platform, caption, tailor ? overrides : {}).includes(l.url)
+                return (
+                  <div key={l.platform} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, flexWrap: 'wrap' }}>
+                    <PlatformGlyph platform={l.platform} size={15} />
+                    <code style={{ fontFamily: C.mono, fontSize: 12, color: C.ink, overflowWrap: 'anywhere' }}>{l.url}</code>
+                    <span style={{ flex: 1 }} />
+                    {inCaption ? <span style={{ color: C.mint, fontWeight: 700 }}>In caption ✓</span>
+                      : <button onClick={() => addCtLink([l])} disabled={!onStore} style={{ border: 0, background: 'none', color: C.mint, fontWeight: 700, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, padding: 0 }}>Add</button>}
+                    <button onClick={() => copyCt(l.platform, l.url)} style={{ border: 0, background: 'none', color: C.ink2, fontWeight: 600, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, padding: 0 }}>{ctCopied === l.platform ? 'Copied ✓' : 'Copy'}</button>
+                  </div>
+                )
+              })}
+              <p style={{ margin: 0, fontSize: 11.5, color: C.soft }}>
+                ct = platform · {mode === 'later' ? 'scheduled' : 'today’s'} date · slug (a–z 0–9 - _, 40 chars max). Clickable on Facebook and Threads; on Instagram and TikTok put it in the bio instead.
+                Installs show in App Store Connect → App Analytics → Campaigns once APPSTORE_PROVIDER_TOKEN is set on Vercel.
+              </p>
+            </div>
+          )}
           {tailor && targets.length > 0 && (
             <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
               {targets.map((t) => {

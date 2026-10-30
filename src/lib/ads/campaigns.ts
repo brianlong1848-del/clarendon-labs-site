@@ -5,7 +5,7 @@
 // is optional: a platform that doesn't report a metric leaves it undefined
 // and the card shows "—", never a made-up zero. Installs and cost per
 // install are deliberately empty until App Store Connect campaign tokens
-// (/get/<app>?ct=) are wired (APP_STORE_PROVIDER_TOKEN).
+// (/get/<app>?ct=) are wired (APPSTORE_PROVIDER_TOKEN, FEAT-CLA-024).
 
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { tiktokAdvertiserId, tiktokCached, tiktokCampaigns, tiktokStatusWord, tiktokToken } from '@/lib/analytics/tiktok'
