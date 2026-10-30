@@ -308,28 +308,73 @@ async function facebook(p: Post, t: TargetState): Promise<Step> {
   return { status: 'published', remoteId: id, permalink: `https://www.facebook.com/${id}` }
 }
 
+// Threads containers (item containers and the carousel container alike)
+// expire about 24 hours after they're made, so everything here is created at
+// publish time, never when the post is scheduled, and nothing from an earlier
+// attempt is reused: Retry (PATCH /api/publish) hands us a bare target, and a
+// child that has gone stale or been rejected is thrown away and remade.
+//
+// A carousel goes in three steps, because Threads processes each item
+// container asynchronously and rejects a carousel whose children aren't
+// FINISHED yet ("The children with IDs … are invalid, nonexistent, or expired"):
+//   1. make the item containers        → children, childrenAt
+//   2. all children FINISHED           → make the carousel container → containerId
+//   3. carousel container FINISHED     → publish
+const THREADS_CHILD_MAX_AGE = 20 * 60 * 60_000  // remake children well inside the ~24h expiry
+const THREADS_CHILD_ATTEMPTS = 3
+
 async function threads(p: Post, t: TargetState): Promise<Step> {
   const token = await threadsToken(p.app_id)
   if (!token) return { status: 'failed', error: 'Threads isn’t connected for this app.' }
   const stored = await getToken('threads', p.app_id)
   if (stored && !handleFits(p.app_id, stored.username)) return { status: 'failed', error: wrongAccount(p.app_id, stored.username!, 'Threads') }
   const text = captionFor('threads', p.caption, p.overrides)
-  if (!t.containerId) {
-    const one = (m: MediaItem, extra: Record<string, string>) => post(`${T}/me/threads`, {
-      media_type: m.kind === 'image' ? 'IMAGE' : 'VIDEO', ...(m.kind === 'image' ? { image_url: m.url } : { video_url: m.url }), ...extra, access_token: token,
-    })
-    let container: string
-    if (p.media.length === 0) container = (await post(`${T}/me/threads`, { media_type: 'TEXT', text, access_token: token })).id
-    else if (p.media.length === 1) container = (await one(p.media[0], { text })).id
-    else {
-      const kids: string[] = []
-      for (const m of p.media) kids.push((await one(m, { is_carousel_item: 'true' })).id)
-      container = (await post(`${T}/me/threads`, { media_type: 'CAROUSEL', children: kids.join(','), text, access_token: token })).id
-    }
-    return { containerId: container, status: 'processing' }
+  const one = (m: MediaItem, extra: Record<string, string>) => post(`${T}/me/threads`, {
+    media_type: m.kind === 'image' ? 'IMAGE' : 'VIDEO', ...(m.kind === 'image' ? { image_url: m.url } : { video_url: m.url }), ...extra, access_token: token,
+  })
+  const statusOf = (id: string) => call(`${T}/${id}?fields=status,error_message&access_token=${token}`)
+  // Forget this attempt's children; the next step makes fresh ones.
+  const remake = (why: string): Step => {
+    const tries = (t.childrenTries ?? 0) + 1
+    if (tries >= THREADS_CHILD_ATTEMPTS) return { status: 'failed', error: `Threads kept rejecting the carousel items (${why}).`, children: undefined, childrenAt: undefined, childrenTries: undefined }
+    return { status: 'processing', children: undefined, childrenAt: undefined, childrenTries: tries }
   }
-  const st = await call(`${T}/${t.containerId}?fields=status,error_message&access_token=${token}`)
+
+  if (!t.containerId) {
+    if (p.media.length <= 1) {
+      const container = p.media.length === 0
+        ? (await post(`${T}/me/threads`, { media_type: 'TEXT', text, access_token: token })).id
+        : (await one(p.media[0], { text })).id
+      return { containerId: container, status: 'processing' }
+    }
+    // Carousel, step 1: item containers — made now, at publish time.
+    const kids = t.children ?? []
+    const age = t.childrenAt ? Date.now() - Date.parse(t.childrenAt) : Infinity
+    if (kids.length !== p.media.length || age > THREADS_CHILD_MAX_AGE) {
+      const made: string[] = []
+      for (const m of p.media) made.push((await one(m, { is_carousel_item: 'true' })).id)
+      return { children: made, childrenAt: new Date().toISOString(), status: 'processing' }
+    }
+    // Step 2: wait for every child, then make the carousel container.
+    const states = await Promise.all(kids.map((id) => statusOf(id).catch((e: Error) => ({ status: 'MISSING', error_message: e.message }))))
+    if (states.some((s) => s.status === 'IN_PROGRESS')) return { status: 'processing' }
+    const broken = states.find((s) => s.status === 'ERROR')
+    if (broken) return { status: 'failed', error: broken.error_message ?? 'Threads couldn’t process one of the carousel images.', children: undefined, childrenAt: undefined, childrenTries: undefined }
+    const gone = states.find((s) => s.status === 'EXPIRED' || s.status === 'MISSING')
+    if (gone) return remake(gone.status === 'EXPIRED' ? 'expired' : gone.error_message ?? 'missing')
+    try {
+      const container = (await post(`${T}/me/threads`, { media_type: 'CAROUSEL', children: kids.join(','), text, access_token: token })).id
+      return { containerId: container, status: 'processing', children: undefined, childrenAt: undefined, childrenTries: undefined }
+    } catch (e) {
+      // Threads' own wording for children it won't accept: remake them instead of failing on the same ids.
+      if (/invalid, nonexistent, or expired/i.test((e as Error).message)) return remake((e as Error).message)
+      throw e
+    }
+  }
+  // Step 3 (any shape): the container is ready → publish.
+  const st = await statusOf(t.containerId)
   if (st.status === 'IN_PROGRESS') return { status: 'processing' }
+  if (st.status === 'EXPIRED' && p.media.length > 1) return { ...remake('carousel container expired'), containerId: undefined }
   if (st.status === 'ERROR' || st.status === 'EXPIRED') return { status: 'failed', error: st.error_message ?? 'Threads couldn’t process the media.' }
   const published = await post(`${T}/me/threads_publish`, { creation_id: t.containerId, access_token: token })
   let permalink: string | undefined

@@ -10,6 +10,11 @@ import type { RepeatRule } from './recur'
 export type TargetState = Target & {
   status: 'pending' | 'processing' | 'published' | 'failed' | 'skipped'
   containerId?: string
+  /** Threads carousel only: this attempt's item containers (made at publish
+   *  time; they expire in ~24h, so a retry never reuses them). */
+  children?: string[]
+  childrenAt?: string
+  childrenTries?: number
   remoteId?: string
   permalink?: string
   error?: string

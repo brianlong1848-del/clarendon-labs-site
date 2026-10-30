@@ -130,6 +130,9 @@ export async function PATCH(req: Request) {
   if (q.get('action') === 'recaption') {
     try { return NextResponse.json({ post: await recaption(post) }) } catch (e) { return bad((e as Error).message, 500) }
   }
+  // A failed platform starts over from a bare target: no containerId, no
+  // Threads carousel children — those expire (~24h), so a retry must make new
+  // ones rather than publish the ids the failed attempt left behind.
   const targets = post.targets.map((t) => t.status === 'failed' ? { platform: t.platform, format: t.format, ...(t.tiktok ? { tiktok: t.tiktok } : {}), status: 'pending' as const } : t)
   const fresh = await updatePost(id, { targets, status: 'publishing' })
   return NextResponse.json({ post: await run(fresh, 45_000) })
