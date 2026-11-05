@@ -6,6 +6,7 @@ export const STORE_APPS: Record<string, { name: string; store: string; tagline: 
   rolligan: { name: 'Rolligan', store: 'https://apps.apple.com/us/app/rolligan/id6774974562', tagline: 'The push-your-luck dice party game.' },
   gagorder: { name: 'Gag Order', store: 'https://apps.apple.com/us/app/gag-order-party-game/id6776382535', tagline: 'The anonymous “most likely to” party game.' },
   borea: { name: 'Borea', store: 'https://apps.apple.com/us/app/borea/id6799219647', tagline: 'Progress pics, played back.' },
+  yulepick: { name: 'YulePick', store: 'https://apps.apple.com/us/app/id6778490588', tagline: 'Secret Santa, made merry.' },
 }
 export const downloadLink = (appId: string) => `https://clarendon.dev/get/${appId}`
 
@@ -20,7 +21,7 @@ export const APP_STORE_IDS: Record<string, string | undefined> = {
   rolligan: '6774974562',
   gagorder: '6776382535',
   borea: '6799219647',
-  yulepick: undefined,
+  yulepick: '6778490588',
   jinglewire: undefined,
 }
 
