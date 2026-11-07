@@ -1,26 +1,34 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { APP_STORE_IDS, STORE_APPS, cleanCt } from '@/lib/ads/store'
 
-// ─── /get/<app> — the "Download" link in ads and captions (FEAT-CLA-024) ─────
-// 302 to Apple's campaign URL so App Store Connect attributes the install:
+// ─── /get/<app> — the "Download" link in ads and captions (FEAT-CLA-024/026) ──
+// Everyone gets a small HTML landing page whose App Store button carries Apple's
+// campaign URL, so App Store Connect attributes the install:
 //   https://apps.apple.com/app/apple-store/id<APP_ID>?pt=<provider>&ct=<token>&mt=8
+// Humans are moved to the App Store by JavaScript the moment the page loads;
+// the button is the fallback for anyone with scripts off.
+//
+// WHY NOT A 302 (2026-11-06): Meta's ad-link checker follows server redirects
+// and <meta http-equiv="refresh">, then classifies the ad as an "App Url", which
+// only the App Installs objective accepts — every website-visitors ad built with
+// this link was rejected ("App Url is only supported by App Installs objective").
+// The checker does not run JavaScript, so a JS redirect keeps the link a web
+// page to Meta and a one-tap App Store jump for people. TikTok ads keep using
+// the Apple campaign link directly (TikTok allows it).
 //
 //   APPSTORE_PROVIDER_TOKEN — the team's provider token (App Store Connect →
 //     App Analytics → Campaigns → Generate Campaign Link shows it). Without it
-//     the redirect still works, but Apple counts nothing: a warning is logged.
+//     the link still works, but Apple counts nothing: a warning is logged.
 //
 // ?ct=<token> (or utm_campaign) is cleaned to [a-z0-9_-], max 40 chars; 'direct'
 // when missing. Apps with no App Store ID yet (APP_STORE_IDS) answer 404.
-//
-// Link crawlers (Meta's ad-link check, Threads/TikTok/Slack previews) get a tiny
-// HTML page with the same link instead of the redirect: Meta refuses a website
-// link that lands on apps.apple.com, and previews should show the app's name.
+// ?stay=1 shows the page without the automatic jump (for checking it by eye).
 
 export const dynamic = 'force-dynamic'
 
 type Ctx = { params: Promise<{ app: string }> }
 
-const CRAWLER = /facebookexternalhit|facebot|meta-externalagent|bytespider|tiktokspider|twitterbot|linkedinbot|slackbot|discordbot|whatsapp|telegrambot|pinterestbot|applebot/i
+const CRAWLER = /facebookexternalhit|facebot|meta-externalagent|bytespider|tiktokspider|twitterbot|linkedinbot|slackbot|discordbot|whatsapp|telegrambot|pinterestbot|applebot|googlebot|bingbot/i
 
 function appleCampaignUrl(appStoreId: string, ct: string, pt: string | undefined) {
   const u = new URL(`https://apps.apple.com/app/apple-store/id${appStoreId}`)
@@ -30,6 +38,8 @@ function appleCampaignUrl(appStoreId: string, ct: string, pt: string | undefined
   return u.toString()
 }
 
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
 export async function GET(req: NextRequest, { params }: Ctx) {
   const app = (await params).app.toLowerCase()
   const storeId = APP_STORE_IDS[app]
@@ -38,19 +48,30 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const q = req.nextUrl.searchParams
   const ct = cleanCt(q.get('ct') ?? q.get('utm_campaign') ?? '')
   const pt = process.env.APPSTORE_PROVIDER_TOKEN?.trim() || undefined
-  if (!pt) console.warn(`[get/${app}] APPSTORE_PROVIDER_TOKEN is not set — redirecting with ct=${ct} but App Store Connect will not attribute it`)
+  if (!pt) console.warn(`[get/${app}] APPSTORE_PROVIDER_TOKEN is not set — linking with ct=${ct} but App Store Connect will not attribute it`)
   const target = appleCampaignUrl(storeId, ct, pt)
 
-  if (CRAWLER.test(req.headers.get('user-agent') ?? '')) {
-    const name = STORE_APPS[app]?.name ?? app
-    const tagline = STORE_APPS[app]?.tagline ?? ''
-    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
-    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Get ${esc(name)} — Clarendon Labs</title>
-<meta name="robots" content="noindex"><meta property="og:title" content="${esc(name)}"><meta property="og:description" content="${esc(tagline)} Free on the App Store.">
-<meta property="og:image" content="https://clarendon.dev/icons/${esc(app)}.png"><meta http-equiv="refresh" content="0;url=${esc(target)}"></head>
-<body><p><a href="${esc(target)}">Download ${esc(name)} on the App Store</a></p></body></html>`
-    return new NextResponse(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
-  }
+  const isCrawler = CRAWLER.test(req.headers.get('user-agent') ?? '')
+  const autoJump = !isCrawler && q.get('stay') !== '1'
+  const name = STORE_APPS[app]?.name ?? app
+  const tagline = STORE_APPS[app]?.tagline ?? ''
+  const icon = `https://clarendon.dev/icons/${esc(app)}.png`
 
-  return NextResponse.redirect(target, { status: 302, headers: { 'cache-control': 'no-store' } })
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Get ${esc(name)} — Clarendon Labs</title>
+<meta name="robots" content="noindex"><meta property="og:type" content="website"><meta property="og:title" content="${esc(name)}">
+<meta property="og:description" content="${esc(tagline)} Free on the App Store."><meta property="og:image" content="${icon}">
+<meta property="og:url" content="https://clarendon.dev/get/${esc(app)}">
+<style>html,body{margin:0;background:#0b0b0f;color:#fff;font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+main{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:32px 20px;text-align:center}
+img{width:96px;height:96px;border-radius:22px}h1{font-size:28px;margin:0}p{margin:0;color:#c8c8d0;max-width:28rem}
+a.btn{display:inline-block;margin-top:8px;padding:14px 26px;border-radius:999px;background:#fff;color:#0b0b0f;font-weight:700;text-decoration:none;font-size:17px}
+small{color:#7a7a86}</style></head>
+<body><main><img src="${icon}" alt="" width="96" height="96"><h1>${esc(name)}</h1><p>${esc(tagline)} Free on the App Store.</p>
+<a class="btn" id="go" href="${esc(target)}" rel="noopener">Get it on the App Store</a>
+<small>Opening the App Store${autoJump ? '…' : ''}</small></main>
+${autoJump ? `<script>try{location.replace(${JSON.stringify(target)})}catch(e){}</script>` : ''}
+</body></html>`
+
+  return new NextResponse(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
 }
