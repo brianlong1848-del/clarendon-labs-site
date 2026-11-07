@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
 import { studioDb } from '@/lib/money/studioDb'
-import { PLAID_DAYS_REQUESTED, PLAID_WEBHOOK_URL, plaid } from '@/lib/money/plaid'
+import { PLAID_DAYS_REQUESTED, PLAID_WEBHOOK_URL, envOfToken, plaid, plaidEnv } from '@/lib/money/plaid'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,9 +19,15 @@ export async function POST(req: Request) {
   const { itemId } = await req.json().catch(() => ({}))
   if (typeof itemId !== 'string' || !itemId) return NextResponse.json({ error: 'itemId required' }, { status: 400 })
 
-  const accts = await db.select<{ id: string; ownership: string }[]>('money_accounts', `select=id,ownership&plaid_item_id=eq.${encodeURIComponent(itemId)}`)
+  const [accts, item] = await Promise.all([
+    db.select<{ id: string; ownership: string }[]>('money_accounts', `select=id,ownership&plaid_item_id=eq.${encodeURIComponent(itemId)}`),
+    db.select<{ scope: string; products: string[] | null }[]>('plaid_items', `select=scope,products&id=eq.${encodeURIComponent(itemId)}`),
+  ])
   if (!accts.ok) return NextResponse.json({ error: accts.error }, { status: 500 })
   const ownership = accts.data.some((a) => a.ownership === 'business') ? 'business' : (accts.data[0]?.ownership ?? 'business')
+  const scope = item.ok && item.data[0]?.scope === 'household' ? 'household' : 'studio'
+  const products = (item.ok && item.data[0]?.products?.length ? item.data[0].products : ['transactions']) as string[]
+  const kind = products.includes('investments') ? 'brokerage' : 'bank'
 
   const tok = await db.rpc<string>('get_plaid_token', { p_item_id: itemId })
   if (tok.ok && tok.data) {
@@ -47,9 +53,9 @@ export async function POST(req: Request) {
       user: { client_user_id: db.owner },
       webhook: PLAID_WEBHOOK_URL,
       ...(process.env.PLAID_REDIRECT_URI ? { redirect_uri: process.env.PLAID_REDIRECT_URI } : {}),
-      products: ['transactions'], transactions: { days_requested: PLAID_DAYS_REQUESTED },
-    })
-    return NextResponse.json({ link_token: out.link_token, ownership })
+      products, ...(products.includes('transactions') ? { transactions: { days_requested: PLAID_DAYS_REQUESTED } } : {}),
+    }, { env: envOfToken(tok.ok ? tok.data : null) ?? plaidEnv() })
+    return NextResponse.json({ link_token: out.link_token, ownership, scope, kind, products })
   } catch (e) {
     return NextResponse.json({ error: `Old connection removed, but Plaid Link couldn't start: ${e instanceof Error ? e.message : 'failed'}. Use Connect with Plaid.` }, { status: 502 })
   }

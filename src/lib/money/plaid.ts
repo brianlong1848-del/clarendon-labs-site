@@ -16,15 +16,30 @@ const HOSTS: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
   production: 'https://production.plaid.com',
 }
-export const plaidEnv = () => (process.env.PLAID_ENV ?? 'sandbox').toLowerCase()
+export type PlaidEnv = 'sandbox' | 'production'
+export const plaidEnv = (): PlaidEnv => ((process.env.PLAID_ENV ?? 'sandbox').toLowerCase() === 'production' ? 'production' : 'sandbox')
 export const plaidConfigured = () => !!(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET && HOSTS[plaidEnv()])
 
+// Sandbox next to production (FEAT-CLA-027): while Plaid reviews the Investments
+// product, household brokerage items are exercised against the sandbox
+// (ins_109508 has investment accounts). PLAID_SANDBOX_SECRET turns that on in a
+// production deployment; access tokens say which world they belong to
+// ("access-sandbox-…"), so a call that carries one goes to the right host on
+// its own. Calls without a token (link tokens, sandbox public tokens) say so
+// with `env`.
+export const plaidSandboxAvailable = () => plaidEnv() === 'sandbox' || !!process.env.PLAID_SANDBOX_SECRET
+export const envOfToken = (token: unknown): PlaidEnv | null =>
+  typeof token === 'string' ? (token.startsWith('access-sandbox-') || token.startsWith('public-sandbox-') ? 'sandbox' : token.startsWith('access-production-') || token.startsWith('public-production-') ? 'production' : null) : null
+const secretFor = (env: PlaidEnv) => env === plaidEnv() ? process.env.PLAID_SECRET : env === 'sandbox' ? process.env.PLAID_SANDBOX_SECRET : undefined
 
-export async function plaid(path: string, body: Record<string, unknown> = {}): Promise<any> {
-  const res = await fetch(`${HOSTS[plaidEnv()]}${path}`, {
+export async function plaid(path: string, body: Record<string, unknown> = {}, opts: { env?: PlaidEnv } = {}): Promise<any> {
+  const env = opts.env ?? envOfToken(body.access_token ?? body.public_token) ?? plaidEnv()
+  const secret = secretFor(env)
+  if (!secret) throw new Error(`Plaid ${path}: no secret for the ${env} environment (set PLAID_SANDBOX_SECRET to test household investments in sandbox)`)
+  const res = await fetch(`${HOSTS[env]}${path}`, {
     method: 'POST', cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret: process.env.PLAID_SECRET, ...body }),
+    body: JSON.stringify({ client_id: process.env.PLAID_CLIENT_ID, secret, ...body }),
     signal: AbortSignal.timeout(25000),
   })
   const json = await res.json().catch(() => ({}))
@@ -341,8 +356,18 @@ export async function claimStaleItems(db: StudioDb, items: { id: string; status:
   return due.map((i) => i.id)
 }
 
-/** After a new link: store the token, create the account rows, run the first sync. */
-export async function connectItem(db: StudioDb, publicToken: string, ownership: 'business' | 'personal') {
+export type LinkKind = 'bank' | 'brokerage'
+export type ConnectOptions = { scope?: 'studio' | 'household'; products?: string[] }
+/** Which Plaid products a link token asks for. Brokerage / retirement / HSA: investments
+ *  (plus transactions only when the institution supports both — Plaid rejects unsupported combos,
+ *  so we ask for investments alone and let a bank-style account be linked separately). */
+export const productsFor = (kind: LinkKind): string[] => (kind === 'brokerage' ? ['investments'] : ['transactions'])
+
+/** After a new link: store the token, create the account rows (tagged with scope, type and
+ *  subtype), run the first sync for each product the item was linked with. */
+export async function connectItem(db: StudioDb, publicToken: string, ownership: 'business' | 'personal', opts: ConnectOptions = {}) {
+  const scope = opts.scope ?? 'studio'
+  const products = opts.products?.length ? opts.products : ['transactions']
   const ex = await plaid('/item/public_token/exchange', { public_token: publicToken })
   const itemId: string = ex.item_id
   const info = await plaid('/item/get', { access_token: ex.access_token })
@@ -353,15 +378,24 @@ export async function connectItem(db: StudioDb, publicToken: string, ownership: 
   }
   const stored = await db.rpc('store_plaid_item', { p_item_id: itemId, p_owner: db.owner, p_token: ex.access_token, p_institution: institution })
   if (!stored.ok) throw new Error(stored.error)
+  const tagged = await db.patch('plaid_items', `id=eq.${encodeURIComponent(itemId)}`, { scope, products })
+  if (!tagged.ok) throw new Error(tagged.error)
 
   const acc = await plaid('/accounts/get', { access_token: ex.access_token })
   const rows = (acc.accounts as any[]).map((a) => ({
     owner_id: db.owner, source: 'plaid', institution, name: a.name ?? a.official_name, mask: a.mask ?? null,
-    ownership, plaid_item_id: itemId, plaid_account_id: a.account_id, ...balanceFields(a),
+    ownership, scope, account_type: a.type ?? null, account_subtype: a.subtype ?? null,
+    plaid_item_id: itemId, plaid_account_id: a.account_id, ...balanceFields(a),
   }))
   const up = await db.upsert('money_accounts', rows, 'plaid_account_id')
   if (!up.ok) throw new Error(up.error)
-  return { itemId, institution, accounts: rows.length, sync: await syncItem(db, itemId) }
+  const out: { itemId: string; institution: string | null; accounts: number; scope: string; products: string[]; sync?: SyncResult; investments?: unknown } = { itemId, institution, accounts: rows.length, scope, products }
+  if (products.includes('transactions')) out.sync = await syncItem(db, itemId)
+  if (products.includes('investments')) {
+    const { syncInvestments } = await import('./plaidInvestments')
+    out.investments = await syncInvestments(db, itemId)
+  }
+  return out
 }
 
 // ─── Webhook verification ────────────────────────────────────────────────────
@@ -382,7 +416,11 @@ export async function verifyWebhook(rawBody: string, jwt: string | null): Promis
 
     let jwk = keyCache.get(header.kid)
     if (!jwk) {
-      jwk = (await plaid('/webhook_verification_key/get', { key_id: header.kid })).key as JsonWebKey
+      const envs: PlaidEnv[] = plaidEnv() === 'production' && process.env.PLAID_SANDBOX_SECRET ? ['production', 'sandbox'] : [plaidEnv()]
+      for (const env of envs) {
+        try { jwk = (await plaid('/webhook_verification_key/get', { key_id: header.kid }, { env })).key as JsonWebKey; break } catch { /* try the other world */ }
+      }
+      if (!jwk) return false
       keyCache.set(header.kid, jwk)
     }
     const ok = cryptoVerify('SHA256', Buffer.from(`${h}.${p}`),

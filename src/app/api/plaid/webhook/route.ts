@@ -1,12 +1,14 @@
 import { NextResponse, after } from 'next/server'
 import { studioDb } from '@/lib/money/studioDb'
 import { syncItem, verifyWebhook } from '@/lib/money/plaid'
+import { syncInvestments } from '@/lib/money/plaidInvestments'
 
 // Plaid → us. Public URL, so every call is verified (signed ES256 JWT in the
 // Plaid-Verification header + body hash) before anything happens. Transaction
 // updates run /transactions/sync to the end (after the 200, so Plaid isn't kept
-// waiting on a 2-year history); an item that needs the user to log in again is
-// flagged so the admin UI can say so.
+// waiting on a 2-year history); HOLDINGS and INVESTMENTS_TRANSACTIONS updates
+// (household brokerages) re-pull positions and trades the same way; an item
+// that needs the user to log in again is flagged so the UI can say so.
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
@@ -31,6 +33,13 @@ export async function POST(req: Request) {
     after(async () => {
       const r = await syncItem(db, itemId)
       console.log(`[plaid] webhook sync ${itemId}: ${r.error ? `error ${r.error}` : `+${r.added} ~${r.modified} -${r.removed}${r.more ? ' (more)' : ''}${r.pending ? ' (pending)' : ''}`}`)
+    })
+    return NextResponse.json({ ok: true })
+  }
+  if ((ev.webhook_type === 'HOLDINGS' || ev.webhook_type === 'INVESTMENTS_TRANSACTIONS') && ['DEFAULT_UPDATE', 'HISTORICAL_UPDATE'].includes(ev.webhook_code ?? '')) {
+    after(async () => {
+      const r = await syncInvestments(db, itemId)
+      console.log(`[plaid] webhook investments ${itemId}: ${r.error ? `error ${r.error}` : `${r.holdings} holdings, ${r.transactions} transactions`}`)
     })
     return NextResponse.json({ ok: true })
   }
