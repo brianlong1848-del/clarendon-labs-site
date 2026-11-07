@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/household-advisor",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/push-digest",
+      "schedule": "30 13 * * *"
     }
   ]
 }

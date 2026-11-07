@@ -5,6 +5,7 @@ import { rest } from '@/lib/publish/store'
 import { campaignsFor } from '@/lib/ads/campaigns'
 import { analyze, STAGE_LABEL, VERDICT_LABEL, type MoneyFacts } from '@/lib/ads/insights'
 import { cachedNarrative, chicagoDay, narrativeConfigured } from '@/lib/ads/narrative'
+import { notify } from '@/lib/push/notify'
 import { adsReportForService } from '@/lib/money/adsReport'
 import { DRIVE_NAME, MARKETING_FOLDER } from '@/lib/publish/marketing'
 import { driveConfigured, findFile, readText, writeText } from '@/lib/drive'
@@ -47,6 +48,10 @@ export async function GET(req: Request) {
       const analysis = analyze(campaigns, facts, '7d')
       const narrative = narrativeConfigured() ? await cachedNarrative({ app: app.id, range: '7d', rows: campaigns, analysis, promotions }).catch(() => null) : null
       const byId = new Map((narrative?.campaigns ?? []).map((c) => [c.campaign_id, c]))
+      // Studio push (FEAT-CLA-027): the week's biggest call, Monday morning.
+      if (narrative?.headline || narrative?.summary) {
+        await notify({ kind: 'insights', appId: app.id, title: `This week · ${app.name}`, body: (narrative.headline ?? narrative.summary).slice(0, 160), link: `studio://grow/ads?app=${app.id}`, dedupe: `insights:${app.id}:${day}` }).catch(() => undefined)
+      }
       const lines: string[] = [
         `## Week of ${day} — written by clarendon.dev (FEAT-CLA-023)`,
         '',

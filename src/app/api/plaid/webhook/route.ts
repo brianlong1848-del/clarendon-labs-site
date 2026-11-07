@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { studioDb } from '@/lib/money/studioDb'
 import { syncItem, verifyWebhook } from '@/lib/money/plaid'
 import { syncInvestments } from '@/lib/money/plaidInvestments'
+import { notify } from '@/lib/push/notify'
 
 // Plaid → us. Public URL, so every call is verified (signed ES256 JWT in the
 // Plaid-Verification header + body hash) before anything happens. Transaction
@@ -33,6 +34,13 @@ export async function POST(req: Request) {
     after(async () => {
       const r = await syncItem(db, itemId)
       console.log(`[plaid] webhook sync ${itemId}: ${r.error ? `error ${r.error}` : `+${r.added} ~${r.modified} -${r.removed}${r.more ? ' (more)' : ''}${r.pending ? ' (pending)' : ''}`}`)
+      // Studio push (FEAT-CLA-027): new business-account rows land in Triage.
+      if (!r.error && (r.added ?? 0) > 0) {
+        const n = await db.count('transactions', `owner_id=eq.${db.owner}&status=eq.unreviewed`)
+        const waiting = n.ok ? n.data : r.added ?? 0
+        if (waiting > 0) await notify({ kind: 'transactions', title: r.added === 1 ? '1 new transaction to categorize' : `${r.added} new transactions to categorize`, body: `${waiting} waiting in Triage. Swipe to assign an app or mark personal.`, link: 'studio://money/triage', dedupe: `plaid:${itemId}:${new Date().toISOString().slice(0, 16)}` })
+        await db.upsert('studio_push_state', [{ key: 'triage', value: { count: waiting }, updated_at: new Date().toISOString() }], 'key').catch(() => undefined)
+      }
     })
     return NextResponse.json({ ok: true })
   }
