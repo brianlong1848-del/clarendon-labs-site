@@ -249,7 +249,8 @@ function validate(raw: unknown, s: Snapshot): AdvisorOutput | null {
 
 /** Is it time for the weekly run? Compares the schedule (Central) with now and the last weekly run. */
 export async function weeklyDue(db: StudioDb, now = new Date()): Promise<boolean> {
-  const sched = (await db.select<{ value: { weekday?: number; hour_ct?: number } }[]>('household_settings', 'select=value&key=eq.advisor_schedule')).data?.[0]?.value ?? { weekday: 1, hour_ct: 7 }
+  const schedRes = await db.select<{ value: { weekday?: number; hour_ct?: number } }[]>('household_settings', 'select=value&key=eq.advisor_schedule')
+  const sched = (schedRes.ok ? schedRes.data[0]?.value : undefined) ?? { weekday: 1, hour_ct: 7 }
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(now)
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.find((p) => p.type === 'weekday')?.value ?? '')
   const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? -1) % 24
