@@ -51,8 +51,9 @@ export function registry(): ConsoleApp[] {
 }
 
 /** Server-side admin check for API routes (the middleware also guards them).
- *  Verified Supabase session for ADMIN_EMAIL with TOTP completed — see
- *  src/lib/supabase/guard.ts. Replaces the old shared console password. */
+ *  Verified Supabase session for one of the ADMIN_EMAILS (ADMIN_EMAIL still
+ *  read as a fallback) with TOTP completed — see src/lib/supabase/guard.ts.
+ *  Replaces the old shared console password. */
 export async function consoleAuthed(): Promise<boolean> {
   const { supabaseServer } = await import('@/lib/supabase/server')
   const { isAdmin, isAdminToken, bearerToken } = await import('@/lib/supabase/guard')
