@@ -11,8 +11,9 @@ export const STORE_APPS: Record<string, { name: string; store: string; tagline: 
 export const downloadLink = (appId: string) => `https://clarendon.dev/get/${appId}`
 
 // ─── App Store campaign links (FEAT-CLA-024) ────────────────────────────────
-// /get/<app>?ct=<token> 302s to Apple's campaign URL
+// /get/<app>?ct=<token> lands on a page that jumps to Apple's campaign URL
 //   https://apps.apple.com/app/apple-store/id<APP_ID>?pt=<provider>&ct=<token>&mt=8
+// (2026-11-06: now an HTML landing page with a JS jump — a server 302 made Meta reject the ad as an "App Url")
 // so App Store Connect → App Analytics → Sources → Campaigns attributes the
 // installs. Apps without an App Store ID yet 404 at /get/<app> until it's set.
 
@@ -23,6 +24,25 @@ export const APP_STORE_IDS: Record<string, string | undefined> = {
   borea: '6799219647',
   yulepick: '6778490588',
   jinglewire: undefined,
+}
+
+// ─── Google Play (FEAT-CLA-025, added 2026-11-07) ───────────────────────────
+// Package names of the apps that are PUBLIC on Google Play. `undefined` = not
+// on Play yet; /get/<app> then sends Android to the App Store page as before.
+// Play attribution: the `referrer` query carries utm_source/utm_campaign and the
+// Play Console → Statistics → Acquisition report groups installs by it.
+export const PLAY_PACKAGE_IDS: Record<string, string | undefined> = {
+  rolligan: 'com.clarendonlabs.rolligan',
+  gagorder: 'dev.clarendon.gagorder',
+  yulepick: undefined, // set to 'com.clarendonlabs.yulepick' when Play approves 1.0.0
+  borea: undefined,
+  jinglewire: undefined,
+}
+
+/** Google Play page with install-referrer attribution: utm_source=clarendon&utm_campaign=<ct>. */
+export function playStoreUrl(packageId: string, ct: string): string {
+  const referrer = `utm_source=clarendon&utm_medium=get&utm_campaign=${cleanCt(ct)}`
+  return `https://play.google.com/store/apps/details?id=${packageId}&referrer=${encodeURIComponent(referrer)}`
 }
 
 /** Apple's campaign token limit. */

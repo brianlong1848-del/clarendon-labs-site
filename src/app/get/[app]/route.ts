@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { APP_STORE_IDS, STORE_APPS, cleanCt } from '@/lib/ads/store'
+import { APP_STORE_IDS, PLAY_PACKAGE_IDS, STORE_APPS, cleanCt, playStoreUrl } from '@/lib/ads/store'
 
 // ─── /get/<app> — the "Download" link in ads and captions (FEAT-CLA-024/026) ──
 // Everyone gets a small HTML landing page whose App Store button carries Apple's
@@ -23,6 +23,12 @@ import { APP_STORE_IDS, STORE_APPS, cleanCt } from '@/lib/ads/store'
 // ?ct=<token> (or utm_campaign) is cleaned to [a-z0-9_-], max 40 chars; 'direct'
 // when missing. Apps with no App Store ID yet (APP_STORE_IDS) answer 404.
 // ?stay=1 shows the page without the automatic jump (for checking it by eye).
+//
+// ANDROID (2026-11-07, FEAT-CLA-025): an Android user-agent jumps to Google Play
+// instead (PLAY_PACKAGE_IDS), with a `referrer` that Play's acquisition report
+// attributes (utm_campaign=<ct>). The page itself shows both store badges, so a
+// desktop visitor or a wrong guess still has a one-tap path to either store.
+// ?store=play|ios forces one (for checking by eye).
 
 export const dynamic = 'force-dynamic'
 
@@ -51,7 +57,13 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!pt) console.warn(`[get/${app}] APPSTORE_PROVIDER_TOKEN is not set — linking with ct=${ct} but App Store Connect will not attribute it`)
   const target = appleCampaignUrl(storeId, ct, pt)
 
-  const isCrawler = CRAWLER.test(req.headers.get('user-agent') ?? '')
+  const ua = req.headers.get('user-agent') ?? ''
+  const isCrawler = CRAWLER.test(ua)
+  const playId = PLAY_PACKAGE_IDS[app]
+  const playTarget = playId ? playStoreUrl(playId, ct) : undefined
+  const forced = q.get('store')
+  const isAndroid = forced === 'play' ? true : forced === 'ios' ? false : /\bAndroid\b/i.test(ua) && !/iPhone|iPad|iPod/i.test(ua)
+  const jumpTo = isAndroid && playTarget ? playTarget : target
   const autoJump = !isCrawler && q.get('stay') !== '1'
   const name = STORE_APPS[app]?.name ?? app
   const tagline = STORE_APPS[app]?.tagline ?? ''
@@ -60,17 +72,22 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Get ${esc(name)} — Clarendon Labs</title>
 <meta name="robots" content="noindex"><meta property="og:type" content="website"><meta property="og:title" content="${esc(name)}">
-<meta property="og:description" content="${esc(tagline)} Free on the App Store."><meta property="og:image" content="${icon}">
+<meta property="og:description" content="${esc(tagline)} Free on the App Store${playTarget ? ' and Google Play' : ''}."><meta property="og:image" content="${icon}">
 <meta property="og:url" content="https://clarendon.dev/get/${esc(app)}">
 <style>html,body{margin:0;background:#0b0b0f;color:#fff;font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
 main{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:32px 20px;text-align:center}
 img{width:96px;height:96px;border-radius:22px}h1{font-size:28px;margin:0}p{margin:0;color:#c8c8d0;max-width:28rem}
 a.btn{display:inline-block;margin-top:8px;padding:14px 26px;border-radius:999px;background:#fff;color:#0b0b0f;font-weight:700;text-decoration:none;font-size:17px}
+a.btn.alt{background:transparent;color:#fff;border:1.5px solid #3a3a46;margin-top:0}
+.btns{display:flex;flex-direction:column;gap:10px;align-items:center}
 small{color:#7a7a86}</style></head>
-<body><main><img src="${icon}" alt="" width="96" height="96"><h1>${esc(name)}</h1><p>${esc(tagline)} Free on the App Store.</p>
-<a class="btn" id="go" href="${esc(target)}" rel="noopener">Get it on the App Store</a>
-<small>Opening the App Store${autoJump ? '…' : ''}</small></main>
-${autoJump ? `<script>try{location.replace(${JSON.stringify(target)})}catch(e){}</script>` : ''}
+<body><main><img src="${icon}" alt="" width="96" height="96"><h1>${esc(name)}</h1><p>${esc(tagline)} Free on the App Store${playTarget ? ' and Google Play' : ''}.</p>
+<div class="btns">
+<a class="btn${isAndroid && playTarget ? ' alt' : ''}" id="go-ios" href="${esc(target)}" rel="noopener">Get it on the App Store</a>
+${playTarget ? `<a class="btn${isAndroid ? '' : ' alt'}" id="go-play" href="${esc(playTarget)}" rel="noopener">Get it on Google Play</a>` : ''}
+</div>
+<small>Opening ${isAndroid && playTarget ? 'Google Play' : 'the App Store'}${autoJump ? '…' : ''}</small></main>
+${autoJump ? `<script>try{location.replace(${JSON.stringify(jumpTo)})}catch(e){}</script>` : ''}
 </body></html>`
 
   return new NextResponse(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
