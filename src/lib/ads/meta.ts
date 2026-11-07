@@ -75,7 +75,7 @@ export type MetaCampaignAd = { ad_id: string; name: string; effective_status?: s
  *  shows). Creatives don't change, so callers cache this for an hour. */
 export async function metaCampaignAds(campaignId: string): Promise<MetaCampaignAd[]> {
   if (!token()) return []
-  const body = await get(`${campaignId}/ads`, { fields: 'id,name,effective_status,creative.thumbnail_width(1080).thumbnail_height(1080){thumbnail_url,video_id,effective_instagram_media_id,effective_object_story_id,instagram_permalink_url,object_type}', limit: '50' })
+  const body = await get(`${campaignId}/ads`, { fields: 'id,name,effective_status,creative{thumbnail_url,video_id,effective_instagram_media_id,effective_object_story_id,instagram_permalink_url,object_type}', thumbnail_width: '1080', thumbnail_height: '1080', limit: '50' })
   return (body.data ?? []).map((a: any) => ({ ad_id: String(a.id), name: a.name ?? String(a.id), effective_status: a.effective_status, creative: a.creative }))
 }
 
