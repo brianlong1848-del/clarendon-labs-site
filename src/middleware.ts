@@ -10,9 +10,9 @@ import { bearerToken, isAdmin, isAdminToken } from '@/lib/supabase/guard'
 
 export const config = {
   matcher: [
-    '/admin/:path*', '/analytics/:path*', '/inbox/:path*', '/post/:path*',
+    '/admin/:path*', '/household/:path*', '/analytics/:path*', '/inbox/:path*', '/post/:path*',
     '/api/console/:path*', '/api/analytics/:path*', '/api/inbox/:path*',
-    '/api/admin/:path*', '/api/money/:path*', '/api/ads/:path*',
+    '/api/admin/:path*', '/api/household/:path*', '/api/money/:path*', '/api/ads/:path*',
     '/api/publish/((?!run$).*)', '/api/publish',
   ],
 }
