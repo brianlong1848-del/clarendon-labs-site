@@ -25,7 +25,8 @@ export async function GET(req: Request) {
   if (!(await consoleAuthed())) return deny()
   const u = new URL(req.url).searchParams
   const sb = await supabaseServer()
-  let q = sb.from('transactions').select(SELECT, { count: 'exact' })
+  // Business books only: household rows (scope = 'household') never appear here or in the CSV/tax export.
+  let q = sb.from('transactions').select(SELECT, { count: 'exact' }).eq('scope', 'studio')
   const q_ = (u.get('q') ?? '').replace(/[%,()]/g, ' ').trim()
   if (q_) q = q.or(`merchant.ilike.%${q_}%,notes.ilike.%${q_}%`)
   const status = u.get('status'); if (status && STATUSES.has(status)) q = q.eq('status', status)
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
   if (error) return bad(error.message, 500)
   const [apps, accounts] = await Promise.all([
     sb.from('apps').select('slug,name').order('name'),
-    sb.from('money_accounts').select('id,institution,name,mask').order('name'),
+    sb.from('money_accounts').select('id,institution,name,mask').eq('scope', 'studio').order('name'),
   ])
   return NextResponse.json({
     rows: data ?? [], total: count ?? 0, pageSize: PAGE, apps: apps.data ?? [],

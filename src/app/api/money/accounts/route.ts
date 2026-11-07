@@ -11,7 +11,7 @@ export async function GET() {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   const sb = await supabaseServer()
   const [accounts, items] = await Promise.all([
-    sb.from('money_accounts').select('id,institution,name,mask,ownership,plaid_item_id').order('created_at'),
+    sb.from('money_accounts').select('id,institution,name,mask,ownership,plaid_item_id').eq('scope', 'studio').order('created_at'),
     sb.from('v_plaid_status').select('id,institution,status,updated_at'),
   ])
   if (accounts.error) return NextResponse.json({ error: accounts.error.message }, { status: 500 })

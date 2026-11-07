@@ -94,7 +94,7 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
   const accessToken = tok.data
 
   const [item, accts, rules] = await Promise.all([
-    db.select<any[]>('plaid_items', `select=cursor&id=eq.${id}`),
+    db.select<any[]>('plaid_items', `select=cursor,scope&id=eq.${id}`),
     db.select<any[]>('money_accounts', `select=id,plaid_account_id&plaid_item_id=eq.${id}`),
     db.select<Rule[]>('rules', 'select=*&order=priority'),
   ])
@@ -107,6 +107,8 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
   const match = ruleMatcher(rules.data)
   const adopt = await orphanAdopter(db, accts.data.map((a: any) => a.id as string))
 
+  // Household items (personal banks/cards): every row is 'personal', never Triage, never the rules engine.
+  const household = item.data[0]?.scope === 'household'
   const startCursor: string | undefined = item.data[0]?.cursor || undefined
   let cursor = startCursor
   let added = 0, modified = 0, removed = 0, more = true, restarts = 0
@@ -129,10 +131,10 @@ export async function syncItem(db: StudioDb, itemId: string): Promise<SyncResult
       // Every row must carry the same keys: PostgREST rejects a bulk insert
       // whose objects differ (PGRST102), which is what stalled the first sync.
       const fresh = (page.added as any[]).filter((t) => !t.pending).map((t) => {
-        const rule = match(String(t.merchant_name ?? t.name ?? ''), String(t.name ?? ''))
+        const rule = household ? null : match(String(t.merchant_name ?? t.name ?? ''), String(t.name ?? ''))
         return {
           ...toRow(t, db.owner, accountId.get(t.account_id) ?? null),
-          status: rule?.set_status ?? 'unreviewed',
+          status: household ? 'personal' : rule?.set_status ?? 'unreviewed',
           app_slug: rule && !rule.set_split_apps ? rule.set_app : null,
           split_apps: rule?.set_split_apps ?? null,
           schedule_c: rule?.set_schedule_c ?? null,
@@ -251,8 +253,10 @@ async function refreshBalances(db: StudioDb, accessToken: string) {
   }
 }
 
-/** Safe-to-show status for every connected item (no tokens, no cursors). */
-export async function itemStatuses(db: StudioDb) {
+/** Safe-to-show status for every connected item in one scope (no tokens, no cursors).
+ *  Money's cash card asks for 'studio'; the Household pages ask for 'household'. */
+export type ItemScope = 'studio' | 'household'
+export async function itemStatuses(db: StudioDb, scope: ItemScope = 'studio') {
   // Balances missing or older than 4 h: refresh them before answering (Plaid's
   // cached balance from /accounts/get, free with Transactions).
   const linked = await db.select<any[]>('money_accounts', 'select=plaid_item_id,balance_updated_at&plaid_item_id=not.is.null')
@@ -266,11 +270,9 @@ export async function itemStatuses(db: StudioDb) {
     if (tok.ok && tok.data) await refreshBalances(db, tok.data)
     else console.error(`[plaid] balance refresh ${itemId}: no token`)
   }))
-  let r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at,last_synced_at,last_error&order=institution')
-  if (!r.ok) r = await db.select<any[]>('plaid_items', 'select=id,institution,status,updated_at&order=institution') // before the migration
+  const r = await db.select<any[]>('plaid_items', `select=id,institution,status,updated_at,last_synced_at,last_error,products&scope=eq.${scope}&order=institution`)
   if (!r.ok) throw new Error(r.error)
-  let accts = await db.select<any[]>('money_accounts', 'select=id,plaid_item_id,name,mask,ownership,balance_current_cents,balance_available_cents,balance_currency,balance_updated_at&plaid_item_id=not.is.null&order=created_at')
-  if (!accts.ok) accts = await db.select<any[]>('money_accounts', 'select=id,plaid_item_id,name,mask,ownership&plaid_item_id=not.is.null&order=created_at')
+  const accts = await db.select<any[]>('money_accounts', `select=id,plaid_item_id,name,mask,ownership,account_type,account_subtype,balance_current_cents,balance_available_cents,balance_currency,balance_updated_at&plaid_item_id=not.is.null&scope=eq.${scope}&order=created_at`)
   const perItem = new Map<string, number>()
   await Promise.all(r.data.map(async (i) => {
     const ids = (accts.ok ? accts.data : []).filter((a) => a.plaid_item_id === i.id).map((a) => a.id)
@@ -281,9 +283,10 @@ export async function itemStatuses(db: StudioDb) {
   return r.data.map((i) => ({
     id: i.id as string, institution: i.institution as string | null, status: i.status as string,
     last_synced_at: (i.last_synced_at ?? null) as string | null, last_error: (i.last_error ?? null) as string | null,
-    updated_at: i.updated_at as string, transactions: perItem.get(i.id) ?? 0,
+    updated_at: i.updated_at as string, transactions: perItem.get(i.id) ?? 0, products: (i.products ?? ['transactions']) as string[],
     accounts: (accts.ok ? accts.data : []).filter((a) => a.plaid_item_id === i.id).map((a) => ({
       id: a.id as string, name: (a.name ?? null) as string | null, mask: (a.mask ?? null) as string | null, ownership: a.ownership as string,
+      account_type: (a.account_type ?? null) as string | null, account_subtype: (a.account_subtype ?? null) as string | null,
       balance_current_cents: (a.balance_current_cents ?? null) as number | null, balance_available_cents: (a.balance_available_cents ?? null) as number | null,
       balance_currency: (a.balance_currency ?? null) as string | null, balance_updated_at: (a.balance_updated_at ?? null) as string | null,
     })),

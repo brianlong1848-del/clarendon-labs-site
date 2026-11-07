@@ -27,7 +27,7 @@ export async function GET() {
   const sb = await supabaseServer()
   const [apps, accounts, recent, owed] = await Promise.all([
     sb.from('apps').select('slug,name').order('name'),
-    sb.from('money_accounts').select('id,institution,name,mask,ownership,source').order('ownership').order('name'),
+    sb.from('money_accounts').select('id,institution,name,mask,ownership,source').eq('scope', 'studio').order('ownership').order('name'),
     sb.from('transactions')
       .select('id,posted_on,amount_cents,merchant,app_slug,split_apps,schedule_c,paid_from,notes,source,status,splits:transaction_splits(app_slug,share),receipts(id,file_name)')
       .in('source', ['manual', 'recurring']).neq('status', 'ignored')

@@ -13,8 +13,8 @@ export async function GET() {
   const [queue, count, apps] = await Promise.all([
     sb.from('transactions')
       .select('id,posted_on,amount_cents,merchant,raw_description,plaid_category,possible_duplicate_of,account:money_accounts(name,mask,ownership,institution)')
-      .eq('status', 'unreviewed').order('posted_on', { ascending: false }).limit(50),
-    sb.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unreviewed'),
+      .eq('scope', 'studio').eq('status', 'unreviewed').order('posted_on', { ascending: false }).limit(50),
+    sb.from('transactions').select('id', { count: 'exact', head: true }).eq('scope', 'studio').eq('status', 'unreviewed'),
     sb.from('apps').select('slug,name').order('name'),
   ])
   if (queue.error) return NextResponse.json({ error: queue.error.message }, { status: 500 })

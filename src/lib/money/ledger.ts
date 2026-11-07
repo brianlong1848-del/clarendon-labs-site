@@ -28,7 +28,7 @@ export async function resolvePaidFrom(sb: SupabaseClient, v: unknown): Promise<{
   if (typeof v !== 'string' || !v) return null
   if (PAID_FROM_OTHER.some((o) => o.id === v)) return { paid_from: v, account_id: null }
   if (!UUID.test(v)) return null
-  const { data } = await sb.from('money_accounts').select('id').eq('id', v).maybeSingle()
+  const { data } = await sb.from('money_accounts').select('id').eq('id', v).eq('scope', 'studio').maybeSingle()
   return data ? { paid_from: v, account_id: v } : null
 }
 

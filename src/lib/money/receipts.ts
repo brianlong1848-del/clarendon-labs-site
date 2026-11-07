@@ -76,6 +76,7 @@ export async function findMatches(sb: SupabaseClient, ex: Extracted | null): Pro
   const day = (d: string, n: number) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10)
   const { data } = await sb.from('transactions')
     .select('id,posted_on,amount_cents,merchant,status,source')
+    .eq('scope', 'studio')
     .gte('posted_on', day(ex.date, -3)).lte('posted_on', day(ex.date, 3))
     .gte('amount_cents', cents - 100).lte('amount_cents', cents + 100)
     .neq('status', 'ignored').limit(20)

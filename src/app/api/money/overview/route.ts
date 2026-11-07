@@ -16,7 +16,7 @@ export async function GET() {
     sb.from('apps').select('slug,name').order('name'),
     sb.from('v_roas_daily').select('app_slug,spend_cents,proceeds_cents,installs').gte('day', since),
     owedToOwner(sb).catch((e: Error) => ({ error: e })),
-    sb.from('transactions').select('id', { count: 'exact', head: true }).eq('status', 'unreviewed'),
+    sb.from('transactions').select('id', { count: 'exact', head: true }).eq('scope', 'studio').eq('status', 'unreviewed'),
   ])
   const err = pnl.error || apps.error || roas.error || ('error' in owed ? owed.error : null)
   if (err) return NextResponse.json({ error: err.message }, { status: 500 })
