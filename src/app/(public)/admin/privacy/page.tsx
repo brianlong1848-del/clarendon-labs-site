@@ -20,13 +20,16 @@ export default function AdminPrivacy() {
       <article style={{ maxWidth: 720, margin: '0 auto', fontSize: 16, lineHeight: 1.6 }}>
         <p style={{ fontFamily: "'IBM Plex Mono', Menlo, monospace", fontSize: 12, letterSpacing: '.18em', textTransform: 'uppercase', color: '#706E67', margin: 0 }}>Clarendon Labs LLC</p>
         <h1 style={{ fontFamily: "'Besley', Georgia, serif", fontSize: 40, fontWeight: 900, margin: '8px 0 6px' }}>Clarendon Admin — Privacy Policy</h1>
-        <p style={{ color: '#706E67', margin: '0 0 24px' }}>Clarendon Labs LLC (Illinois) · Effective 2026-10-02 · Contact: <a href="mailto:support@clarendon.dev">support@clarendon.dev</a></p>
+        <p style={{ color: '#706E67', margin: '0 0 24px' }}>Clarendon Labs LLC (Illinois) · Effective 2026-10-02 · Updated 2026-11-07 (household accounts) · Contact: <a href="mailto:support@clarendon.dev">support@clarendon.dev</a></p>
 
         <h2 style={h2}>Who this covers</h2>
-        <p style={p}>Clarendon Admin is an internal dashboard operated by Clarendon Labs LLC. Its only user is the company&rsquo;s owner. It is not offered to the public.</p>
+        <p style={p}>Clarendon Admin is an internal dashboard operated by Clarendon Labs LLC. Its users are the company&rsquo;s owner and one other household member. It is not offered to the public.</p>
 
         <h2 style={h2}>What we collect</h2>
         <p style={p}>When the owner connects a bank or credit card account through Plaid, Clarendon Admin receives that account&rsquo;s name, type, last four digits, and transaction history (dates, amounts, merchant names, categories). Clarendon Admin never receives or stores bank login credentials; Plaid handles those. Plaid&rsquo;s own privacy policy is at <a href="https://plaid.com/legal">plaid.com/legal</a>.</p>
+
+        <h2 style={h2}>Household accounts</h2>
+        <p style={p}>The console also connects the owners&rsquo; personal bank, card and investment accounts through Plaid to show balances, holdings and transactions to the two household members. That data is used to generate planning suggestions with Anthropic&rsquo;s Claude API. Account identifiers and access tokens are never sent to Anthropic, only balances, holdings and transaction summaries, and the data is never sold or shared. The console never moves money or places trades; Plaid access is read-only.</p>
 
         <h2 style={h2}>Consent</h2>
         <p style={p}>Accounts are connected only through Plaid Link. Plaid Link shows the user what data is being shared and asks for explicit consent before any connection is made. Connections can be removed at any time.</p>
