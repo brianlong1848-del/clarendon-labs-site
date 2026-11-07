@@ -40,6 +40,9 @@ export function studioDb() {
       rows.length ? call<null>(`${table}?on_conflict=${encodeURIComponent(onConflict)}`,
         { method: 'POST', body: JSON.stringify(rows) }, 'resolution=ignore-duplicates,return=minimal')
         : Promise.resolve({ ok: true, data: null } as Result<null>),
+    /** Insert rows and get them back (ids, defaults). */
+    insert: <T = Record<string, unknown>[]>(table: string, rows: object[]) =>
+      call<T>(table, { method: 'POST', body: JSON.stringify(rows) }, 'return=representation'),
     patch: (table: string, filter: string, body: object) =>
       call<null>(`${table}?${filter}`, { method: 'PATCH', body: JSON.stringify(body) }, 'return=minimal'),
     remove: (table: string, filter: string) =>
