@@ -112,8 +112,9 @@ const TOOL = {
     properties: {
       summary_md: { type: 'string' },
       answer_md: { type: 'string', description: 'Only when a question was asked: the direct answer.' },
+      // Strict tool schemas reject maxItems/minItems: the limits live in the descriptions instead.
       actions: {
-        type: 'array', maxItems: 10,
+        type: 'array', description: 'At most 10 actions, most important first.',
         items: {
           type: 'object', additionalProperties: false,
           required: ['kind', 'title', 'rationale', 'urgency', 'confidence'],
@@ -129,8 +130,8 @@ const TOOL = {
           },
         },
       },
-      risks: { type: 'array', items: { type: 'string' }, maxItems: 8 },
-      questions_for_you: { type: 'array', items: { type: 'string' }, maxItems: 6 },
+      risks: { type: 'array', items: { type: 'string' }, description: 'At most 8.' },
+      questions_for_you: { type: 'array', items: { type: 'string' }, description: 'At most 6.' },
     },
   },
 }
