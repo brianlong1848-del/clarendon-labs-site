@@ -247,14 +247,14 @@ function validate(raw: unknown, s: Snapshot): AdvisorOutput | null {
   return { summary_md: o.summary_md.trim().slice(0, 6000), answer_md: typeof o.answer_md === 'string' ? o.answer_md.trim().slice(0, 4000) : undefined, actions, risks: strs(o.risks, 8), questions_for_you: strs(o.questions_for_you, 6) }
 }
 
-/** Is it time for the weekly run? Compares the schedule (Central) with now and the last weekly run. */
+/** Is it time for the weekly run? Today (Central) is the scheduled weekday and no weekly run in six days.
+ *  The hour is fixed by the daily cron (07:00 CST / 08:00 CDT); advisor_schedule.hour_ct is kept but not read. */
 export async function weeklyDue(db: StudioDb, now = new Date()): Promise<boolean> {
   const schedRes = await db.select<{ value: { weekday?: number; hour_ct?: number } }[]>('household_settings', 'select=value&key=eq.advisor_schedule')
   const sched = (schedRes.ok ? schedRes.data[0]?.value : undefined) ?? { weekday: 1, hour_ct: 7 }
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(now)
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short' }).formatToParts(now)
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.find((p) => p.type === 'weekday')?.value ?? '')
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? -1) % 24
-  if (wd !== (sched.weekday ?? 1) || hour !== (sched.hour_ct ?? 7)) return false
+  if (wd !== (sched.weekday ?? 1)) return false
   const last = await db.select<{ created_at: string }[]>('advisor_runs', 'select=created_at&kind=eq.weekly&order=created_at.desc&limit=1')
   const lastAt = last.ok && last.data[0] ? Date.parse(last.data[0].created_at) : 0
   return now.getTime() - lastAt > 6 * 86400_000

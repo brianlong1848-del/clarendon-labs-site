@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server'
 import { studioDb } from '@/lib/money/studioDb'
 import { advisorConfigured, runAdvisor, weeklyDue } from '@/lib/household/advisor'
 
-// Vercel Cron, hourly (vercel.json). Runs the weekly household brief when the
-// configured hour (household_settings.advisor_schedule, default Monday 07:00
-// Central) comes round and no weekly run happened in the last six days. Then
-// pushes a Studio notification, when push is wired (see studio-ios handoff).
+// Vercel Cron, daily at 13:00 UTC = 07:00 CST / 08:00 CDT (vercel.json; the
+// Vercel Hobby plan allows daily crons only, so the hour isn't configurable —
+// an hourly schedule failed the deploy). Runs the weekly household brief when
+// today is the configured weekday (household_settings.advisor_schedule,
+// default Monday) and no weekly run happened in the last six days. Then pushes
+// a Studio notification, when push is wired (see studio-ios handoff).
 export const dynamic = 'force-dynamic'
 export const maxDuration = 180
 

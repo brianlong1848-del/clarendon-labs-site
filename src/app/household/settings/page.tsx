@@ -205,15 +205,12 @@ export default function HouseholdSettings() {
         {draft && d && (
           <div data-card style={card}>
             <h2 style={h2}>Advisor schedule</h2>
-            <p style={p}>The weekly brief runs on this day and hour (Central). Model: <code style={{ fontFamily: C.mono, fontSize: 12.5 }}>{d.advisorModel}</code>.</p>
+            <p style={p}>The weekly brief runs on this day, around 7 AM Central (the hosting plan allows one daily run). Model: <code style={{ fontFamily: C.mono, fontSize: 12.5 }}>{d.advisorModel}</code>.</p>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <select style={{ ...input, width: 'auto' }} value={draft.advisor_schedule.weekday} onChange={(e) => setDraft({ ...draft, advisor_schedule: { ...draft.advisor_schedule, weekday: Number(e.target.value) } })}>
                 {WEEKDAYS.map((w, i) => <option key={w} value={i}>{w}</option>)}
               </select>
-              <select style={{ ...input, width: 'auto' }} value={draft.advisor_schedule.hour_ct} onChange={(e) => setDraft({ ...draft, advisor_schedule: { ...draft.advisor_schedule, hour_ct: Number(e.target.value) } })}>
-                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h.toString().padStart(2, '0')}:00</option>)}
-              </select>
-              <button style={btn('ghost')} disabled={busy} onClick={() => save('advisor_schedule', draft.advisor_schedule)}>Save</button>
+              <button style={btn('ghost')} disabled={busy} onClick={() => save('advisor_schedule', { ...draft.advisor_schedule, hour_ct: 7 })}>Save</button>
             </div>
 
             <h2 style={{ ...h2, marginTop: 22 }}>Market data</h2>
