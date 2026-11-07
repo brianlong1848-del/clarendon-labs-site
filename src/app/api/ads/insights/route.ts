@@ -47,16 +47,22 @@ export async function GET(req: Request) {
     else narrative = await cachedNarrative({ app, range, rows: campaigns, analysis, promotions }, fresh).catch((e) => { narrativeError = (e as Error).message; return null })
   }
   const byId = new Map((narrative?.campaigns ?? []).map((c) => [c.campaign_id, c]))
+  // Claude's plain-words "do this, because" per ranked action, matched by title
+  // (the ranking can shift between the cached write-up and today's rules run).
+  const sayByTitle = new Map((narrative?.actions ?? []).map((a) => [a.title.trim().toLowerCase(), a.say]))
+  const actions = analysis.actions.map((a) => ({ ...a, say: sayByTitle.get(a.title.trim().toLowerCase()) }))
+  const mediaOf = (r: (typeof campaigns)[number]) => ({ media_kind: r.media_kind, thumbnail_url: r.thumbnail_url, video_url: r.video_url, permalink: r.permalink, media_note: r.media_note })
   return NextResponse.json({
     day: chicagoDay(), range, app,
     campaigns: campaigns.map((r) => ({
       platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, name: r.name, status: r.status, objective: r.objective,
       insight: analysis.campaigns[`${r.platform}:${r.campaign_id}`],
+      media: mediaOf(r),
       ads: r.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, insight: analysis.ads[`${r.platform}:${r.campaign_id}:${a.ad_id}`] })),
       narrative: byId.get(r.campaign_id) ? { why: byId.get(r.campaign_id)!.why, try_next: byId.get(r.campaign_id)!.try_next } : undefined,
     })),
-    actions: analysis.actions,
-    summary: narrative?.summary, ideas: narrative?.ideas ?? [], model: narrative?.model, generated_at: narrative?.generated_at, fallback: narrative?.fallback ?? false,
+    actions,
+    summary: narrative?.summary, headline: narrative?.headline, ideas: narrative?.ideas ?? [], model: narrative?.model, generated_at: narrative?.generated_at, fallback: narrative?.fallback ?? false,
     installs_visible: !!money, errors: [...errors, ...(narrativeError ? [narrativeError] : [])],
   })
 }

@@ -25,7 +25,11 @@ const MODEL = () => process.env.ANTHROPIC_INSIGHTS_MODEL || 'claude-opus-5-5'
 export const narrativeConfigured = () => !!process.env.ANTHROPIC_API_KEY
 
 export type Narrative = {
+  /** One line, the single biggest call of the week (card title). */
+  headline?: string
   summary: string
+  /** Plain-words "do this, because" per ranked action, matched back by title. */
+  actions?: { title: string; say: string }[]
   campaigns: { campaign_id: string; why: string; try_next: string }[]
   ideas: { app_id?: string; title: string; detail: string }[]
   model: string
@@ -48,17 +52,28 @@ const PLAYBOOK = `Clarendon Labs ad playbook (vault FEAT-CLA-020 / 021 / 022):
 - Installs: only Apple's campaign tokens (App Store Connect, 5+ installs per link) or the platform's own attributed installs count. If an install figure isn't in the data, say installs aren't visible yet.
 - Measure: 15-second views, cost per view, profile visits, follows for views campaigns; CTR, CPC, installs, CPI, est. ROAS for traffic / app promotion.`
 
-const SYSTEM = `You are the ad analyst for Clarendon Labs, a one-person iOS studio in Chicago with five apps. Brian reads your output on a phone between other things: short, concrete, no filler.
+const SYSTEM = `You are Brian's ad analyst at Clarendon Labs, a one-person iOS + Android studio in Chicago with five apps. Talk to him the way a sharp friend who runs ads for a living would over coffee: second person, plain words, short sentences, one idea per sentence. He reads this on a phone between other things.
 
-You receive, for each campaign, the figures and the deterministic rules engine's verdict (Too early / Not delivering / Winning / OK / Needs work), reason and weakest stage. You do NOT re-judge; you explain and say what to try next. "Not delivering" means the platform says it's running but it has had almost no impressions for a day or more: the fix is the audience, bid or budget floor, never the creative.
+You receive, for each campaign, the figures and the deterministic rules engine's verdict (Too early / Not delivering / Winning / OK / Needs work), reason and weakest stage, plus the ranked actions it produced. You do NOT re-judge; you explain and say what to do. "Not delivering" means the platform says it's running but it has had almost no impressions for a day or more: the fix is the audience, bid or budget floor, never the creative.
 
 Hard rules (break none):
-- Use only the numbers you were given, quoted as given (round sensibly). Never invent a figure, a benchmark, a trend or a count. Never claim installs, downloads or revenue unless the data has them — say "installs aren't visible for this campaign yet" instead.
+- Use only the numbers you were given, quoted as given (round sensibly). Never invent a figure, a benchmark, a trend or a count. Never claim installs, downloads or revenue unless the data has them — say "installs aren't visible for this one yet" instead.
 - Never suggest targeting by sexual orientation or gender identity (not allowed on any platform). For queer audiences suggest cities, culture interests and the right creative cut.
 - For a kid-directed app (Jinglewire): parents only, 25+, never anything that targets or appeals to children.
-- Don't say Android or Google Play. Don't call a paid app free.
-- "why": 2 sentences max, plain words, name the stage that's weak or strong. "try_next": one concrete thing — a specific new hook line in the app's voice (from the brief), a CTA / goal change (e.g. "run it as Traffic with a Download button"), splitting audience cuts, a safe-zone fix, reusing a winning angle across apps, or the next A/B test (name both arms).
-- "summary": 2–3 sentences for the whole week across apps; lead with the biggest decision.
+- Don't call a paid app free. Android is live on Google Play for Rolligan and Gag Order (Nov 2026); YulePick is in Play review.
+- Brian's standing rule: paid campaigns should be App Install campaigns, not Traffic or views. When a Traffic/views campaign is winning, say so, but add that the next version should be an install campaign.
+
+Voice rules:
+- No jargon without a translation. If you say CTR, say what it means in the same breath ("6% of people who saw it tapped — triple what Meta's own range calls good"). Never say "hook stage", "weakest stage", "grades" or "rules engine".
+- Lead with the decision, then the one number that justifies it, then what happens next. One number per sentence, at most two per action.
+- Say what you don't know. If installs aren't visible, say that is the real gap and that clicks are the only proof so far.
+- Be opinionated: "Raise it", "Kill it", "Leave it alone for 3 days" — never "consider" or "you might want to".
+
+What to write:
+- "headline": one sentence, the single biggest call of the week, the way you'd text it. Max 90 characters.
+- "summary": 3–5 short sentences for the whole week across apps, as a note to Brian. Start with the headline's decision and why in plain words, then what's dead and what's too early. No lists.
+- "actions": one entry per ranked action you were given, same title string copied exactly, with "say": 1–3 sentences — what to do, why in words a non-marketer gets, and what you'll be looking for after. This is the text Brian reads on the card, so it must stand alone.
+- "why" per campaign: 2 sentences max, plain words, name what's working or not and the one figure that shows it. "try_next": one concrete thing — a specific new hook line in the app's voice (from the brief), a CTA / goal change, splitting audience cuts, a safe-zone fix, reusing a winning angle across apps, or the next A/B test (name both arms).
 - "ideas": 0–3 cross-app or next-test ideas not tied to one campaign. Skip it if there's nothing real to say.
 Answer by calling the ad_insights tool.`
 
@@ -99,7 +114,7 @@ export async function writeNarrative(input: Input): Promise<Narrative> {
     ...briefs.map((b) => `<brief app="${b.id}"${KID_APPS.has(b.id) ? ' kid_directed="true"' : ''}>\n${b.brief.text || '(no brief on file)'}\n</brief>`),
     `<campaigns>\n${input.rows.map((r) => campaignBlock(r, input.analysis.campaigns[`${r.platform}:${r.campaign_id}`], promoBy.get(`${r.platform}:${r.campaign_id}`))).join('\n\n')}\n</campaigns>`,
     `<ranked_actions>\n${input.analysis.actions.map((a, i) => `${i + 1}. [${a.kind}] ${a.title} — ${a.detail}`).join('\n') || '(none)'}\n</ranked_actions>`,
-    'Write the summary, one entry per campaign_id above, and ideas. Call the ad_insights tool.',
+    'Write the headline, the summary, one "say" per ranked action (copy its title exactly), one entry per campaign_id above, and ideas. Call the ad_insights tool.',
   ].join('\n\n')
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -109,9 +124,12 @@ export async function writeNarrative(input: Input): Promise<Narrative> {
       model: MODEL(), max_tokens: 8000, system: SYSTEM,
       fallbacks: 'default',   // a safety decline is re-run on Anthropic's default fallback model
       tools: [{ name: 'ad_insights', description: 'The week’s ad insights.', input_schema: {
-        type: 'object', additionalProperties: false, required: ['summary', 'campaigns', 'ideas'],
+        type: 'object', additionalProperties: false, required: ['headline', 'summary', 'actions', 'campaigns', 'ideas'],
         properties: {
+          headline: { type: 'string' },
           summary: { type: 'string' },
+          actions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'say'],
+            properties: { title: { type: 'string' }, say: { type: 'string' } } } },
           campaigns: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['campaign_id', 'why', 'try_next'],
             properties: { campaign_id: { type: 'string' }, why: { type: 'string' }, try_next: { type: 'string' } } } },
           ideas: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'detail'],
@@ -136,7 +154,9 @@ export async function writeNarrative(input: Input): Promise<Narrative> {
   const fallback = Array.isArray(body.usage?.iterations) && body.usage.iterations.some((e: { type?: string }) => e?.type === 'fallback_message')
   console.log(`[insights] narrative for ${input.app}/${input.range} by ${body.model ?? MODEL()}${fallback ? ' (FALLBACK model)' : ''}, ${body.usage?.input_tokens ?? '?'} in / ${body.usage?.output_tokens ?? '?'} out`)
   return {
+    headline: out.headline ? String(out.headline).trim().slice(0, 120) : undefined,
     summary: String(out.summary).trim(),
+    actions: (Array.isArray(out.actions) ? out.actions : []).map((a: any) => ({ title: String(a?.title ?? '').trim(), say: String(a?.say ?? '').trim() })).filter((a: { title: string; say: string }) => a.title && a.say),
     campaigns: (Array.isArray(out.campaigns) ? out.campaigns : []).filter((c: any) => known.has(String(c?.campaign_id))).map((c: any) => ({ campaign_id: String(c.campaign_id), why: String(c.why ?? '').trim(), try_next: String(c.try_next ?? '').trim() })),
     ideas: (Array.isArray(out.ideas) ? out.ideas : []).slice(0, 3).map((i: any) => ({ app_id: i?.app_id ? String(i.app_id) : undefined, title: String(i?.title ?? '').trim(), detail: String(i?.detail ?? '').trim() })).filter((i: { title: string }) => i.title),
     model: String(body.model ?? MODEL()), generated_at: new Date().toISOString(), fallback,

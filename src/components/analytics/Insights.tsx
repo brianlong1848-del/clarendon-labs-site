@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AppTag, C, Label, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph } from '@/components/post/shared'
+import { AdThumb, type AdThumbMedia } from './AdThumb'
 
 // ─── Ad insights (FEAT-CLA-023) ──────────────────────────────────────────────
 //
@@ -24,11 +25,14 @@ export type InsightAction = {
   advertiser_id?: string; adgroup_ids?: string[]; ad_ids?: string[]; item_id?: string; post_id?: string; manager_url?: string
   title: string; detail: string; button?: string; confirm?: string; confirm_fields?: { budget_cents?: number; pause_original?: boolean }
   amount_cents?: number; href?: string; note?: string; blocked?: string; done?: { at?: string; note: string; label?: string; result_ids?: Record<string, unknown> }; score: number
+  /** Claude's plain-words "do this, because" (FEAT-CLA-023 round 2). Absent until the day's write-up lands. */
+  say?: string
 }
 export type InsightsPayload = {
   day: string; range: string; app: string
-  campaigns: { platform: 'tiktok' | 'meta'; campaign_id: string; app_id: string | null; name: string; status?: string; insight: Insight; ads: { ad_id: string; name: string; insight: Insight }[]; narrative?: { why: string; try_next: string } }[]
+  campaigns: { platform: 'tiktok' | 'meta'; campaign_id: string; app_id: string | null; name: string; status?: string; insight: Insight; media?: AdThumbMedia; ads: { ad_id: string; name: string; insight: Insight }[]; narrative?: { why: string; try_next: string } }[]
   actions: InsightAction[]
+  headline?: string
   summary?: string; ideas: { app_id?: string; title: string; detail: string }[]; model?: string; generated_at?: string
   installs_visible: boolean; errors: string[]
 }
@@ -85,7 +89,7 @@ export function WhyNext({ insight, narrative }: { insight?: Insight; narrative?:
 
 /** One action: title, app, detail, the button (confirm step, duplicate
  *  sheet, link), result / Done. Used by This week and the Console cards. */
-export function ActionItem({ a, n, insight, compact = false, onDone }: { a: InsightAction; n?: number; insight?: Insight; compact?: boolean; onDone?: () => void }) {
+export function ActionItem({ a, n, insight, media, compact = false, onDone }: { a: InsightAction; n?: number; insight?: Insight; media?: AdThumbMedia; compact?: boolean; onDone?: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -105,10 +109,18 @@ export function ActionItem({ a, n, insight, compact = false, onDone }: { a: Insi
     setBusy(false)
   }
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+  // The ad itself, big enough to recognise and play (9:16 like the cuts we run).
+  // Compact rows (Console, Studio app) keep the small square.
+  const tile = media && !compact
+    ? <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} width={92} height={164} radius={12} />
+    : media ? <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} size={44} /> : null
+  const cols = [n != null ? '28px' : null, tile ? 'auto' : null, 'minmax(0,1fr)', 'auto'].filter(Boolean).join(' ')
+  const [showNumbers, setShowNumbers] = useState(false)
   return (
-    <div onClick={stop} style={{ display: 'grid', gridTemplateColumns: n != null ? '28px minmax(0,1fr) auto' : 'minmax(0,1fr) auto', gap: 12, alignItems: 'start', padding: compact ? '8px 10px' : '10px 12px', borderRadius: 12, background: C.card2 }}>
+    <div onClick={stop} className="adm-action" style={{ display: 'grid', gridTemplateColumns: cols, gap: compact ? 12 : 16, alignItems: 'start', padding: compact ? '8px 10px' : '14px 16px', borderRadius: 14, background: C.card2 }}>
       {n != null && <span style={{ ...labelStyle, fontSize: 12, paddingTop: 3 }}>{n}</span>}
-      <div style={{ minWidth: 0, display: 'grid', gap: 4 }}>
+      {tile}
+      <div style={{ minWidth: 0, display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <b style={{ fontSize: compact ? 13 : 13.5, ...(a.done ? { color: C.soft } : {}) }}>{a.title}</b>
           {insight && <VerdictPill insight={insight} size={11} />}
@@ -121,7 +133,17 @@ export function ActionItem({ a, n, insight, compact = false, onDone }: { a: Insi
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>{a.campaign_name}</span>
           </div>
         )}
-        <p style={{ margin: 0, fontSize: compact ? 12.5 : 13, lineHeight: 1.5, color: C.ink2, ...(compact ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }}>{a.detail}</p>
+        {a.say && !compact
+          ? (
+            <>
+              <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: C.ink }}>{a.say}</p>
+              <button onClick={() => setShowNumbers((v) => !v)} aria-expanded={showNumbers} style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, fontWeight: 700, color: C.teal, justifySelf: 'start' }}>
+                {showNumbers ? 'Hide the numbers' : 'Show the numbers'}
+              </button>
+              {showNumbers && <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: C.ink2, fontFamily: C.mono }}>{a.detail}</p>}
+            </>
+          )
+          : <p style={{ margin: 0, fontSize: compact ? 12.5 : 13.5, lineHeight: 1.5, color: C.ink2, ...(compact ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }}>{a.detail}</p>}
         {a.done && <p style={{ margin: 0, fontSize: 12.5, color: C.teal }}>{a.done.note}</p>}
         {a.note && <p style={{ margin: 0, fontSize: 12, color: C.soft }}>{a.note}</p>}
         {a.blocked && a.button && !a.href && !result && <p style={{ margin: 0, fontSize: 12, color: C.amber }}>{a.blocked}</p>}
@@ -201,12 +223,18 @@ export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?:
       {!data && loading && <div style={{ display: 'grid', gap: 8 }}>{[0, 1, 2].map((i) => <div key={i} style={{ height: 44, borderRadius: 12, background: C.card2 }} />)}</div>}
       {data && (
         <>
-          {data.summary && <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.5, color: C.ink }}>{data.summary}</p>}
+          {(data.headline || data.summary) && (
+            <div style={{ display: 'grid', gap: 8, padding: '16px 18px', borderRadius: 14, background: C.indigoTint, border: `1px solid ${C.rule}` }}>
+              {data.headline && <p style={{ margin: 0, fontSize: 20, lineHeight: 1.3, fontWeight: 800, letterSpacing: '-.01em', color: C.ink }}>{data.headline}</p>}
+              {data.summary && <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: C.ink }}>{data.summary}</p>}
+              <span style={{ ...labelStyle, fontSize: 11 }}>Your analyst · {data.model ? data.model.replace(/-\d{8}$/, '') : 'Claude'}</span>
+            </div>
+          )}
           {!data.campaigns.length && <p style={{ margin: 0, fontSize: 13.5, color: C.soft }}>No campaigns in this window, so nothing to judge. Boost a post from Post → Queue to start one.</p>}
           {actions.length > 0 && (
-            <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
+            <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 10 }}>
               {actions.map((a, i) => (
-                <li key={a.id}><ActionItem a={a} n={i + 1} insight={data.campaigns.find((c) => c.platform === a.platform && c.campaign_id === a.campaign_id)?.insight} /></li>
+                <li key={a.id}>{(() => { const c = data.campaigns.find((c) => c.platform === a.platform && c.campaign_id === a.campaign_id); return <ActionItem a={a} n={i + 1} insight={c?.insight} media={c?.media} /> })()}</li>
               ))}
             </ol>
           )}

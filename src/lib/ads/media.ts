@@ -104,6 +104,9 @@ async function metaAdMedia(c?: MetaAdCreative): Promise<AdMedia | null> {
   if (c.effective_instagram_media_id) {
     const ig = await tiktokCached(`meta-ig:${c.effective_instagram_media_id}`, false, () => metaGet(c.effective_instagram_media_id!, { fields: 'media_url,thumbnail_url,permalink,media_type' }).catch(() => ({})), HOUR)
     const video = ig.media_type === 'VIDEO'
+    // "Promoting website" ads made in Ads Manager own their IG media, so the page token can't read it:
+    // ig comes back {} — fall through to the creative's (now 1080px) thumbnail + permalink.
+    if (!ig.media_url && !ig.thumbnail_url && !ig.media_type) return { kind: 'image', thumbnail_url: c.thumbnail_url, permalink }
     return { kind: video ? 'video' : 'image', video_url: video ? ig.media_url : undefined, thumbnail_url: ig.thumbnail_url ?? (video ? c.thumbnail_url : ig.media_url ?? c.thumbnail_url), permalink: ig.permalink ?? permalink }
   }
   if (c.thumbnail_url) return { kind: 'image', thumbnail_url: c.thumbnail_url, permalink }

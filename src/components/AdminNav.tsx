@@ -107,6 +107,7 @@ const SHELL_CSS = `
 .adm-aside a{transition:background-color .2s ease,color .2s ease}.adm-aside a:hover{background:#F1F3F6}
 .adm-logo-dot{animation:adm-dot 2.8s ease-in-out infinite}
 @media (prefers-reduced-motion: reduce){.adm-shell *,.adm-shell *::before{animation:none!important;transition:none!important}}
+@media (max-width:600px){.adm-action{grid-template-columns:28px minmax(0,1fr)!important}.adm-action>*:nth-child(2){grid-column:2}.adm-action>*:nth-child(3){grid-column:2}.adm-action>*:nth-child(4){grid-column:2;justify-self:start}}
 `
 
 /** Shared sidebar + header chrome for every studio page. Pass the page's

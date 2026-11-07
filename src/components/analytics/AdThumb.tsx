@@ -16,12 +16,12 @@ import { MediaViewer, Thumb } from '@/components/post/MediaViewer'
 
 export type AdThumbMedia = { media_kind?: 'video' | 'image' | 'placeholder'; thumbnail_url?: string; video_url?: string; permalink?: string; media_note?: string }
 
-export function AdThumb({ platform, campaignId, appId, adId, media, badge, size = 44 }:
-  { platform: 'tiktok' | 'meta'; campaignId: string; appId?: string | null; adId?: string; media: AdThumbMedia; badge?: string; size?: number }) {
+export function AdThumb({ platform, campaignId, appId, adId, media, badge, size = 44, width, height, radius }:
+  { platform: 'tiktok' | 'meta'; campaignId: string; appId?: string | null; adId?: string; media: AdThumbMedia; badge?: string; size?: number; width?: number; height?: number; radius?: number }) {
   const [viewing, setViewing] = useState(false)
   const url = media.video_url ?? (media.media_kind === 'image' ? media.thumbnail_url : undefined)
   const kind: 'video' | 'image' = media.video_url ? 'video' : 'image'
-  const box: React.CSSProperties = { width: size, height: size, borderRadius: 9, overflow: 'hidden', background: C.card2, flex: 'none', position: 'relative' }
+  const box: React.CSSProperties = { width: width ?? size, height: height ?? size, borderRadius: radius ?? 9, overflow: 'hidden', background: C.card2, flex: 'none', position: 'relative' }
   const refresh = async (old: string) => {
     const q = new URLSearchParams({ platform, campaign_id: campaignId, fresh: '1', ...(appId ? { app: appId } : {}), ...(adId ? { ad_id: adId } : {}) })
     const r = await fetch(`/api/ads/media?${q}`)
