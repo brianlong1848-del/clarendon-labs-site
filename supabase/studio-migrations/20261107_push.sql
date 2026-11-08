@@ -36,3 +36,10 @@ alter table studio_push_state enable row level security;
 -- Service role only (the server writes; the app reads through /api/push).
 
 -- APPLIED 2026-11-07 (tables) by the master project via the Supabase connector. Scheduler: 20261107_push_cron.sql.
+
+-- 2026-11-08: the tables were created without API-role privileges (this project
+-- doesn't auto-grant them — see 20261003_money_manual_ledger_receipts.sql), so
+-- POST /api/push/devices failed with Postgres 42501 "permission denied for table
+-- studio_devices" and no device ever registered. Server (service role) only.
+grant select, insert, update, delete on public.studio_devices, public.studio_notifications, public.studio_push_state to service_role;
+revoke all on public.studio_devices, public.studio_notifications, public.studio_push_state from anon, authenticated;
