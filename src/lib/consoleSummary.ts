@@ -71,17 +71,18 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
   // How long each part of a rebuild took, so a slow one says why (summary.build_ms).
   const t0 = Date.now(), ms: Record<string, number> = {}
   const timed = <T,>(k: string, p: Promise<T>) => p.finally(() => { ms[k] = Date.now() - t0 })
-  const [promotions, allCampaigns] = await Promise.all([
-    timed('promotions', rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => [])),
-    timed('campaigns', campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[] }))),
-  ])
+  // Started, not awaited: the App Store, reviews and server pulls below run
+  // alongside (campaigns alone took ~16 s on a cold instance, 2026-11-11).
+  const promotionsP = timed('promotions', rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => []))
+  const campaignsP = timed('campaigns', campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[] })))
   const cards = await Promise.all(allApps().map(async (def): Promise<ConsoleCard> => {
     const conn = connected.find((c) => c.id === def.id)
     const a = analytics.find((x) => x.id === def.id)
-    const [server, store, reviews] = await Promise.all([
+    const [server, store, reviews, allCampaigns] = await Promise.all([
       conn ? pullServer(conn) : Promise.resolve<ServerState>({ connected: false, note: NO_SERVER[def.id], connect: NO_SERVER[def.id] ? undefined : CONNECT_HOW[def.id] }),
       a ? timed(`store:${def.id}`, fetchAppStoreCached(a.appStoreId)) : Promise.resolve(null),
       a ? timed(`reviews:${def.id}`, fetchReviews(a.appStoreId)) : Promise.resolve(null),
+      campaignsP,
     ])
     const last = sum7(store?.series, 0), prev = sum7(store?.series, 7)
     const rows = allCampaigns.campaigns.filter((r) => r.app_id === def.id)
@@ -90,7 +91,7 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
     let action: Action | null = null
     if (rows.length) {
       const analysis = analyze(rows, new Map(), '7d')
-      const [top] = await enrichActions(analysis.actions.slice(0, 1), promotions)
+      const [top] = await enrichActions(analysis.actions.slice(0, 1), await promotionsP)
       action = top ?? null
     }
     return {
