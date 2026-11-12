@@ -5,6 +5,7 @@ import { fetchTikTok } from '@/lib/analytics/tiktok'
 import { fetchInstagram } from '@/lib/analytics/instagram'
 import { fetchAppStore } from '@/lib/analytics/appstore'
 import { fetchFacebook } from '@/lib/analytics/facebook'
+import { shared } from '@/lib/sharedCache'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
 // ─── /api/analytics ──────────────────────────────────────────────────────────
@@ -20,9 +21,8 @@ export const dynamic = 'force-dynamic'
 
 const deny = () => NextResponse.json({ error: 'not authorised' }, { status: 401 })
 
-export async function GET(req: Request) {
-  if (!(await consoleAuthed())) return deny()
-
+/** Built once and shared by every server instance (src/lib/sharedCache.ts). */
+async function build() {
   const apps = await withInstagram(analyticsRegistry())
   const rows = await Promise.all(
     apps.map(async (app) => {
@@ -36,5 +36,13 @@ export async function GET(req: Request) {
     }),
   )
 
-  return NextResponse.json({ apps: rows })
+  return rows
+}
+
+export async function GET(req: Request) {
+  if (!(await consoleAuthed())) return deny()
+
+  const fresh = new URL(req.url).searchParams.get('fresh') === '1'
+  const { value: rows, at } = await shared('analytics-v1', build, { ttl: 120, maxStale: 30 * 60, fresh })
+  return NextResponse.json({ apps: rows, cached_at: new Date(at).toISOString() })
 }

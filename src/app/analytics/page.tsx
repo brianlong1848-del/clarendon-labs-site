@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
+import { clearStudioCache, peek, stash } from '@/lib/clientCache'
 import { AdminShell, AppTag, C, Label, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { GeoMap } from '@/components/GeoMap'
@@ -84,11 +85,13 @@ export default function AnalyticsPage() {
     if (saved) { setPw(saved); setAuthed(true) }
   }, [])
 
-  const load = useCallback(async (password: string) => {
+  // Opens from what this browser showed last time, then swaps in the live
+  // answer; Refresh makes the server rebuild instead of using its shared copy.
+  const load = useCallback(async (password: string, fresh = false, followUp = false) => {
     setLoading(true); setError(null)
     let res: Response
     try {
-      res = await fetch('/api/analytics', { headers: {} })
+      res = await fetch(`/api/analytics${fresh ? '?fresh=1' : ''}`, { headers: {} })
     } catch {
       setLoading(false); setError('Could not reach the analytics API.'); return
     }
@@ -97,8 +100,10 @@ export default function AnalyticsPage() {
       window.location.href = '/login'; return
     }
     const data = await res.json()
-    setApps(data.apps ?? [])
+    setApps(data.apps ?? []); stash('analytics', data.apps ?? [])
+    if (!fresh && !followUp && data.cached_at && Date.now() - Date.parse(data.cached_at) > 150_000) setTimeout(() => load(password, false, true), 4000)
   }, [])
+  useEffect(() => { const seen = peek<Parameters<typeof setApps>[0]>('analytics'); if (Array.isArray(seen) && seen.length) setApps(seen) }, [])
 
   useEffect(() => { if (authed && pw) load(pw) }, [authed, pw, load])
 
@@ -181,9 +186,9 @@ export default function AnalyticsPage() {
       title="Analytics"
       subtitle="Revenue and growth across every Clarendon Labs app, in one place."
       actions={<>
-        <button style={btn('ghost')} disabled={loading} onClick={() => load(pw)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+        <button style={btn('ghost')} disabled={loading} onClick={() => load(pw, true)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
         <button style={btn('ghost')} onClick={() => {
-          fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' })
+          clearStudioCache(); fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' })
         }}>Sign out</button>
       </>}
     >

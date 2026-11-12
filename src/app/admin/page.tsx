@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
+import { clearStudioCache, peek, stash } from '@/lib/clientCache'
 import { useRouter } from 'next/navigation'
 import { AdminShell, AppTag, C, appAccent, btn, labelStyle } from '@/components/AdminNav'
 import { ActionItem, type InsightAction } from '@/components/analytics/Insights'
@@ -102,13 +103,8 @@ export default function ConsolePage() {
     if (saved) { setPw(saved); setAuthed(true) }
   }, [])
 
-  const load = useCallback(async (password: string) => {
-    setLoading(true); setError(null)
-    const res = await fetch('/api/console', { headers: {} }).catch(() => null)
-    setLoading(false)
-    if (!res) { setError('Could not reach the console API.'); return }
-    if (res.status === 401) { setError('Wrong password.'); setAuthed(false); (window.location.href = '/login'); return }
-    const data = await res.json()
+  type Payload = { apps?: AppState[]; missing?: Missing[]; cards?: Card[]; summary?: Summary | null; cached_at?: string }
+  const apply = useCallback((data: Payload) => {
     setApps(data.apps ?? []); setMissing(data.missing ?? []); setCards(data.cards ?? []); setSummary(data.summary ?? null); setLoaded(true)
     setDrafts((prev) => {
       const next: Record<string, Draft> = {}
@@ -124,6 +120,22 @@ export default function ConsolePage() {
       return next
     })
   }, [])
+
+  // Opens from what this browser showed last time, then swaps in the live
+  // answer. `fresh` (the Refresh button, and after approve / reject / retire)
+  // makes the server rebuild instead of answering from its shared copy.
+  const load = useCallback(async (_password: string, fresh = false, followUp = false) => {
+    setLoading(true); setError(null)
+    const res = await fetch(`/api/console${fresh ? '?fresh=1' : ''}`, { headers: {} }).catch(() => null)
+    setLoading(false)
+    if (!res) { setError('Could not reach the console API.'); return }
+    if (res.status === 401) { setError('Wrong password.'); setAuthed(false); (window.location.href = '/login'); return }
+    const data: Payload = await res.json()
+    apply(data); stash('console', data)
+    // The server answered with an older copy while it rebuilt: collect the new one.
+    if (!fresh && !followUp && data.cached_at && Date.now() - Date.parse(data.cached_at) > 75_000) setTimeout(() => load(_password, false, true), 4000)
+  }, [apply])
+  useEffect(() => { const seen = peek<Payload>('console'); if (seen?.cards) apply(seen) }, [apply])
   useEffect(() => { if (authed && pw) load(pw) }, [authed, pw, load])
 
   const act = async (appId: string, key: string, payload: Record<string, unknown>) => {
@@ -143,7 +155,7 @@ export default function ConsolePage() {
     }
     if (payload.action === 'reject') setToast({ text: 'Suggestion rejected.', tone: 'ok' })
     if (payload.action === 'retire') setToast({ text: 'Card retired.', tone: 'ok' })
-    load(pw)
+    load(pw, true)
   }
 
   const pending = apps.flatMap((a) => a.pending.map((s) => ({ app: a, s })))
@@ -189,8 +201,8 @@ export default function ConsolePage() {
       title="Console"
       subtitle={summary ? `${summary.apps} apps · ${summary.servers_connected} server${summary.servers_connected === 1 ? '' : 's'} connected · last sync ${new Date(summary.last_sync).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : 'Each app’s numbers and anything waiting on you'}
       actions={<>
-        <button style={btn('ghost')} disabled={loading} onClick={() => load(pw)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
-        <button style={btn('ghost')} onClick={() => { fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' }) }}>Sign out</button>
+        <button style={btn('ghost')} disabled={loading} onClick={() => load(pw, true)}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+        <button style={btn('ghost')} onClick={() => { clearStudioCache(); fetch('/auth/signout', { method: 'POST' }).finally(() => { window.location.href = '/login' }) }}>Sign out</button>
       </>}
     >
       <div style={{ display: 'grid', gap: 24 }}>

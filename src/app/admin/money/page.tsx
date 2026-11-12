@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { peek, stash } from '@/lib/clientCache'
 import Link from 'next/link'
 import { AdminShell, AppTag, C, Label, TILE, labelStyle } from '@/components/AdminNav'
 import MoneyTabs from '@/components/money/MoneyTabs'
@@ -18,13 +19,16 @@ export default function MoneyOverview() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Paint what this tab showed last (kept only until the tab closes), then the live answer.
+    const latest = (j: Data) => Array.from(new Set((j.pnl as Row[]).map((x) => x.month))).sort().reverse()[0] ?? null
+    const seen = peek<Data>('money-overview', true)
+    if (seen?.pnl) { setD(seen); setMonth(latest(seen)) }
     fetch('/api/money/overview').then(async (r) => {
       if (r.status === 401) { window.location.href = '/login'; return }
       const j = await r.json()
       if (!r.ok) { setError(j.error ?? 'Could not load'); return }
-      setD(j)
-      const months = Array.from(new Set((j.pnl as Row[]).map((x) => x.month))).sort().reverse()
-      setMonth(months[0] ?? null)
+      setD(j); stash('money-overview', j, true)
+      setMonth((m) => m ?? latest(j))
     }).catch(() => setError('Could not load'))
   }, [])
 

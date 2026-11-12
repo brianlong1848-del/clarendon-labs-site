@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { registry, allApps, consoleAuthed, type ConsoleApp } from '@/lib/console'
+import { registry, allApps, consoleAuthed } from '@/lib/console'
+import { forget, shared } from '@/lib/sharedCache'
 import { consoleCards } from '@/lib/consoleSummary'
 
 // ─── /api/console ────────────────────────────────────────────────────────────
@@ -12,55 +13,29 @@ export const dynamic = 'force-dynamic'
 
 const deny = () => NextResponse.json({ error: 'not authorised' }, { status: 401 })
 
-/** One app's admin API. Reachability IS the health signal — if this fails, that
- *  app's admin surface is down, which is exactly what the console should say. */
-async function pull(app: ConsoleApp) {
-  const started = Date.now()
-  try {
-    const res = await fetch(`${app.baseUrl}/api/admin`, {
-      headers: { 'x-admin-token': app.token },
-      cache: 'no-store',
-      // A slow app must not hang the whole dashboard.
-      signal: AbortSignal.timeout(8000),
-    })
-    const ms = Date.now() - started
-    if (!res.ok) {
-      return {
-        id: app.id, name: app.name, accent: app.accent, ms, ok: false,
-        error: res.status === 401
-          ? 'Token rejected — check this app’s ADMIN_TOKEN matches.'
-          : `HTTP ${res.status}`,
-        pending: [], live: [],
-      }
-    }
-    const data = await res.json()
-    return {
-      id: app.id, name: app.name, accent: app.accent, ms, ok: true,
-      pending: data.pending ?? [], live: data.live ?? [],
-      stats: Array.isArray(data.stats) ? data.stats : undefined,
-      recent: Array.isArray(data.recent) ? data.recent : undefined,
-    }
-  } catch (err) {
-    return {
-      id: app.id, name: app.name, accent: app.accent, ms: Date.now() - started,
-      ok: false,
-      error: err instanceof Error && err.name === 'TimeoutError'
-        ? 'No response in 8s' : 'Unreachable',
-      pending: [], live: [],
-    }
-  }
+/** Everything the Console shows, built once and shared (src/lib/sharedCache.ts):
+ *  a minute old at most when someone is looking, and never rebuilt per server
+ *  instance. Each app's admin API is asked once; `apps` is the same answer in
+ *  the older shape. */
+async function build() {
+  const missing = allApps().filter((a) => !registry().some((x) => x.id === a.id))
+  const { cards, summary } = await consoleCards()
+  const apps = cards.filter((c) => c.server.connected).map((c) => ({
+    id: c.id, name: c.name, accent: c.accent, ms: c.server.ms ?? 0, ok: !!c.server.ok, error: c.server.error,
+    pending: c.server.pending ?? [], live: c.server.live ?? [], stats: c.server.stats, recent: c.server.recent,
+  }))
+  return { apps, missing, cards, summary }
 }
+const KEY = 'console-v1'
 
 export async function GET(req: Request) {
   if (!(await consoleAuthed())) return deny()
-  void req
-  const apps = registry()
-  const missing = allApps().filter((a) => !apps.some((x) => x.id === a.id))
   // `apps` / `missing` keep the old shape for the suggestion review + Studio
   // builds already in the field; `cards` + `summary` are the one-card-per-app
   // console (src/lib/consoleSummary.ts): store, ads, top action, server.
-  const [pulled, { cards, summary }] = await Promise.all([Promise.all(apps.map(pull)), consoleCards()])
-  return NextResponse.json({ apps: pulled, missing, cards, summary, hint: apps.length ? undefined : 'No apps configured. Set <APP>_ADMIN_URL and <APP>_ADMIN_TOKEN.' })
+  const fresh = new URL(req.url).searchParams.get('fresh') === '1'
+  const { value, at } = await shared(KEY, build, { ttl: 60, maxStale: 15 * 60, fresh })
+  return NextResponse.json({ ...value, cached_at: new Date(at).toISOString(), hint: registry().length ? undefined : 'No apps configured. Set <APP>_ADMIN_URL and <APP>_ADMIN_TOKEN.' })
 }
 
 /** Forward an action to the app that owns it. This route deliberately does not
@@ -84,6 +59,8 @@ export async function POST(req: Request) {
       cache: 'no-store',
       signal: AbortSignal.timeout(20000),
     })
+    // The app's lists just changed; the next read must not be the old copy.
+    forget(KEY)
     return NextResponse.json(await res.json().catch(() => ({})), { status: res.status })
   } catch {
     return NextResponse.json({ error: `${app.name} did not respond` }, { status: 502 })

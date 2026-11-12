@@ -10,7 +10,7 @@
 import { allApps, registry, type ConsoleApp } from './console'
 import { analyticsRegistry } from './analytics/registry'
 import { fetchAppStoreCached, fetchReviews } from './analytics/appstore'
-import { campaignsFor } from './ads/campaigns'
+import { campaignsFor, type CampaignRow } from './ads/campaigns'
 import { analyze, type Action } from './ads/insights'
 import { enrichActions } from './ads/enrich'
 import { rest } from './publish/store'
@@ -66,18 +66,22 @@ const sum7 = (series: { date: string; installs: number; proceeds: number }[] | u
 export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: ConsoleSummary }> {
   const connected = registry()
   const analytics = analyticsRegistry()
-  const promotions = await rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => [])
+  // Asked once for every app and split below: per app, this was five rounds of
+  // the same Meta and Supabase requests.
+  const [promotions, allCampaigns] = await Promise.all([
+    rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => []),
+    campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[] })),
+  ])
   const cards = await Promise.all(allApps().map(async (def): Promise<ConsoleCard> => {
     const conn = connected.find((c) => c.id === def.id)
     const a = analytics.find((x) => x.id === def.id)
-    const [server, store, reviews, camp] = await Promise.all([
+    const [server, store, reviews] = await Promise.all([
       conn ? pullServer(conn) : Promise.resolve<ServerState>({ connected: false, note: NO_SERVER[def.id], connect: NO_SERVER[def.id] ? undefined : CONNECT_HOW[def.id] }),
       a ? fetchAppStoreCached(a.appStoreId) : Promise.resolve(null),
       a ? fetchReviews(a.appStoreId) : Promise.resolve(null),
-      campaignsFor(def.id, '7d').catch(() => ({ campaigns: [], errors: [] as string[] })),
     ])
     const last = sum7(store?.series, 0), prev = sum7(store?.series, 7)
-    const rows = camp.campaigns
+    const rows = allCampaigns.campaigns.filter((r) => r.app_id === def.id)
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10)
     const active = rows.filter((r) => r.status === 'running' || (r.status === undefined && r.daily.some((d) => d.day >= since && d.spend_cents > 0))).length
     let action: Action | null = null

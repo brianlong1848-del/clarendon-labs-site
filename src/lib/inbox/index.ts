@@ -6,6 +6,7 @@
 
 import type { Adapter, InboxAction, InboxItem, SourceStatus } from './types'
 import { facebookComments, facebookMessages, instagramComments, instagramDMs } from './meta'
+import { forget, shared } from '../sharedCache'
 import { appAdmin, appStoreReviews, inAppFeedback, upcoming } from './sources'
 
 export const ADAPTERS: Adapter[] = [instagramDMs, instagramComments, facebookMessages, facebookComments, appStoreReviews, appAdmin, inAppFeedback]
@@ -13,16 +14,21 @@ export const ADAPTERS: Adapter[] = [instagramDMs, instagramComments, facebookMes
 type Raw = Omit<InboxItem, 'state'>
 type StateRow = { item_id: string; status: 'open' | 'done'; read_at: string | null; snoozed_until: string | null; note: string | null }
 
-let cache: { at: number; items: Raw[]; status: SourceStatus[] } | null = null
+// Shared by every server instance (src/lib/sharedCache.ts): a new instance
+// used to re-read every platform, which was the 4-second first Inbox load.
+const KEY = 'inbox-v1'
+type Gathered = { at: number; items: Raw[]; status: SourceStatus[] }
 
-async function gather(force = false) {
-  if (!force && cache && Date.now() - cache.at < 45_000) return cache
+async function collect(): Promise<Omit<Gathered, 'at'>> {
   type Collected = { items: Raw[]; status: SourceStatus[] }
   const results: Collected[] = await Promise.all(ADAPTERS.map((a): Promise<Collected> => a.collect().catch((e): Collected => ({
     items: [], status: [{ source: a.source, label: a.label, connected: false, count: 0, reason: (e as Error).message }],
   }))))
-  cache = { at: Date.now(), items: results.flatMap((r) => r.items), status: [...results.flatMap((r) => r.status), ...upcoming] }
-  return cache
+  return { items: results.flatMap((r) => r.items), status: [...results.flatMap((r) => r.status), ...upcoming] }
+}
+async function gather(force = false): Promise<Gathered> {
+  const { value, at } = await shared(KEY, collect, { ttl: 45, maxStale: 10 * 60, fresh: force })
+  return { at, ...value }
 }
 
 // ── state in Supabase (studio_inbox_state) ──
@@ -52,7 +58,7 @@ async function log(itemId: string, action: string, body: string | undefined, ok:
 }
 
 export async function inbox(opts: { force?: boolean } = {}) {
-  const [{ items, status }, state] = await Promise.all([gather(opts.force), loadState()])
+  const [{ items, status, at }, state] = await Promise.all([gather(opts.force), loadState()])
   const now = Date.now()
   const merged: InboxItem[] = items.map((it) => {
     const s = state.get(it.id)
@@ -70,7 +76,7 @@ export async function inbox(opts: { force?: boolean } = {}) {
   }).sort((a, b) => b.at.localeCompare(a.at))
   // Strip adapter-private ids before they leave the server.
   const safe = merged.map(({ meta, ...rest }) => ({ ...rest, meta: meta && 'cardText' in meta ? { cardText: meta.cardText } : undefined }))
-  return { items: safe, sources: status, fetchedAt: new Date(cache?.at ?? now).toISOString() }
+  return { items: safe, sources: status, fetchedAt: new Date(at).toISOString() }
 }
 
 export async function act(id: string, action: InboxAction, payload: { text?: string; until?: string; note?: string; [k: string]: unknown }) {
@@ -98,7 +104,7 @@ export async function act(id: string, action: InboxAction, payload: { text?: str
     await log(id, action, payload.text, true)
     // Replying, approving or rejecting closes the loop.
     if (action === 'reply' || action === 'approve' || action === 'reject') await saveState(id, { status: 'done', read_at: now })
-    cache = null
+    forget(KEY)
   } catch (e) {
     await log(id, action, payload.text, false, (e as Error).message)
     throw e
