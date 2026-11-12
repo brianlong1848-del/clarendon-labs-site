@@ -73,9 +73,8 @@ async function campaignMediaNow(platform: 'tiktok' | 'meta', campaignId: string,
     // ad/get is 40001 until the scope is approved: one placeholder for the campaign.
     return { media: { kind: 'placeholder', permalink: promo?.permalink ?? adsManagerUrl(advertiserId), note: TIKTOK_MEDIA_NOTE }, ad_count: 0, ads: {} }
   }
-  // All at once: one lookup is ~1 s, and a 10-ad campaign one by one was 9.6 s of a cold Refresh.
-  const resolved = await Promise.all(ads.map(async (a) => [a.ad_id, await tiktokAdMedia(advertiserId, a, handle)] as const))
-  const out: Record<string, AdMedia> = Object.fromEntries(resolved)
+  const out: Record<string, AdMedia> = {}
+  for (const a of ads) out[a.ad_id] = await tiktokAdMedia(advertiserId, a, handle)
   const first = ads.map((a) => out[a.ad_id]).find(Boolean) ?? null
   return { media: first, ad_count: ads.length, ads: out }
 }
