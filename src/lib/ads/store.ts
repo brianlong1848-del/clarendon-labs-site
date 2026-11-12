@@ -34,7 +34,7 @@ export const APP_STORE_IDS: Record<string, string | undefined> = {
 export const PLAY_PACKAGE_IDS: Record<string, string | undefined> = {
   rolligan: 'com.clarendonlabs.rolligan',
   gagorder: 'dev.clarendon.gagorder',
-  yulepick: undefined, // set to 'com.clarendonlabs.yulepick' when Play approves 1.0.0
+  yulepick: 'com.clarendonlabs.yulepick', // live on Google Play since ~2026-11-09
   borea: undefined,
   jinglewire: undefined,
 }
