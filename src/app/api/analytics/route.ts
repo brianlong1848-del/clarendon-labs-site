@@ -5,6 +5,7 @@ import { fetchTikTok } from '@/lib/analytics/tiktok'
 import { fetchInstagram } from '@/lib/analytics/instagram'
 import { fetchAppStore } from '@/lib/analytics/appstore'
 import { fetchFacebook } from '@/lib/analytics/facebook'
+import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
 // ─── /api/analytics ──────────────────────────────────────────────────────────
 //
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
       const [appStore, instagram, facebook, tiktok] = await Promise.all([
         fetchAppStore(app.appStoreId),
         fetchInstagram(app.instagramAccountId),
-        fetchFacebook(app.instagramAccountId),
+        fetchFacebook(app.instagramAccountId, process.env[`${app.id.toUpperCase()}_FB_PAGE_ID`] || PUBLISH_APPS.find((p) => p.id === app.id)?.pageId),
         fetchTikTok(app.tiktokAdvertiserId),
       ])
       return { id: app.id, name: app.name, accent: app.accent, appStore, instagram, facebook, tiktok }

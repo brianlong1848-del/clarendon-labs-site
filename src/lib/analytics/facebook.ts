@@ -51,10 +51,30 @@ function pages(token: string): Promise<PageRow[]> {
   return p
 }
 
-export async function fetchFacebook(igAccountId?: string): Promise<FacebookMetrics> {
+/** Reads one Page directly — for a Page that /me/accounts doesn't list with
+ *  its Instagram link (YulePick, 2026-11-11). */
+async function pageById(pageId: string, token: string): Promise<PageRow | undefined> {
+  try {
+    const res = await fetch(`${base}/${pageId}?fields=id,name,followers_count,fan_count&access_token=${token}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(8000) })
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      console.error(`[facebook] page ${pageId}: HTTP ${res.status}`, err?.error?.message ?? '')
+      return undefined
+    }
+    return (await res.json()) as PageRow
+  } catch { return undefined }
+}
+
+/** Finds the app's Page by its linked Instagram account, else by the app's
+ *  known Page id (PUBLISH_APPS), first in /me/accounts and then directly. */
+export async function fetchFacebook(igAccountId?: string, pageId?: string): Promise<FacebookMetrics> {
   const token = process.env.META_ACCESS_TOKEN
-  if (!igAccountId || !token) return null
-  const page = (await pages(token)).find((p) => p.instagram_business_account?.id === igAccountId)
+  if ((!igAccountId && !pageId) || !token) return null
+  const rows = await pages(token)
+  const page = (igAccountId && rows.find((p) => p.instagram_business_account?.id === igAccountId))
+    || (pageId && rows.find((p) => p.id === pageId))
+    || (pageId ? await pageById(pageId, token) : undefined)
   if (!page) return null
 
   let posts30d: number | null = null
