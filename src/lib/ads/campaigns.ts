@@ -90,18 +90,28 @@ export const INSTALLS_NOTE = 'Installs and cost per install per ad appear once A
  *  failures are reported, not thrown, so one platform being down never
  *  blanks the other. TikTok answers come from a 10-minute cache per app and
  *  window unless `fresh` (the Refresh button). */
-export async function campaignsFor(appId: string | 'all', range: Range, fresh = false): Promise<{ campaigns: CampaignRow[]; errors: string[] }> {
+/** Milliseconds since campaignsFor started when each step finished (and,
+ *  for per-app / per-campaign steps, the slowest one), so a slow Console
+ *  rebuild says where the time went (consoleSummary build_ms). Timing only. */
+export type CampaignTimings = Record<string, number>
+
+export async function campaignsFor(appId: string | 'all', range: Range, fresh = false): Promise<{ campaigns: CampaignRow[]; errors: string[]; timings: CampaignTimings }> {
+  const t0 = Date.now(), timings: CampaignTimings = {}
+  const mark = (k: string) => { timings[k] = Date.now() - t0 }
+  const slowest = (k: string, startedAt: number) => { timings[k] = Math.max(timings[k] ?? 0, Date.now() - startedAt) }
   const { start, end } = rangeDates(range)
   const apps = PUBLISH_APPS.filter((a) => appId === 'all' || a.id === appId)
   const errors: string[] = []
   const promos = await rest<Pick<Promotion, 'id' | 'app_id' | 'campaign_id' | 'network' | 'status' | 'start_at' | 'end_at'>[]>('studio_promotions?campaign_id=not.is.null&select=id,app_id,campaign_id,network,status,start_at,end_at').catch(() => [])
   const promoByCampaign = new Map(promos.map((p) => [`${p.network}:${p.campaign_id}`, p]))
+  mark('promotions')
 
   const tiktok = await Promise.all(apps.map(async (app): Promise<CampaignRow[]> => {
     const advertiserId = tiktokAdvertiserId(app.id)
     if (!advertiserId || !tiktokToken()) return []
     try {
-      const rows = await tiktokCampaigns(advertiserId, start, end, true, fresh)
+      const s0 = Date.now()
+      const rows = await tiktokCampaigns(advertiserId, start, end, true, fresh).finally(() => { timings[`tiktok:${app.id}`] = Date.now() - s0 })
       return rows.map((c) => {
         const promo = promoByCampaign.get(`tiktok:${c.campaign_id}`)
         // The platform's live status (operation_status / secondary_status); while the
@@ -123,12 +133,15 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
       } })
     } catch (e) { errors.push(`TikTok (${app.name}): ${(e as Error).message}`); return [] }
   }))
+  mark('tiktok_done')
 
   let meta: CampaignRow[] = []
   const days = await metaCampaignDays(start, end)
+  mark('meta_report')
   if ('error' in days) errors.push(days.error)
   else {
     const info = await metaCampaignInfo().catch(() => new Map())
+    mark('meta_info')
     const by = new Map<string, CampaignRow>()
     for (const d of days) {
       if (appId !== 'all' && d.app_slug !== appId) continue
@@ -157,6 +170,7 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
     // Ads per Meta campaign: names + status from the ads list (hourly cache),
     // figures from ad-level insights (10 minutes). Best effort per campaign.
     await Promise.all(meta.map(async (r) => {
+      const s0 = Date.now()
       try {
         const [list, ins] = await Promise.all([
           cached(`meta-ads:${r.campaign_id}`, fresh, () => metaCampaignAds(r.campaign_id), HOUR),
@@ -168,16 +182,23 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
           spend_cents: s?.spend_cents ?? 0, impressions: s?.impressions, clicks: s?.clicks, ctr: s?.ctr, cpc_cents: s?.cpc_cents, views15s: s?.views15s } })
         for (const s of ins) if (!list.some((a) => a.ad_id === s.ad_id)) r.ads.push({ ad_id: s.ad_id, name: s.name ?? s.ad_id, spend_cents: s.spend_cents, impressions: s.impressions, clicks: s.clicks, ctr: s.ctr, cpc_cents: s.cpc_cents, views15s: s.views15s })
       } catch { /* the campaign row stands on its own */ }
+      slowest('meta_ads_slowest', s0)
     }))
+    mark('meta_ads_done')
   }
   const campaigns = [...tiktok.flat(), ...meta].sort((a, b) => b.spend_cents - a.spend_cents || a.name.localeCompare(b.name))
   // Which video each one is — thumbnails for the card and the Studio app.
   await Promise.all(campaigns.map(async (r) => {
+    const s0 = Date.now()
     const m = await campaignMedia(r.platform, r.campaign_id, r.app_id, fresh).catch(() => null)
+    slowest(`media_slowest:${r.platform}`, s0)
     if (!m) return
     Object.assign(r, mediaFields(m.media))
     r.ad_count = Math.max(r.ads.length, m.ad_count)
     for (const a of r.ads) Object.assign(a, mediaFields(m.ads[a.ad_id] ?? (r.ads.length === 1 ? m.media : null)))
   }))
-  return { campaigns, errors }
+  mark('media_done')
+  timings.meta_campaigns = meta.length
+  timings.tiktok_campaigns = tiktok.flat().length
+  return { campaigns, errors, timings }
 }

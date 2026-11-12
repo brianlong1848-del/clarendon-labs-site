@@ -74,7 +74,7 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
   // Started, not awaited: the App Store, reviews and server pulls below run
   // alongside (campaigns alone took ~16 s on a cold instance, 2026-11-11).
   const promotionsP = timed('promotions', rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => []))
-  const campaignsP = timed('campaigns', campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[] })))
+  const campaignsP = timed('campaigns', campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[], timings: {} as Record<string, number> })))
   const cards = await Promise.all(allApps().map(async (def): Promise<ConsoleCard> => {
     const conn = connected.find((c) => c.id === def.id)
     const a = analytics.find((x) => x.id === def.id)
@@ -101,6 +101,8 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
       action, server,
     }
   }))
+  // The campaigns step's own breakdown, as campaigns.<step> (ms from its start).
+  for (const [k, v] of Object.entries((await campaignsP).timings ?? {})) ms[`campaigns.${k}`] = v
   ms.total = Date.now() - t0
   const summary: ConsoleSummary = { apps: cards.length, servers_connected: cards.filter((c) => c.server.connected && c.server.ok).length, last_sync: new Date().toISOString(), build_ms: ms }
   return { cards, summary }
