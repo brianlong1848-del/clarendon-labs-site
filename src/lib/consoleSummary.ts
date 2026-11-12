@@ -10,6 +10,8 @@
 import { allApps, registry, type ConsoleApp } from './console'
 import { analyticsRegistry } from './analytics/registry'
 import { fetchAppStoreCached, fetchReviews } from './analytics/appstore'
+import { fetchPlayCached, playConfigured } from './analytics/googleplay'
+import { PLAY_PACKAGE_IDS } from './ads/store'
 import { campaignsFor, type CampaignRow } from './ads/campaigns'
 import { analyze, type Action } from './ads/insights'
 import { enrichActions } from './ads/enrich'
@@ -30,6 +32,9 @@ export type ServerState = {
 export type ConsoleCard = {
   id: string; name: string; accent: string
   store: { installs7: number; installs_prev7: number; proceeds7: number; proceeds_prev7: number; report_date?: string; rating: number | null; new_reviews7: number; on_store: boolean } | null
+  /** Google Play installs (FEAT-CLA-025). null = not on Play. `connected: false` = the
+   *  Play reports bucket isn't set up yet; `error` = it is, but the read failed. */
+  play: { installs7: number; installs_prev7: number; proceeds7: number; proceeds_prev7: number; other_currencies?: string[]; report_date?: string; connected: boolean; error?: string } | null
   ads: { spend7_cents: number; active_campaigns: number; campaigns: number } | null
   action: Action | null
   server: ServerState
@@ -78,12 +83,20 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
   const cards = await Promise.all(allApps().map(async (def): Promise<ConsoleCard> => {
     const conn = connected.find((c) => c.id === def.id)
     const a = analytics.find((x) => x.id === def.id)
-    const [server, store, reviews, allCampaigns] = await Promise.all([
+    const pkg = PLAY_PACKAGE_IDS[def.id]
+    const [server, store, reviews, allCampaigns, playData] = await Promise.all([
       conn ? pullServer(conn) : Promise.resolve<ServerState>({ connected: false, note: NO_SERVER[def.id], connect: NO_SERVER[def.id] ? undefined : CONNECT_HOW[def.id] }),
       a ? timed(`store:${def.id}`, fetchAppStoreCached(a.appStoreId)) : Promise.resolve(null),
       a ? timed(`reviews:${def.id}`, fetchReviews(a.appStoreId)) : Promise.resolve(null),
       campaignsP,
+      pkg && playConfigured() ? timed(`play:${def.id}`, fetchPlayCached(pkg)) : Promise.resolve(null),
     ])
+    const playSeries = playData && 'series' in playData ? playData.series : undefined
+    const pLast = sum7(playSeries, 0), pPrev = sum7(playSeries, 7)
+    const play: ConsoleCard['play'] = !pkg ? null
+      : !playData ? { installs7: 0, installs_prev7: 0, proceeds7: 0, proceeds_prev7: 0, connected: false }
+      : 'error' in playData ? { installs7: 0, installs_prev7: 0, proceeds7: 0, proceeds_prev7: 0, connected: true, error: playData.error }
+      : { installs7: pLast.installs, installs_prev7: pPrev.installs, proceeds7: pLast.proceeds, proceeds_prev7: pPrev.proceeds, other_currencies: playData.otherCurrencies.length ? playData.otherCurrencies : undefined, report_date: playData.reportDate ?? undefined, connected: true }
     const last = sum7(store?.series, 0), prev = sum7(store?.series, 7)
     const rows = allCampaigns.campaigns.filter((r) => r.app_id === def.id)
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10)
@@ -97,6 +110,7 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
     return {
       id: def.id, name: def.name, accent: def.accent,
       store: a ? { installs7: last.installs, installs_prev7: prev.installs, proceeds7: last.proceeds, proceeds_prev7: prev.proceeds, report_date: store?.reportDate, rating: reviews?.rating ?? null, new_reviews7: reviews?.new7 ?? 0, on_store: !!store } : null,
+      play,
       ads: { spend7_cents: rows.reduce((t, r) => t + r.spend_cents, 0), active_campaigns: active, campaigns: rows.length },
       action, server,
     }

@@ -1,11 +1,12 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { clearStudioCache, peek, stash } from '@/lib/clientCache'
 import { useRouter } from 'next/navigation'
 import { AdminShell, AppTag, C, appAccent, btn, labelStyle } from '@/components/AdminNav'
 import { ActionItem, type InsightAction } from '@/components/analytics/Insights'
+import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 
 // ─── /admin — the studio console ─────────────────────────────────────────────
 //
@@ -35,6 +36,8 @@ type ServerState = { connected: boolean; ok?: boolean; ms?: number; error?: stri
 type Card = {
   id: string; name: string; accent: string
   store: { installs7: number; installs_prev7: number; proceeds7: number; proceeds_prev7: number; report_date?: string; rating: number | null; new_reviews7: number; on_store: boolean } | null
+  /** Google Play installs; absent on older servers, null when the app isn't on Play. */
+  play?: { installs7: number; installs_prev7: number; proceeds7?: number; proceeds_prev7?: number; other_currencies?: string[]; report_date?: string; connected: boolean; error?: string } | null
   ads: { spend7_cents: number; active_campaigns: number; campaigns: number } | null
   action: InsightAction | null
   server: ServerState
@@ -243,8 +246,32 @@ export default function ConsolePage() {
                 </header>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8 }}>
                   {d && d.on_store ? <>
-                    {stat('Downloads · 7d', d.installs7.toLocaleString('en-US'), pct(d.installs7, d.installs_prev7), d.installs7 >= d.installs_prev7 ? C.mint : C.loss)}
-                    {stat('Proceeds · 7d', usd(d.proceeds7), pct(d.proceeds7, d.proceeds_prev7), d.proceeds7 >= d.proceeds_prev7 ? C.mint : C.loss)}
+                    {(() => {
+                      // Downloads and proceeds split by store: total on top, then  App Store ·  Google Play.
+                      const p = c.play && c.play.connected && !c.play.error ? c.play : null
+                      const playTitle = !c.play ? '' : !c.play.connected ? 'Google Play reports not connected yet (PLAY_REPORTS_BUCKET)' : c.play.error ?? `Google Play · through ${c.play.report_date ?? '—'}${c.play.other_currencies ? ` · not counted: ${c.play.other_currencies.join(', ')}` : ''}`
+                      const part = (logo: ReactNode, v: string, title: string) => (
+                        <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 750, color: C.ink }}>{logo}{v}</span>
+                      )
+                      const split = (l: string, ios: number, iosPrev: number, gp: number | undefined, gpPrev: number | undefined, fmt: (v: number) => string, gpNote = '') => {
+                        const now = ios + (p ? gp ?? 0 : 0), prev = iosPrev + (p ? gpPrev ?? 0 : 0)
+                        return (
+                          <div key={l} style={{ background: C.card2, borderRadius: 12, padding: '10px 12px', minWidth: 0 }}>
+                            <div style={{ fontFamily: C.serif, fontSize: 22, fontWeight: 900, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmt(now)}</div>
+                            <div style={{ ...label, marginTop: 4 }}>{l}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
+                              {part(<AppleLogo size={12} />, fmt(ios), `App Store · through ${d.report_date ?? '—'}`)}
+                              {c.play && part(<PlayLogo size={11} />, p && gp != null ? fmt(gp) : '—', playTitle + gpNote)}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: now >= prev ? C.mint : C.loss, fontWeight: 700, marginTop: 3 }}>{pct(now, prev)}</div>
+                          </div>
+                        )
+                      }
+                      return <>
+                        {split('Downloads · 7d', d.installs7, d.installs_prev7, p?.installs7, p?.installs_prev7, (v) => v.toLocaleString('en-US'))}
+                        {split('Proceeds · 7d', d.proceeds7, d.proceeds_prev7, p?.proceeds7, p?.proceeds_prev7, usd, ' · estimated after Google’s fee')}
+                      </>
+                    })()}
                   </> : stat('App Store', d ? 'no data' : 'not yet', d ? 'Sales reports not returned' : 'Not on the App Store yet')}
                   {stat('Ad spend · 7d', usd((c.ads?.spend7_cents ?? 0) / 100), c.ads ? `${c.ads.active_campaigns} active of ${c.ads.campaigns} campaign${c.ads.campaigns === 1 ? '' : 's'}` : undefined)}
                   {d && d.on_store && stat('Rating', d.rating != null ? `${d.rating.toFixed(1)} ★` : '—', `${d.new_reviews7} new review${d.new_reviews7 === 1 ? '' : 's'} · 7d`)}
