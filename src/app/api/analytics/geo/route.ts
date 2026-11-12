@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
-import { analyticsRegistry } from '@/lib/analytics/registry'
+import { analyticsRegistry, withInstagram } from '@/lib/analytics/registry'
 import { fetchAppStore } from '@/lib/analytics/appstore'
 import { fetchAudience } from '@/lib/analytics/audience'
 
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const wanted = url.searchParams.get('app')
   // app=all merges every app — the studio-wide map on /analytics and Home.
-  const apps = wanted === 'all' ? analyticsRegistry() : analyticsRegistry().filter((a) => a.id === wanted)
+  const apps = await withInstagram(wanted === 'all' ? analyticsRegistry() : analyticsRegistry().filter((a) => a.id === wanted))
   if (!apps.length) return NextResponse.json({ error: 'unknown app' }, { status: 404 })
   const app = { id: wanted === 'all' ? 'all' : apps[0].id }
   const country = url.searchParams.get('country')?.toUpperCase() ?? null

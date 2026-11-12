@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { consoleAuthed } from '@/lib/console'
-import { analyticsRegistry } from '@/lib/analytics/registry'
+import { analyticsRegistry, withInstagram } from '@/lib/analytics/registry'
 import { fetchTikTok } from '@/lib/analytics/tiktok'
 import { fetchInstagram } from '@/lib/analytics/instagram'
 import { fetchAppStore } from '@/lib/analytics/appstore'
@@ -22,7 +22,7 @@ const deny = () => NextResponse.json({ error: 'not authorised' }, { status: 401 
 export async function GET(req: Request) {
   if (!(await consoleAuthed())) return deny()
 
-  const apps = analyticsRegistry()
+  const apps = await withInstagram(analyticsRegistry())
   const rows = await Promise.all(
     apps.map(async (app) => {
       const [appStore, instagram, facebook, tiktok] = await Promise.all([
