@@ -87,8 +87,9 @@ export default function AnalyticsPage() {
 
   // Opens from what this browser showed last time, then swaps in the live
   // answer; Refresh makes the server rebuild instead of using its shared copy.
-  const load = useCallback(async (password: string, fresh = false, followUp = false) => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (password: string, fresh = false, followUp = 0) => {
+    if (!followUp) setLoading(true)
+    setError(null)
     let res: Response
     try {
       res = await fetch(`/api/analytics${fresh ? '?fresh=1' : ''}`, { headers: {} })
@@ -101,7 +102,8 @@ export default function AnalyticsPage() {
     }
     const data = await res.json()
     setApps(data.apps ?? []); stash('analytics', data.apps ?? [])
-    if (!fresh && !followUp && data.cached_at && Date.now() - Date.parse(data.cached_at) > 150_000) setTimeout(() => load(password, false, true), 4000)
+    // An older copy while the server rebuilds behind it: ask again at 8 s and 25 s.
+    if (!fresh && followUp < 2 && data.cached_at && Date.now() - Date.parse(data.cached_at) > 150_000) setTimeout(() => load(password, false, followUp + 1), followUp ? 17_000 : 8_000)
   }, [])
   useEffect(() => { const seen = peek<Parameters<typeof setApps>[0]>('analytics'); if (Array.isArray(seen) && seen.length) setApps(seen) }, [])
 

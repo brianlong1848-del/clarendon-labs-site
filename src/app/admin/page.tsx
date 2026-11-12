@@ -124,8 +124,9 @@ export default function ConsolePage() {
   // Opens from what this browser showed last time, then swaps in the live
   // answer. `fresh` (the Refresh button, and after approve / reject / retire)
   // makes the server rebuild instead of answering from its shared copy.
-  const load = useCallback(async (_password: string, fresh = false, followUp = false) => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (_password: string, fresh = false, followUp = 0) => {
+    if (!followUp) setLoading(true)
+    setError(null)
     const res = await fetch(`/api/console${fresh ? '?fresh=1' : ''}`, { headers: {} }).catch(() => null)
     setLoading(false)
     if (!res) { setError('Could not reach the console API.'); return }
@@ -133,7 +134,9 @@ export default function ConsolePage() {
     const data: Payload = await res.json()
     apply(data); stash('console', data)
     // The server answered with an older copy while it rebuilt: collect the new one.
-    if (!fresh && !followUp && data.cached_at && Date.now() - Date.parse(data.cached_at) > 75_000) setTimeout(() => load(_password, false, true), 4000)
+    // The server answered with an older copy while it rebuilds behind it (a cold
+    // rebuild can take ~20 s): ask again at 8 s and 25 s, quietly.
+    if (!fresh && followUp < 2 && data.cached_at && Date.now() - Date.parse(data.cached_at) > 75_000) setTimeout(() => load(_password, false, followUp + 1), followUp ? 17_000 : 8_000)
   }, [apply])
   useEffect(() => { const seen = peek<Payload>('console'); if (seen?.cards) apply(seen) }, [apply])
   useEffect(() => { if (authed && pw) load(pw) }, [authed, pw, load])

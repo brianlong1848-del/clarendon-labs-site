@@ -27,7 +27,7 @@ async function collect(): Promise<Omit<Gathered, 'at'>> {
   return { items: results.flatMap((r) => r.items), status: [...results.flatMap((r) => r.status), ...upcoming] }
 }
 async function gather(force = false): Promise<Gathered> {
-  const { value, at } = await shared(KEY, collect, { ttl: 45, maxStale: 10 * 60, fresh: force })
+  const { value, at } = await shared(KEY, collect, { ttl: 45, maxStale: 2 * 60 * 60, fresh: force })
   return { at, ...value }
 }
 

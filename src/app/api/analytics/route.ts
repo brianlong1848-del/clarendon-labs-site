@@ -5,7 +5,7 @@ import { fetchTikTok } from '@/lib/analytics/tiktok'
 import { fetchInstagram } from '@/lib/analytics/instagram'
 import { fetchAppStore } from '@/lib/analytics/appstore'
 import { fetchFacebook } from '@/lib/analytics/facebook'
-import { shared } from '@/lib/sharedCache'
+import { DAY, shared } from '@/lib/sharedCache'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
 // ─── /api/analytics ──────────────────────────────────────────────────────────
@@ -43,6 +43,6 @@ export async function GET(req: Request) {
   if (!(await consoleAuthed())) return deny()
 
   const fresh = new URL(req.url).searchParams.get('fresh') === '1'
-  const { value: rows, at } = await shared('analytics-v1', build, { ttl: 120, maxStale: 30 * 60, fresh })
+  const { value: rows, at } = await shared('analytics-v1', build, { ttl: 120, maxStale: DAY, fresh })
   return NextResponse.json({ apps: rows, cached_at: new Date(at).toISOString() })
 }

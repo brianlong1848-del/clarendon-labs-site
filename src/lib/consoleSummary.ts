@@ -34,7 +34,7 @@ export type ConsoleCard = {
   action: Action | null
   server: ServerState
 }
-export type ConsoleSummary = { apps: number; servers_connected: number; last_sync: string }
+export type ConsoleSummary = { apps: number; servers_connected: number; last_sync: string; build_ms?: Record<string, number> }
 
 const NO_SERVER: Record<string, string> = { rolligan: 'No server — store & ads only' }
 const CONNECT_HOW: Record<string, string> = {
@@ -68,17 +68,20 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
   const analytics = analyticsRegistry()
   // Asked once for every app and split below: per app, this was five rounds of
   // the same Meta and Supabase requests.
+  // How long each part of a rebuild took, so a slow one says why (summary.build_ms).
+  const t0 = Date.now(), ms: Record<string, number> = {}
+  const timed = <T,>(k: string, p: Promise<T>) => p.finally(() => { ms[k] = Date.now() - t0 })
   const [promotions, allCampaigns] = await Promise.all([
-    rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => []),
-    campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[] })),
+    timed('promotions', rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => [])),
+    timed('campaigns', campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[] }))),
   ])
   const cards = await Promise.all(allApps().map(async (def): Promise<ConsoleCard> => {
     const conn = connected.find((c) => c.id === def.id)
     const a = analytics.find((x) => x.id === def.id)
     const [server, store, reviews] = await Promise.all([
       conn ? pullServer(conn) : Promise.resolve<ServerState>({ connected: false, note: NO_SERVER[def.id], connect: NO_SERVER[def.id] ? undefined : CONNECT_HOW[def.id] }),
-      a ? fetchAppStoreCached(a.appStoreId) : Promise.resolve(null),
-      a ? fetchReviews(a.appStoreId) : Promise.resolve(null),
+      a ? timed(`store:${def.id}`, fetchAppStoreCached(a.appStoreId)) : Promise.resolve(null),
+      a ? timed(`reviews:${def.id}`, fetchReviews(a.appStoreId)) : Promise.resolve(null),
     ])
     const last = sum7(store?.series, 0), prev = sum7(store?.series, 7)
     const rows = allCampaigns.campaigns.filter((r) => r.app_id === def.id)
@@ -97,6 +100,7 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
       action, server,
     }
   }))
-  const summary: ConsoleSummary = { apps: cards.length, servers_connected: cards.filter((c) => c.server.connected && c.server.ok).length, last_sync: new Date().toISOString() }
+  ms.total = Date.now() - t0
+  const summary: ConsoleSummary = { apps: cards.length, servers_connected: cards.filter((c) => c.server.connected && c.server.ok).length, last_sync: new Date().toISOString(), build_ms: ms }
   return { cards, summary }
 }

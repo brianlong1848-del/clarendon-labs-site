@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { registry, allApps, consoleAuthed } from '@/lib/console'
-import { forget, shared } from '@/lib/sharedCache'
+import { DAY, forget, shared } from '@/lib/sharedCache'
 import { consoleCards } from '@/lib/consoleSummary'
 
 // ─── /api/console ────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   // builds already in the field; `cards` + `summary` are the one-card-per-app
   // console (src/lib/consoleSummary.ts): store, ads, top action, server.
   const fresh = new URL(req.url).searchParams.get('fresh') === '1'
-  const { value, at } = await shared(KEY, build, { ttl: 60, maxStale: 15 * 60, fresh })
+  const { value, at } = await shared(KEY, build, { ttl: 60, maxStale: DAY, fresh })
   return NextResponse.json({ ...value, cached_at: new Date(at).toISOString(), hint: registry().length ? undefined : 'No apps configured. Set <APP>_ADMIN_URL and <APP>_ADMIN_TOKEN.' })
 }
 

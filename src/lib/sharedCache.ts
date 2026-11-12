@@ -11,6 +11,11 @@ import { revalidateTag, unstable_cache } from 'next/cache'
 //   younger than `ttl`        served as is
 //   between ttl and maxStale  served at once, refreshed behind the response
 //   older than maxStale       rebuilt before answering
+//
+// Keep maxStale long. A rebuild on a cold instance (App Store reports, Meta,
+// TikTok, every app's admin API) measured 18–22 s live on 2026-11-11, and
+// whoever lands past maxStale waits for all of it. Better to show an older
+// copy at once (it says when it was built) and let the page re-ask.
 //   fresh: true               rebuilt before answering (Refresh buttons, and
 //                             right after an action that changed the data)
 //
@@ -18,6 +23,8 @@ import { revalidateTag, unstable_cache } from 'next/cache'
 // anything read through the signed-in user's session (Money, Household): the
 // function must not touch cookies() or headers(), and row-level security
 // decides those answers per person. Values must survive JSON.
+
+export const DAY = 24 * 60 * 60
 
 type Boxed<T> = { at: number; value: T }
 
