@@ -483,7 +483,12 @@ export async function metaCampaignDays(start: string, end: string): Promise<Meta
   const promos = await rest<Pick<Promotion, 'app_id' | 'campaign_id'>[]>('studio_promotions?campaign_id=not.is.null&select=app_id,campaign_id').catch(() => [])
   const byCampaign = new Map(promos.map((p) => [p.campaign_id!, p.app_id]))
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
-  const appFromName = (n: string) => PUBLISH_APPS.find((a) => norm(n).startsWith(norm(a.name)))?.id ?? null
+  // Business Suite names its own campaigns "[11/6/2026] Promoting https://clarendon.dev/get/<app>?ct=…",
+  // so when the name doesn't start with the app, fall back to the /get/<app> link in it (2026-11-12).
+  const appFromName = (n: string) =>
+    PUBLISH_APPS.find((a) => norm(n).startsWith(norm(a.name)))?.id
+    ?? PUBLISH_APPS.find((a) => new RegExp(`/get/${a.id}(?![a-z0-9-])`, 'i').test(n))?.id
+    ?? null
 
   const rows: MetaCampaignDay[] = []
   let url: string | null = `${G}/${act()}/insights?${new URLSearchParams({
