@@ -1,4 +1,7 @@
 import { revalidateTag, unstable_cache } from 'next/cache'
+import { after } from 'next/server'
+// Internal to Next, used only by detachRefresh() below; pinned by next@15.5.x.
+import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external'
 
 // ─── Cache shared by every server instance ───────────────────────────────────
 //
@@ -45,6 +48,7 @@ export async function shared<T>(
       return out
     }
     const hit = await read()
+    detachRefresh()
     if (Date.now() - hit.at <= maxStale * 1000) return hit
     // Too old to show. Reading it already started the refresh that will be
     // stored; answer this request with a build of its own.
@@ -53,6 +57,24 @@ export async function shared<T>(
     // The cache itself failing must never take the page down with it.
     return direct()
   }
+}
+
+/** Next 15.5.27 bug: a stale unstable_cache read starts the refresh in the
+ *  background, but a route handler's response is not ended until that refresh
+ *  finishes (build/templates/app-route.js hands it to waitUntil, then passes
+ *  the same promise to sendResponse, which awaits it before res.end()). Live,
+ *  that made every stale read as slow as a rebuild. Move the pending refresh
+ *  onto after(), which Vercel runs once the response has gone out. If the
+ *  internals ever change shape this does nothing and reads are just slower. */
+function detachRefresh() {
+  try {
+    const store = workAsyncStorage.getStore() as { pendingRevalidates?: Record<string, Promise<unknown>> } | undefined
+    const pending = store?.pendingRevalidates
+    if (!store || !pending || !Object.keys(pending).length) return
+    const work = Object.values(pending)
+    store.pendingRevalidates = {}
+    after(() => Promise.allSettled(work))
+  } catch { /* leave Next's own handling in place */ }
 }
 
 /** Drop a cached answer after something changed it. */
