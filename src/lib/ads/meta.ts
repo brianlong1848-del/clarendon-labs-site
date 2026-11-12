@@ -69,62 +69,27 @@ export const metaStatusWord = (effective?: string) => (effective && STATUS_WORD[
 export type MetaAdCreative = {
   thumbnail_url?: string; video_id?: string; effective_instagram_media_id?: string; effective_object_story_id?: string; instagram_permalink_url?: string; object_type?: string
 }
-const CREATIVE_FIELDS = 'creative{thumbnail_url,video_id,effective_instagram_media_id,effective_object_story_id,instagram_permalink_url,object_type}'
-
 export type MetaCampaignAd = { ad_id: string; name: string; effective_status?: string; creative?: MetaAdCreative }
 
 /** The ads of one campaign with their creatives (which post / video each one
  *  shows). Creatives don't change, so callers cache this for an hour. */
 export async function metaCampaignAds(campaignId: string): Promise<MetaCampaignAd[]> {
   if (!token()) return []
-  const body = await get(`${campaignId}/ads`, { fields: `id,name,effective_status,${CREATIVE_FIELDS}`, thumbnail_width: '1080', thumbnail_height: '1080', limit: '50' })
+  const body = await get(`${campaignId}/ads`, { fields: 'id,name,effective_status,creative{thumbnail_url,video_id,effective_instagram_media_id,effective_object_story_id,instagram_permalink_url,object_type}', thumbnail_width: '1080', thumbnail_height: '1080', limit: '50' })
   return (body.data ?? []).map((a: any) => ({ ad_id: String(a.id), name: a.name ?? String(a.id), effective_status: a.effective_status, creative: a.creative }))
-}
-
-/** Every ad on the shared account with its campaign and creative, in one
- *  paged call. Replaces one /<campaign>/ads call per campaign on the
- *  Campaigns card (~16 s on a cold instance, 2026-11-11). */
-export async function metaAccountAds(): Promise<(MetaCampaignAd & { campaign_id: string })[]> {
-  if (!token()) return []
-  const out: (MetaCampaignAd & { campaign_id: string })[] = []
-  let url: string | null = `${G}/${act()}/ads?${new URLSearchParams({ fields: `id,name,effective_status,campaign_id,${CREATIVE_FIELDS}`, thumbnail_width: '1080', thumbnail_height: '1080', limit: '200', access_token: token()! })}`
-  for (let pages = 0; url && pages < 10; pages++) {
-    const body: any = await call(url)
-    for (const a of body.data ?? []) out.push({ ad_id: String(a.id), name: a.name ?? String(a.id), effective_status: a.effective_status, creative: a.creative, campaign_id: String(a.campaign_id) })
-    url = body.paging?.next ?? null
-  }
-  return out
 }
 
 export type MetaAdStats = { ad_id: string; name?: string; spend_cents: number; impressions?: number; clicks?: number; ctr?: number; cpc_cents?: number; views15s?: number }
 /** Ad-level figures for one campaign over [start, end]. */
 export async function metaAdInsights(campaignId: string, start: string, end: string): Promise<MetaAdStats[]> {
   if (!token()) return []
-  const body = await get(`${campaignId}/insights`, { level: 'ad', fields: AD_INSIGHT_FIELDS, time_range: JSON.stringify({ since: start, until: end }), limit: '100' })
-  return (body.data ?? []).map(adStats)
-}
-
-const AD_INSIGHT_FIELDS = 'ad_id,ad_name,campaign_id,spend,impressions,clicks,ctr,cpc,video_15_sec_watched_actions'
-/** Ad-level figures for every campaign on the account over [start, end], in one paged call. */
-export async function metaAccountAdInsights(start: string, end: string): Promise<(MetaAdStats & { campaign_id: string })[]> {
-  if (!token()) return []
-  const out: (MetaAdStats & { campaign_id: string })[] = []
-  let url: string | null = `${G}/${act()}/insights?${new URLSearchParams({ level: 'ad', fields: AD_INSIGHT_FIELDS, time_range: JSON.stringify({ since: start, until: end }), limit: '500', access_token: token()! })}`
-  for (let pages = 0; url && pages < 10; pages++) {
-    const body: any = await call(url)
-    for (const r of body.data ?? []) out.push({ ...adStats(r), campaign_id: String(r.campaign_id) })
-    url = body.paging?.next ?? null
-  }
-  return out
-}
-
-function adStats(r: any): MetaAdStats {
-  return ({
+  const body = await get(`${campaignId}/insights`, { level: 'ad', fields: 'ad_id,ad_name,spend,impressions,clicks,ctr,cpc,video_15_sec_watched_actions', time_range: JSON.stringify({ since: start, until: end }), limit: '100' })
+  return (body.data ?? []).map((r: any) => ({
     ad_id: String(r.ad_id), name: r.ad_name, spend_cents: Math.round(Number(r.spend ?? 0) * 100),
     impressions: r.impressions != null ? Number(r.impressions) : undefined, clicks: r.clicks != null ? Number(r.clicks) : undefined,
     ctr: r.ctr != null ? Number(r.ctr) : undefined, cpc_cents: r.cpc != null ? Math.round(Number(r.cpc) * 100) : undefined,
     views15s: r.video_15_sec_watched_actions ? (r.video_15_sec_watched_actions as any[]).filter((a) => a.action_type === 'video_view').reduce((s, a) => s + Number(a.value ?? 0), 0) : undefined,
-  })
+  }))
 }
 
 // ── Readiness ────────────────────────────────────────────────────────────────
