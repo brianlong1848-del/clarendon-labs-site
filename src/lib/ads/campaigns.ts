@@ -9,7 +9,7 @@
 
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { tiktokAdvertiserId, tiktokCached, tiktokCampaigns, tiktokStatusWord, tiktokToken } from '@/lib/analytics/tiktok'
-import { adAccountId, metaAdInsights, metaCampaignAds, metaCampaignDays, metaCampaignInfo, metaStatusWord, type Promotion } from './meta'
+import { adAccountId, metaAccountAdInsights, metaAccountAds, metaCampaignDays, metaCampaignInfo, metaStatusWord, type MetaCampaignAd, type Promotion } from './meta'
 import { rest } from '@/lib/publish/store'
 import { adsManagerUrl } from './tiktok'
 import { campaignMedia, mediaFields, type AdMedia } from './media'
@@ -97,7 +97,8 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
   const promos = await rest<Pick<Promotion, 'id' | 'app_id' | 'campaign_id' | 'network' | 'status' | 'start_at' | 'end_at'>[]>('studio_promotions?campaign_id=not.is.null&select=id,app_id,campaign_id,network,status,start_at,end_at').catch(() => [])
   const promoByCampaign = new Map(promos.map((p) => [`${p.network}:${p.campaign_id}`, p]))
 
-  const tiktok = await Promise.all(apps.map(async (app): Promise<CampaignRow[]> => {
+  // TikTok and Meta run side by side (Meta used to wait for every TikTok call).
+  const tiktokP = Promise.all(apps.map(async (app): Promise<CampaignRow[]> => {
     const advertiserId = tiktokAdvertiserId(app.id)
     if (!advertiserId || !tiktokToken()) return []
     try {
@@ -124,11 +125,24 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
     } catch (e) { errors.push(`TikTok (${app.name}): ${(e as Error).message}`); return [] }
   }))
 
+  // Meta: four account-level calls side by side (daily report, campaign info,
+  // every ad with its creative, ad-level figures) instead of two calls per
+  // campaign after the report. Ad lists cached an hour, figures 10 minutes.
   let meta: CampaignRow[] = []
-  const days = await metaCampaignDays(start, end)
+  let metaAdsByCampaign = new Map<string, MetaCampaignAd[]>()
+  const [days, info, accountStats] = await Promise.all([
+    metaCampaignDays(start, end),
+    metaCampaignInfo().catch(() => new Map()),
+    cached(`meta-account-ad-insights:${start}:${end}`, fresh, () => metaAccountAdInsights(start, end)).catch(() => null),
+  ])
+  // The ads list needs the window's campaign ids (unfiltered it returns every
+  // ad the account ever ran), so it follows the daily report.
+  const windowIds = 'error' in days ? [] : Array.from(new Set(days.map((d) => d.campaign_id))).sort()
+  const accountAds = windowIds.length
+    ? await cached(`meta-window-ads:${windowIds.join(',')}`, fresh, () => metaAccountAds(windowIds), HOUR).catch(() => null)
+    : null
   if ('error' in days) errors.push(days.error)
   else {
-    const info = await metaCampaignInfo().catch(() => new Map())
     const by = new Map<string, CampaignRow>()
     for (const d of days) {
       if (appId !== 'all' && d.app_slug !== appId) continue
@@ -154,26 +168,26 @@ export async function campaignsFor(appId: string | 'all', range: Range, fresh = 
       r.daily.sort((a, b) => a.day.localeCompare(b.day))
     }
     meta = Array.from(by.values())
-    // Ads per Meta campaign: names + status from the ads list (hourly cache),
-    // figures from ad-level insights (10 minutes). Best effort per campaign.
-    await Promise.all(meta.map(async (r) => {
-      try {
-        const [list, ins] = await Promise.all([
-          cached(`meta-ads:${r.campaign_id}`, fresh, () => metaCampaignAds(r.campaign_id), HOUR),
-          cached(`meta-ad-insights:${r.campaign_id}:${start}:${end}`, fresh, () => metaAdInsights(r.campaign_id, start, end)),
-        ])
-        const byAd = new Map(ins.map((a) => [a.ad_id, a]))
-        r.ads = list.map((a) => { const s = byAd.get(a.ad_id); return { ad_id: a.ad_id, name: a.name, status: metaStatusWord(a.effective_status), status_detail: a.effective_status,
-          item_id: a.creative?.effective_instagram_media_id ?? a.creative?.effective_object_story_id,
-          spend_cents: s?.spend_cents ?? 0, impressions: s?.impressions, clicks: s?.clicks, ctr: s?.ctr, cpc_cents: s?.cpc_cents, views15s: s?.views15s } })
-        for (const s of ins) if (!list.some((a) => a.ad_id === s.ad_id)) r.ads.push({ ad_id: s.ad_id, name: s.name ?? s.ad_id, spend_cents: s.spend_cents, impressions: s.impressions, clicks: s.clicks, ctr: s.ctr, cpc_cents: s.cpc_cents, views15s: s.views15s })
-      } catch { /* the campaign row stands on its own */ }
-    }))
+    // Ads per Meta campaign: names + status from the ads list, figures from
+    // ad-level insights. Best effort: a failed call leaves the rows without ads.
+    if (accountAds) metaAdsByCampaign = accountAds.reduce((m, a) => m.set(a.campaign_id, [...(m.get(a.campaign_id) ?? []), a]), new Map<string, MetaCampaignAd[]>())
+    const statsByCampaign = (accountStats ?? []).reduce((m, a) => m.set(a.campaign_id, [...(m.get(a.campaign_id) ?? []), a]), new Map<string, NonNullable<typeof accountStats>>())
+    for (const r of meta) {
+      const list = metaAdsByCampaign.get(r.campaign_id) ?? []
+      const ins = statsByCampaign.get(r.campaign_id) ?? []
+      const byAd = new Map(ins.map((a) => [a.ad_id, a]))
+      r.ads = list.map((a) => { const s = byAd.get(a.ad_id); return { ad_id: a.ad_id, name: a.name, status: metaStatusWord(a.effective_status), status_detail: a.effective_status,
+        item_id: a.creative?.effective_instagram_media_id ?? a.creative?.effective_object_story_id,
+        spend_cents: s?.spend_cents ?? 0, impressions: s?.impressions, clicks: s?.clicks, ctr: s?.ctr, cpc_cents: s?.cpc_cents, views15s: s?.views15s } })
+      for (const s of ins) if (!list.some((a) => a.ad_id === s.ad_id)) r.ads.push({ ad_id: s.ad_id, name: s.name ?? s.ad_id, spend_cents: s.spend_cents, impressions: s.impressions, clicks: s.clicks, ctr: s.ctr, cpc_cents: s.cpc_cents, views15s: s.views15s })
+    }
   }
+  const tiktok = await tiktokP
   const campaigns = [...tiktok.flat(), ...meta].sort((a, b) => b.spend_cents - a.spend_cents || a.name.localeCompare(b.name))
   // Which video each one is — thumbnails for the card and the Studio app.
   await Promise.all(campaigns.map(async (r) => {
-    const m = await campaignMedia(r.platform, r.campaign_id, r.app_id, fresh).catch(() => null)
+    // Meta media reuses the ads fetched above instead of asking for them again.
+    const m = await campaignMedia(r.platform, r.campaign_id, r.app_id, fresh, r.platform === 'meta' && accountAds ? metaAdsByCampaign.get(r.campaign_id) ?? [] : undefined).catch(() => null)
     if (!m) return
     Object.assign(r, mediaFields(m.media))
     r.ad_count = Math.max(r.ads.length, m.ad_count)
