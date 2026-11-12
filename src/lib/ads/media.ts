@@ -21,7 +21,8 @@ import { tiktokAdvertiserId, tiktokCached, tiktokCall } from '@/lib/analytics/ti
 import { getPost, rest } from '@/lib/publish/store'
 import { getToken } from '@/lib/publish/tokens'
 import type { Platform } from '@/lib/publish/rules'
-import { metaCampaignAds, metaConfigured, metaGet, type MetaAdCreative, type Promotion } from './meta'
+import { metaCampaignAds, metaConfigured, metaGet, type MetaAdCreative, type MetaCampaignAd, type Promotion } from './meta'
+import { shared } from '@/lib/sharedCache'
 import { adsManagerUrl } from './tiktok'
 
 export type AdMedia = {
@@ -40,12 +41,14 @@ const EMPTY: CampaignMedia = { media: null, ad_count: 0, ads: {} }
 export const TIKTOK_MEDIA_NOTE = 'TikTok video previews need the Creative Management scope (under TikTok review since 2026-10-27). Opens the post on TikTok, or Ads Manager.'
 
 /** Media for one campaign and each of its ads. Memoized for an hour per
- *  platform + campaign; `fresh` re-resolves (expired CDN links). */
-export function campaignMedia(platform: 'tiktok' | 'meta', campaignId: string, appId: string | null, fresh = false): Promise<CampaignMedia> {
-  return tiktokCached(`media:${platform}:${campaignId}`, fresh, () => campaignMediaNow(platform, campaignId, appId).catch(() => EMPTY), HOUR)
+ *  platform + campaign; `fresh` re-resolves (expired CDN links). `metaAds`:
+ *  the campaign's ads when the caller already fetched them (campaignsFor reads
+ *  every ad on the account in one call), so they aren't asked for again. */
+export function campaignMedia(platform: 'tiktok' | 'meta', campaignId: string, appId: string | null, fresh = false, metaAds?: MetaCampaignAd[]): Promise<CampaignMedia> {
+  return tiktokCached(`media:${platform}:${campaignId}`, fresh, () => campaignMediaNow(platform, campaignId, appId, fresh, metaAds).catch(() => EMPTY), HOUR)
 }
 
-async function campaignMediaNow(platform: 'tiktok' | 'meta', campaignId: string, appId: string | null): Promise<CampaignMedia> {
+async function campaignMediaNow(platform: 'tiktok' | 'meta', campaignId: string, appId: string | null, fresh: boolean, metaAds?: MetaCampaignAd[]): Promise<CampaignMedia> {
   const promo = (await rest<Pick<Promotion, 'id' | 'post_id' | 'platform' | 'permalink' | 'ad_id' | 'remote_id' | 'app_id'>[]>(
     `studio_promotions?network=eq.${platform}&campaign_id=eq.${encodeURIComponent(campaignId)}&select=id,post_id,platform,permalink,ad_id,remote_id,app_id&limit=1`).catch(() => []))[0]
   if (promo) {
@@ -54,8 +57,8 @@ async function campaignMediaNow(platform: 'tiktok' | 'meta', campaignId: string,
   }
   if (platform === 'meta') {
     if (!metaConfigured()) return EMPTY
-    const ads = await metaCampaignAds(campaignId)
-    const resolved = await Promise.all(ads.map(async (a) => [a.ad_id, await metaAdMedia(a.creative)] as const))
+    const ads = metaAds ?? await metaCampaignAds(campaignId)
+    const resolved = await Promise.all(ads.map(async (a) => [a.ad_id, await metaAdMedia(a.creative, fresh)] as const))
     const out: Record<string, AdMedia> = {}
     for (const [id, m] of resolved) if (m) out[id] = m
     const first = ads.map((a) => out[a.ad_id]).find(Boolean) ?? null
@@ -73,8 +76,7 @@ async function campaignMediaNow(platform: 'tiktok' | 'meta', campaignId: string,
     // ad/get is 40001 until the scope is approved: one placeholder for the campaign.
     return { media: { kind: 'placeholder', permalink: promo?.permalink ?? adsManagerUrl(advertiserId), note: TIKTOK_MEDIA_NOTE }, ad_count: 0, ads: {} }
   }
-  const out: Record<string, AdMedia> = {}
-  for (const a of ads) out[a.ad_id] = await tiktokAdMedia(advertiserId, a, handle)
+  const out: Record<string, AdMedia> = Object.fromEntries(await Promise.all(ads.map(async (a) => [a.ad_id, await tiktokAdMedia(advertiserId, a, handle)] as const)))
   const first = ads.map((a) => out[a.ad_id]).find(Boolean) ?? null
   return { media: first, ad_count: ads.length, ads: out }
 }
@@ -91,18 +93,29 @@ async function promoMedia(p: Pick<Promotion, 'post_id' | 'platform' | 'permalink
     : { kind: 'image', thumbnail_url: m.url, permalink: p.permalink ?? undefined }
 }
 
-/** Playable URL + thumbnail for a Meta creative. Each video / IG media is
- *  resolved once an hour. */
-async function metaAdMedia(c?: MetaAdCreative): Promise<AdMedia | null> {
+/** One Graph lookup for a video's or IG media's thumbnail + playable URL, kept
+ *  in the cache every server instance shares (src/lib/sharedCache.ts): fresh
+ *  for 6 h, served up to 2 days old while it refreshes behind the response.
+ *  The playable URLs are signed CDN links that can expire sooner; the player
+ *  re-resolves through /api/ads/media?fresh=1 on a 403, which skips this. */
+const THUMB_TTL = 6 * 60 * 60
+function thumbLookup(id: string, fields: string, fresh: boolean): Promise<Record<string, any>> {
+  return shared(`meta-thumb:${id}`, () => metaGet(id, { fields }).catch(() => ({})), { ttl: THUMB_TTL, maxStale: 2 * 24 * 60 * 60, fresh })
+    .then((b) => b.value as Record<string, any>)
+    .catch(() => ({}))
+}
+
+/** Playable URL + thumbnail for a Meta creative. */
+async function metaAdMedia(c: MetaAdCreative | undefined, fresh = false): Promise<AdMedia | null> {
   if (!c) return null
   const story = c.effective_object_story_id
   const permalink = c.instagram_permalink_url ?? (story && story.includes('_') ? `https://www.facebook.com/${story.replace('_', '/posts/')}` : undefined)
   if (c.video_id) {
-    const v = await tiktokCached(`meta-video:${c.video_id}`, false, () => metaGet(c.video_id!, { fields: 'source,picture,permalink_url' }).catch(() => ({})), HOUR)
+    const v = await thumbLookup(c.video_id, 'source,picture,permalink_url', fresh)
     return { kind: 'video', video_url: v.source, thumbnail_url: v.picture ?? c.thumbnail_url, permalink: permalink ?? (v.permalink_url ? `https://www.facebook.com${v.permalink_url}` : undefined) }
   }
   if (c.effective_instagram_media_id) {
-    const ig = await tiktokCached(`meta-ig:${c.effective_instagram_media_id}`, false, () => metaGet(c.effective_instagram_media_id!, { fields: 'media_url,thumbnail_url,permalink,media_type' }).catch(() => ({})), HOUR)
+    const ig = await thumbLookup(c.effective_instagram_media_id, 'media_url,thumbnail_url,permalink,media_type', fresh)
     const video = ig.media_type === 'VIDEO'
     // "Promoting website" ads made in Ads Manager own their IG media, so the page token can't read it:
     // ig comes back {} — fall through to the creative's (now 1080px) thumbnail + permalink.

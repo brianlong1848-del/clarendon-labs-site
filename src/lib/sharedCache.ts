@@ -72,8 +72,10 @@ function detachRefresh() {
     const pending = store?.pendingRevalidates
     if (!store || !pending || !Object.keys(pending).length) return
     const work = Object.values(pending)
-    store.pendingRevalidates = {}
+    // after() first: inside another cached build it can refuse (throw), and
+    // then Next's own list must be left as it was.
     after(() => Promise.allSettled(work))
+    store.pendingRevalidates = {}
   } catch { /* leave Next's own handling in place */ }
 }
 
