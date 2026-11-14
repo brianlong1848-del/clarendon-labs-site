@@ -17,7 +17,7 @@ import type { AppStrategy, GateStep } from '@/lib/ads/strategy'
 // One question: is ad money doing anything, and what should happen to it?
 // Wide: left 60% = status band (the revenue strategy's paused state and each
 // app's gate), money tiles, World strip, By app, Campaigns; right 40% (sticky)
-// = the analyst note and ranked actions. Under 1100px: one column, analyst
+// = the analyst note and ranked actions. Under 1280px: one column, analyst
 // first. Reads /api/money/ads (+ /countries) and /api/ads/insights (cached
 // write-up, Regenerate only on the button). Last data comes from localStorage
 // first so the page never waits on a fetch.
@@ -54,7 +54,7 @@ const PAGE_CSS = `
 .ads-right{order:-1}
 .ads-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
 .ads-gates{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
-@media (min-width:1100px){.ads-grid{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}.ads-right{order:0;position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow:auto}}
+@media (min-width:1280px){.ads-grid{grid-template-columns:minmax(0,1fr) clamp(340px,27vw,520px)}.ads-right{order:0;position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow:auto}}
 @media (max-width:700px){.ads-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ads-row:hover{background:#FAFBFC}
 .ads-sort{border:0;background:transparent;padding:0;cursor:pointer;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit}
@@ -471,7 +471,7 @@ export default function Ads() {
                                     <span onClick={(e) => e.stopPropagation()}><AdThumb platform={c.platform} campaignId={c.campaign_id} appId={c.app_slug} media={c} size={36} badge={(c.ad_count ?? 0) > 1 ? `+${(c.ad_count ?? 0) - 1}` : undefined} /></span>
                                   )}
                                   <div style={{ minWidth: 0, display: 'grid', gap: 2 }}>
-                                    <span title={c.label && c.label !== c.name ? `Platform name: ${c.name}` : c.name} style={{ fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 380 }}>{c.label ?? c.name}</span>
+                                    <span title={c.label && c.label !== c.name ? `Platform name: ${c.name}` : c.name} style={{ fontWeight: 650, fontSize: 13.5, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', minWidth: 200, maxWidth: 380 }}>{c.label ?? c.name}</span>
                                     <span style={{ color: C.soft, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                       <PlatformGlyph platform={c.platform === 'tiktok' ? 'tiktok' : 'facebook'} size={11} />
                                       {c.app_name ?? appName(c.app_slug)} · {shortDay(c.first_day)} → {shortDay(c.last_day)}
