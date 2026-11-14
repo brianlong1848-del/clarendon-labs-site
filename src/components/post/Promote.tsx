@@ -36,7 +36,7 @@ const big = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 const input: React.CSSProperties = { fontFamily: C.sans, fontSize: 14, padding: '9px 11px', borderRadius: 9, border: `1px solid ${C.rule2}`, background: C.card, color: C.ink, width: '100%', boxSizing: 'border-box' }
 
-export const promotable = (p: QueuedPost) => p.targets.filter((t) => (t.platform === 'facebook' || (t.platform === 'instagram' && t.format !== 'story')) && t.status === 'published' && t.remoteId)
+export const promotable = (p: QueuedPost) => p.targets.filter((t) => (t.platform === 'facebook' || t.platform === 'instagram') && t.format !== 'story' && t.status === 'published' && t.remoteId)
 
 function Search<T>({ kind, placeholder, onPick, render }: { kind: 'places' | 'interests'; placeholder: string; onPick: (v: T) => void; render: (v: T) => string }) {
   const [q, setQ] = useState('')

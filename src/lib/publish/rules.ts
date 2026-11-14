@@ -36,7 +36,7 @@ export type Issue = { platform: Platform; level: 'error' | 'warn'; text: string;
 
 export const PLATFORMS: { id: Platform; name: string; formats: Format[]; captionMax: number }[] = [
   { id: 'instagram', name: 'Instagram', formats: ['feed', 'reel', 'story'], captionMax: 2200 },
-  { id: 'facebook', name: 'Facebook', formats: ['post', 'reel'], captionMax: 63206 },
+  { id: 'facebook', name: 'Facebook', formats: ['post', 'reel', 'story'], captionMax: 63206 },
   { id: 'threads', name: 'Threads', formats: ['post'], captionMax: 500 },
   { id: 'tiktok', name: 'TikTok', formats: ['post'], captionMax: 2200 },
 ]
@@ -116,6 +116,18 @@ export function validate(targets: Target[], shared: MediaItem[], caption: string
     }
 
     if (t.platform === 'facebook') {
+      if (t.format === 'story') {
+        // A Page Story is one photo or one video, no caption (same shape as an Instagram Story).
+        if (media.length !== 1) add(t.platform, 'error', 'A Facebook Story is one photo or one video.', media.length === 0)
+        for (const m of videos) {
+          const d = m.duration ?? 0
+          if (d > 60) add(t.platform, 'error', `Facebook Story videos can be up to 60 seconds (this one is ${Math.round(d)}s).`)
+          if (d && d < 3) add(t.platform, 'error', 'Videos must be at least 3 seconds.')
+        }
+        for (const m of media) if (Math.abs(m.width / m.height - 9 / 16) > 0.08) add(t.platform, 'warn', `This is ${ratioName(m.width / m.height)}; Stories look best at 9:16.`)
+        if (text) add(t.platform, 'warn', 'Stories don’t show captions — the caption is skipped here.')
+        continue
+      }
       if (media.length === 0 && !text.trim()) add(t.platform, 'error', 'Add a caption or media for Facebook.', true)
       if (videos.length > 1 || (videos.length && images.length)) add(t.platform, 'error', 'Facebook posts take several photos or one video, not a mix.')
       if (t.format === 'reel') {

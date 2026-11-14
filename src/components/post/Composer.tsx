@@ -298,8 +298,8 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       const changed = key !== mediaKey.current
       mediaKey.current = key
       const fbOne = fbMedia.length === 1 && fbMedia[0].kind === 'video'
-      const fbValid = d.facebook.format === 'post' || (fbOne && fbReelOK(fbMedia[0]))
-      const fb = changed || !fbValid ? defaultFormat('facebook', fbMedia) : d.facebook.format
+      const fbValid = d.facebook.format === 'post' || (d.facebook.format === 'story' ? fbMedia.length === 1 : fbOne && fbReelOK(fbMedia[0]))
+      const fb = (changed && d.facebook.format !== 'story') || !fbValid ? defaultFormat('facebook', fbMedia) : d.facebook.format
       return fb === next.facebook.format ? next : { ...next, facebook: { ...next.facebook, format: fb } }
     })
   }, [igMedia, fbMedia])
@@ -907,12 +907,13 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                         { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video, gone in 24 hours' },
                       ]} />
                   )}
-                  {p.id === 'facebook' && acc?.ready && oneVideo && (
+                  {p.id === 'facebook' && acc?.ready && pm.length > 0 && (
                     <Segmented<Format> value={dest.facebook.format} disabled={!on}
                       onChange={(f) => setDest((d) => ({ ...d, facebook: { ...d.facebook, format: f } }))}
                       options={[
-                        { value: 'post', label: 'Video', title: 'A regular video post on the Page' },
-                        { value: 'reel', label: 'Reel', disabled: !fbReelOK(pm[0]), title: fbReelOK(pm[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' },
+                        { value: 'post', label: oneVideo ? 'Video' : 'Post', title: 'A regular post on the Page' },
+                        ...(oneVideo ? [{ value: 'reel' as Format, label: 'Reel', disabled: !fbReelOK(pm[0]), title: fbReelOK(pm[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' }] : []),
+                        { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video on the Page’s Story, gone in 24 hours' },
                       ]} />
                   )}
                   {!acc?.ready && acc?.reason && <p style={{ margin: 0, fontSize: 12, color: C.ink2, lineHeight: 1.45 }}>{acc.reason}</p>}

@@ -115,7 +115,7 @@ function PreviewInner({ platform, format, media, caption, handle, avatar, appNam
   const current = media[i]
   const name = handle ?? appName
 
-  if (platform === 'instagram' && (format === 'story' || format === 'reel')) {
+  if ((platform === 'instagram' && (format === 'story' || format === 'reel')) || (platform === 'facebook' && format === 'story')) {
     return (
       <div style={{ width: 260, aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111', boxShadow: '0 12px 30px rgba(0,0,0,.18)' }}>
         {current ? <Media m={current} fit="cover" /> : <Empty dark />}

@@ -51,7 +51,7 @@ export const SAFE_ZONES: Record<'tiktok' | 'meta_reel' | 'meta_story', SafeZone>
 export function safeZoneFor(platform: string, format: string): SafeZone | null {
   if (platform === 'tiktok') return SAFE_ZONES.tiktok
   if ((platform === 'instagram' || platform === 'facebook') && format === 'reel') return SAFE_ZONES.meta_reel
-  if (platform === 'instagram' && format === 'story') return SAFE_ZONES.meta_story
+  if ((platform === 'instagram' || platform === 'facebook') && format === 'story') return SAFE_ZONES.meta_story
   return null
 }
 

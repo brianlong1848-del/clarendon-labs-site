@@ -66,8 +66,8 @@ Hard rules (break none):
 - If you are given previous captions, the new ones must take a clearly different angle and opening line.
 Return the captions with the post_captions tool.`
 
-/** The destinations that actually take a caption (Instagram Stories don't). */
-const captioned = (targets: Target[]) => targets.filter((t) => !(t.platform === 'instagram' && t.format === 'story'))
+/** The destinations that actually take a caption (Stories don't). */
+const captioned = (targets: Target[]) => targets.filter((t) => t.format !== 'story')
 
 export async function writeCaptions(input: CaptionInput): Promise<CaptionOutput> {
   const apiKey = process.env.ANTHROPIC_API_KEY

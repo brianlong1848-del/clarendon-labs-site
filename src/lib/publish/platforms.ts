@@ -271,6 +271,36 @@ async function facebook(p: Post, t: TargetState): Promise<Step> {
   const images = p.media.filter((m) => m.kind === 'image')
   const video = p.media.find((m) => m.kind === 'video')
 
+  // Page Stories (needs pages_manage_posts, which posting already has). No caption.
+  //   photo: upload it unpublished, then POST /photo_stories with its id
+  //   video: start → Facebook fetches the file from our storage → finish, then poll
+  if (t.format === 'story') {
+    const storyLink = `https://www.facebook.com/${page.id}`
+    if (!video) {
+      if (!images.length) return { status: 'failed', error: 'A Facebook Story needs one photo or one video.' }
+      const photo = await post(`${G}/${page.id}/photos`, { url: images[0].url, published: 'false', access_token: token })
+      const made = await post(`${G}/${page.id}/photo_stories`, { photo_id: photo.id, access_token: token })
+      return { status: 'published', remoteId: String(made.post_id ?? photo.id), permalink: storyLink }
+    }
+    if (!t.containerId) {
+      const start = await post(`${G}/${page.id}/video_stories`, { upload_phase: 'start', access_token: token })
+      await call(start.upload_url ?? `https://rupload.facebook.com/video-upload/v21.0/${start.video_id}`, {
+        method: 'POST', headers: { Authorization: `OAuth ${token}`, file_url: video.url },
+      })
+      return { containerId: String(start.video_id), status: 'processing' }
+    }
+    // Finish only once Facebook has the whole file; finishing early is rejected.
+    const st = await call(`${G}/${t.containerId}?fields=status&access_token=${token}`)
+    const s = st.status ?? {}
+    if (s.video_status === 'error' || s.uploading_phase?.status === 'error' || s.processing_phase?.status === 'error') {
+      return { status: 'failed', error: s.processing_phase?.error?.message ?? s.uploading_phase?.error?.message ?? 'Facebook couldn’t process the Story video.' }
+    }
+    if (s.uploading_phase?.status && s.uploading_phase.status !== 'complete') return { status: 'processing' }
+    const done = await post(`${G}/${page.id}/video_stories`, { upload_phase: 'finish', video_id: t.containerId, access_token: token })
+    if (done.success === false) return { status: 'failed', error: done.message ?? 'Facebook didn’t publish the Story.' }
+    return { status: 'published', remoteId: String(done.post_id ?? t.containerId), permalink: storyLink }
+  }
+
   // Reels: start an upload session, have Facebook fetch the file from our
   // storage, then publish — and poll until it's processed.
   if (t.format === 'reel' && video) {
@@ -468,6 +498,7 @@ export async function postStats(p: Post, t: TargetState): Promise<{ reach: numbe
       return { reach: v('reach'), engagement: v('total_interactions') }
     }
     if (t.platform === 'facebook') {
+      if (t.format === 'story') return null   // Stories are gone in 24 h and have no post object to read
       const page = await pageFor(p.app_id)
       if (!page?.access_token) return null
       const token = page.access_token

@@ -242,7 +242,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
                     <span title={t.error} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: tone,
                                                    border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '3px 10px 3px 7px' }}>
                       <PlatformGlyph platform={t.platform} size={14} color={tone} />
-                      {name}{t.platform === 'instagram' ? ` ${FORMAT_LABEL[t.format as Format]}` : ''}
+                      {name}{t.platform === 'instagram' || (t.platform === 'facebook' && t.format !== 'post') ? ` ${FORMAT_LABEL[t.format as Format]}` : ''}
                       {t.status === 'published' ? ' ↗' : t.status === 'failed' ? ' ✕' : t.status === 'processing' ? ' …' : ''}
                     </span>
                   )

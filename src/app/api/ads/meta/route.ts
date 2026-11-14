@@ -80,7 +80,7 @@ export async function POST(req: Request) {
   if (!p) return bad('Post not found.')
   const target = p.targets.find((t) => t.platform === body.platform && t.status === 'published' && t.remoteId)
   if (!target) return bad('That post isn’t live on that platform yet.')
-  if (target.platform === 'instagram' && target.format === 'story') return bad('Instagram stories can’t be promoted from here — promote a feed post or Reel.')
+  if (target.format === 'story') return bad('Stories can’t be promoted from here — promote a feed post or Reel.')
 
   const input: PromoteInput = {
     appId: p.app_id, postId: p.id, platform: target.platform as 'facebook' | 'instagram', remoteId: target.remoteId!, permalink: target.permalink,
