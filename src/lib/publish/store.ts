@@ -95,6 +95,22 @@ export async function rest<T>(path: string, init: RequestInit = {}): Promise<T> 
 export const listPosts = (limit = 60) =>
   rest<Post[]>(`studio_posts?status=neq.canceled&order=created_at.desc&limit=${limit}`)
 
+/** Every post (not canceled) whose time falls in [from, to), oldest first — the Calendar. */
+export const postsBetween = (from: string, to: string, appId?: string) =>
+  rest<Post[]>(`studio_posts?status=neq.canceled&scheduled_at=gte.${encodeURIComponent(from)}&scheduled_at=lt.${encodeURIComponent(to)}${appId ? `&app_id=eq.${encodeURIComponent(appId)}` : ''}&order=scheduled_at.asc&limit=2000`)
+
+/** Several posts by id. */
+export const postsByIds = (ids: string[]) =>
+  ids.length ? rest<Post[]>(`studio_posts?id=in.(${ids.map(encodeURIComponent).join(',')})`) : Promise.resolve([] as Post[])
+
+/** Change a post only while it is still scheduled (the runner claims it by
+ *  flipping the status, so an edit can never land on a post going out). Null
+ *  when it was no longer scheduled. */
+export const updateScheduled = async (id: string, patch: Partial<Post>) =>
+  (await rest<Post[]>(`studio_posts?id=eq.${encodeURIComponent(id)}&status=eq.scheduled`, {
+    method: 'PATCH', body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }), headers: { Prefer: 'return=representation' },
+  }))[0] ?? null
+
 /** Failed or partly-failed posts (the ones "Clear failed" tidies), optionally for one app. */
 export const failedPosts = (appId?: string) =>
   rest<Post[]>(`studio_posts?status=in.(failed,partial)${appId ? `&app_id=eq.${encodeURIComponent(appId)}` : ''}&order=created_at.desc&limit=200`)

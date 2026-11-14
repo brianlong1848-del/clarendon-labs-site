@@ -219,3 +219,60 @@ export function fetchPlayCached(pkg: string): Promise<PlayMetrics | { error: str
   cache.set(pkg, { at: Date.now(), v })
   return v
 }
+
+// ─── Installs by country (Calendar + World strip) ───────────────────────────
+// gs://<bucket>/stats/installs/installs_<package>_<YYYYMM>_country.csv — one
+// row per day per country ("Date, Package Name, Country, Daily User Installs, …").
+// Optional and separate from fetchPlay, so the console card never depends on it.
+
+export type PlayCountryDay = { date: string; country: string; installs: number }
+
+export function parseCountryInstalls(csv: string): PlayCountryDay[] {
+  const lines = csv.split(/\r?\n/).filter((l) => l.trim())
+  if (lines.length < 2) return []
+  const head = splitLine(lines[0]).map((h) => h.toLowerCase())
+  const iDate = head.indexOf('date'), iCountry = head.indexOf('country')
+  const iVal = ['daily user installs', 'install events', 'daily device installs'].map((h) => head.indexOf(h)).find((i) => i >= 0) ?? -1
+  if (iDate < 0 || iCountry < 0 || iVal < 0) return []
+  return lines.slice(1).map(splitLine)
+    .map((c) => ({ date: c[iDate], country: (c[iCountry] ?? '').toUpperCase(), installs: Number(c[iVal]) || 0 }))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.date) && /^[A-Z]{2}$/.test(d.country))
+}
+
+async function countryMonth(pkg: string, ym: string): Promise<PlayCountryDay[]> {
+  const name = `stats/installs/installs_${pkg}_${ym}_country.csv`
+  const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket()!)}/o/${encodeURIComponent(name)}?alt=media`, {
+    headers: { Authorization: `Bearer ${await token()}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000),
+  })
+  if (res.status === 404) return []
+  if (!res.ok) throw new Error(`Play country report ${res.status}`)
+  return parseCountryInstalls(decode(Buffer.from(await res.arrayBuffer())))
+}
+
+const countryCache = new Map<string, { at: number; v: Promise<PlayCountryDay[]> }>()
+/** Daily installs per country between two dates (inclusive), or { error }. Null when Play isn't connected. */
+export async function fetchPlayCountries(pkg: string, from: string, to: string): Promise<PlayCountryDay[] | { error: string } | null> {
+  if (!playConfigured()) return null
+  const months: string[] = []
+  for (let d = new Date(`${from.slice(0, 7)}-01T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(ymOf(d))
+  try {
+    const all = await Promise.all(months.slice(-14).map((ym) => {
+      const k = `${pkg}|${ym}`
+      const hit = countryCache.get(k)
+      if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
+      const v = countryMonth(pkg, ym)
+      countryCache.set(k, { at: Date.now(), v })
+      v.catch(() => countryCache.delete(k))
+      return v
+    }))
+    return all.flat().filter((d) => d.date >= from && d.date <= to)
+  } catch (e) { return { error: e instanceof Error ? e.message : 'Play country reports unavailable' } }
+}
+
+/** fetchPlay's daily series (installs + estimated USD proceeds), between two dates. */
+export async function playDaily(pkg: string, from: string, to: string): Promise<PlayDay[] | { error: string } | null> {
+  if (!playConfigured()) return null
+  const m = await fetchPlayCached(pkg)
+  if ('error' in m) return m
+  return m.series.filter((d) => d.date >= from && d.date <= to)
+}

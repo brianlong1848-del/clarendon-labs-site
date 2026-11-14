@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { AdminShell, AppTag, C, btn } from '@/components/AdminNav'
 import { Composer } from '@/components/post/Composer'
 import { Queue } from '@/components/post/Queue'
-import { PlatformGlyph, type PublishApp } from '@/components/post/shared'
+import { Calendar } from '@/components/post/calendar/Calendar'
+import { PlatformGlyph, allMediaOf, type ComposePrefill, type PublishApp, type QueuedPost } from '@/components/post/shared'
 
 // ─── /post — write once, publish everywhere ─────────────────────────────────
 //
@@ -12,12 +13,23 @@ import { PlatformGlyph, type PublishApp } from '@/components/post/shared'
 // same composer on its Grow tab; both talk to /api/publish.
 
 const ACCOUNTS_KEY = 'clarendon:post-accounts'
+type Tab = 'compose' | 'queue' | 'calendar' | 'accounts'
 
 export default function PostPage() {
   const [pw, setPw] = useState<string | null>(null)
   const [entry, setEntry] = useState('')
   const [apps, setApps] = useState<PublishApp[] | null>(null)
-  const [tab, setTab] = useState<'compose' | 'queue' | 'accounts'>('compose')
+  const [tab, setTab] = useState<Tab>('compose')
+  const [prefill, setPrefill] = useState<ComposePrefill | null>(null)
+  const [seenCal, setSeenCal] = useState(false)
+  useEffect(() => { if (tab === 'calendar') setSeenCal(true) }, [tab])
+  /** Duplicate: same words, media and platforms, at the same time of day on the next free day. */
+  const duplicate = useCallback((p: QueuedPost) => {
+    let at = new Date(p.scheduled_at ?? p.created_at)
+    while (at.getTime() < Date.now() + 3600_000) at = new Date(at.getTime() + 86400_000)
+    setPrefill({ key: Date.now(), appId: p.app_id, caption: p.caption, overrides: p.overrides, media: allMediaOf(p), platforms: p.targets.map((t) => t.platform), market: p.market, at: at.toISOString() })
+    setTab('compose')
+  }, [])
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null)
   const [queued, setQueued] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -76,7 +88,7 @@ export default function PostPage() {
     )
   }
 
-  const tabBtn = (id: 'compose' | 'queue' | 'accounts', text: string) => (
+  const tabBtn = (id: Tab, text: string) => (
     <button role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
       style={{ border: 0, cursor: 'pointer', borderRadius: 9, padding: '8px 16px', fontSize: 13.5, fontWeight: 700, fontFamily: C.sans,
                background: tab === id ? C.card : 'transparent', color: tab === id ? C.ink : C.soft, boxShadow: tab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>
@@ -89,7 +101,7 @@ export default function PostPage() {
       title="Post"
       subtitle="Write it once — or let Claude write it. Publish to Instagram, Facebook, Threads and TikTok now, later, or on repeat."
       actions={<div role="tablist" style={{ display: 'flex', background: C.card2, borderRadius: 11, padding: 3 }}>
-        {tabBtn('compose', 'Compose')}{tabBtn('queue', queued ? `Queue · ${queued}` : 'Queue')}{tabBtn('accounts', 'Accounts')}
+        {tabBtn('compose', 'Compose')}{tabBtn('queue', queued ? `Queue · ${queued}` : 'Queue')}{tabBtn('calendar', 'Calendar')}{tabBtn('accounts', 'Accounts')}
       </div>}
     >
       {error && <p style={{ color: C.red, margin: 0 }}>{error}</p>}
@@ -104,12 +116,18 @@ export default function PostPage() {
       {!apps ? <Skeleton /> : (
         <>
           <div style={{ display: tab === 'compose' ? 'block' : 'none' }}>
-            <Composer pw={pw} apps={apps} onPosted={() => setRefreshKey((k) => k + 1)} />
+            <Composer pw={pw} apps={apps} prefill={prefill} onPosted={() => setRefreshKey((k) => k + 1)} />
           </div>
           {tab === 'accounts' && <Accounts apps={apps} onRefresh={() => pw && load(pw, true)} />}
           <div style={{ display: tab === 'queue' ? 'block' : 'none' }}>
-            <Queue pw={pw} apps={apps} refreshKey={refreshKey} onCount={onCount} onCompose={() => setTab('compose')} />
+            <Queue pw={pw} apps={apps} refreshKey={refreshKey} onCount={onCount} onCompose={() => setTab('compose')} onDuplicate={duplicate} onChanged={() => setRefreshKey((k) => k + 1)} />
           </div>
+          {seenCal && (
+            <div style={{ display: tab === 'calendar' ? 'block' : 'none' }}>
+              <Calendar apps={apps} refreshKey={refreshKey} onDuplicate={duplicate} onChanged={() => setRefreshKey((k) => k + 1)}
+                onCompose={({ at, appId }) => { setPrefill({ key: Date.now(), at, appId }); setTab('compose') }} />
+            </div>
+          )}
         </>
       )}
     </AdminShell>
@@ -121,14 +139,15 @@ function Skeleton() {
   const bar = (w: string | number, h = 14): React.CSSProperties => ({ width: w, height: h, borderRadius: 8, background: C.card2 })
   const box: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22, display: 'grid', gap: 14 }
   return (
-    <div aria-busy="true" aria-label="Loading the composer" className="post-skel" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 400px', gap: 26, alignItems: 'start' }}>
+    <div aria-busy="true" aria-label="Loading the composer" className="post-skel" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr) 392px', gap: 20, alignItems: 'start' }}>
       <div style={{ display: 'grid', gap: 18 }}>
         <div style={box}><div style={bar(150, 18)} /><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>{[0, 1, 2, 3, 4].map((i) => <div key={i} style={bar('100%', 60)} />)}</div></div>
         <div style={box}><div style={bar(170, 18)} /><div style={bar('100%', 200)} /></div>
         <div style={box}><div style={bar(110, 18)} /><div style={bar('100%', 120)} /></div>
       </div>
+      <div style={{ display: 'grid', gap: 18 }}><div style={box}><div style={bar(130, 18)} />{[0, 1, 2, 3].map((i) => <div key={i} style={bar('100%', 44)} />)}</div><div style={box}><div style={bar('100%', 48)} /></div></div>
       <div style={{ ...box, minHeight: 460 }}><div style={bar(90)} /><div style={bar('100%', 380)} /></div>
-      <style>{`.post-skel > div > div > div, .post-skel > div > div { animation: skel 1.4s ease-in-out infinite } @keyframes skel { 50% { opacity: .55 } } @media (max-width: 1100px){ .post-skel{ grid-template-columns: 1fr !important } }`}</style>
+      <style>{`.post-skel > div > div > div, .post-skel > div > div { animation: skel 1.4s ease-in-out infinite } @keyframes skel { 50% { opacity: .55 } } @media (max-width: 1279px){ .post-skel{ grid-template-columns: 1fr !important } }`}</style>
     </div>
   )
 }

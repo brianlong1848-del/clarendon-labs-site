@@ -19,7 +19,7 @@
 //   • post every edition at the same local time in its own country;
 //   • open Promote already aimed at that market's countries and language.
 
-export type MarketId = 'us' | 'gb' | 'au' | 'ca' | 'cafr' | 'latam' | 'es' | 'br' | 'de' | 'fr'
+export type MarketId = 'us' | 'gb' | 'au' | 'nz' | 'za' | 'ca' | 'cafr' | 'latam' | 'es' | 'br' | 'de' | 'fr'
 
 export type Market = {
   id: MarketId
@@ -60,10 +60,22 @@ export const MARKETS: Record<MarketId, Market> = {
     tags: ['en gb', 'uk', 'gb', 'british', 'britain', 'england', 'ireland'],
   },
   au: {
-    id: 'au', flag: '🇦🇺', short: 'AU', name: 'Australia & New Zealand', countries: ['AU', 'NZ'], lang: 'en-AU', langName: 'English (Australia)',
+    id: 'au', flag: '🇦🇺', short: 'AU', name: 'Australia', countries: ['AU'], lang: 'en-AU', langName: 'English (Australia)',
     tz: 'Australia/Sydney', storefront: 'au', metaLocales: [],
     voice: 'Australian English: British spelling, relaxed Aussie register (mates, arvo, reckon) used lightly, never parody. No American-only phrasing.',
-    tags: ['en au', 'en nz', 'australia', 'aussie', 'au', 'aus', 'nz', 'new zealand'],
+    tags: ['en au', 'australia', 'aussie', 'au', 'aus'],
+  },
+  nz: {
+    id: 'nz', flag: '🇳🇿', short: 'NZ', name: 'New Zealand', countries: ['NZ'], lang: 'en-NZ', langName: 'English (New Zealand)',
+    tz: 'Pacific/Auckland', storefront: 'nz', metaLocales: [],
+    voice: 'New Zealand English: British spelling, friendly Kiwi register (mates, keen, sweet as) used lightly, never parody. Never call it Australia. No American-only phrasing.',
+    tags: ['en nz', 'new zealand', 'kiwi', 'nz'],
+  },
+  za: {
+    id: 'za', flag: '🇿🇦', short: 'ZA', name: 'South Africa', countries: ['ZA'], lang: 'en-ZA', langName: 'English (South Africa)',
+    tz: 'Africa/Johannesburg', storefront: 'za', metaLocales: [],
+    voice: 'South African English: British spelling (colour, favourite), South African words used lightly (braai, lekker, mates). December is summer there — no snow or cold-weather imagery. No American-only phrasing.',
+    tags: ['en za', 'south africa', 'south african', 'za', 'rsa'],
   },
   ca: {
     id: 'ca', flag: '🇨🇦', short: 'Canada', name: 'Canada (English)', countries: ['CA'], lang: 'en-CA', langName: 'English (Canada)',
@@ -112,9 +124,10 @@ export const MARKETS: Record<MarketId, Market> = {
 /** Each app's markets, home market first. Only languages the app actually
  *  ships (or, for YulePick, the launch plan's storefronts). */
 export const APP_MARKETS: Record<string, MarketId[]> = {
-  rolligan: ['us', 'gb', 'au', 'ca', 'latam', 'es', 'de', 'fr'],
+  rolligan: ['us', 'gb', 'au', 'nz', 'ca', 'latam', 'es', 'de', 'fr'],
   borea: ['us', 'ca', 'cafr'],
-  yulepick: ['us', 'gb', 'au', 'latam', 'es', 'br', 'de', 'fr'],
+  // English-speaking set first (US, Canada, UK & Ireland, Australia, New Zealand, South Africa), then the launch plan's others.
+  yulepick: ['us', 'ca', 'gb', 'au', 'nz', 'za', 'latam', 'es', 'br', 'de', 'fr'],
   gagorder: ['us'],
   jinglewire: ['us'],
 }
@@ -124,12 +137,16 @@ export const APP_MARKET_NOTES: Record<string, Partial<Record<MarketId, string>>>
   rolligan: {
     gb: 'UK players search "pub game", "drinking game", "game with mates" — fine to lean on pub / game-night-with-mates.',
     au: 'Aussie players search "pub game", "game with mates".',
+    nz: 'Kiwi players search "pub game", "game with mates".',
     latam: 'The pot is "el pozo"; "bank or bust" = plantarse o reventar, as in the app.',
     es: 'The pot is "el bote"; "bank or bust" = plantarse o reventar, as in the app.',
   },
   yulepick: {
     gb: 'Secret Santa (in Ireland it is also "Kris Kringle").',
     au: 'Secret Santa (often "Kris Kringle" in Australia).',
+    nz: 'Secret Santa (also "Kris Kringle"). Christmas is in summer — beach, barbecue, pōhutukawa, not snow.',
+    za: 'Secret Santa. Christmas is in summer — braai, beach and holidays, not snow.',
+    ca: 'Secret Santa (in Québec "échange de cadeaux"; this is the English edition).',
     latam: 'Secret Santa is "amigo secreto" / "intercambio de regalos".',
     es: 'Secret Santa is "amigo invisible".',
     br: 'Secret Santa is "amigo secreto".',
@@ -207,7 +224,7 @@ export function assignMedia(
 
 /** Closest-sounding edition to borrow from when a market has no video of its own. */
 const NEAREST: Partial<Record<MarketId, MarketId[]>> = {
-  au: ['gb', 'us'], gb: ['au', 'us'], ca: ['us', 'gb'], us: ['ca', 'gb'], latam: ['es'], es: ['latam'], fr: ['cafr'], cafr: ['fr'],
+  au: ['nz', 'gb', 'us'], nz: ['au', 'gb', 'us'], za: ['gb', 'au', 'us'], gb: ['au', 'us'], ca: ['us', 'gb'], us: ['ca', 'gb'], latam: ['es'], es: ['latam'], fr: ['cafr'], cafr: ['fr'],
 }
 const rank = (pref: MarketId[], t: MarketId) => { const i = pref.indexOf(t); return i < 0 ? 99 : i }
 
@@ -259,5 +276,13 @@ export function storeLinkFor(storeUrl: string | undefined, m: Market): string | 
 export const COUNTRY_NAME: Record<string, string> = {
   US: 'United States', GB: 'United Kingdom', IE: 'Ireland', AU: 'Australia', NZ: 'New Zealand', CA: 'Canada',
   MX: 'Mexico', CO: 'Colombia', AR: 'Argentina', CL: 'Chile', PE: 'Peru', ES: 'Spain', BR: 'Brazil',
-  DE: 'Germany', AT: 'Austria', CH: 'Switzerland', FR: 'France', BE: 'Belgium',
+  DE: 'Germany', AT: 'Austria', CH: 'Switzerland', FR: 'France', BE: 'Belgium', ZA: 'South Africa',
 }
+
+/** Flag emoji for an ISO-2 country code ("nz" → 🇳🇿). */
+export const flagOf = (cc: string) => cc.length === 2 ? String.fromCodePoint(...cc.toUpperCase().split('').map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65)) : '🏳️'
+
+/** The country a post is aimed at (ISO-2, upper case): its market's first country,
+ *  else the app's home market's. */
+export const postCountry = (appId: string, market: string | null | undefined): string =>
+  MARKETS[isMarket(market) ? market : (APP_MARKETS[appId] ?? ['us'])[0]].countries[0]

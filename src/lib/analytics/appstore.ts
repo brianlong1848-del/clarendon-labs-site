@@ -429,3 +429,67 @@ export function fetchAppStoreCached(appleAppId: string): Promise<AppStoreMetrics
   storeCache.set(appleAppId, { at: Date.now(), v })
   return v
 }
+
+// ─── Daily, by country (Calendar + World strip) ─────────────────────────────
+//
+// The same daily SALES reports as fetchAppStore (and the same per-instance day
+// cache), tallied per day AND per storefront country (the report's
+// `Country Code` column). Only days inside the ~35-day lookback Apple keeps
+// daily reports for are read; older dates come back without data rather than
+// as zeros. Optional: null when App Store Connect isn't configured.
+
+export type AppStoreDay = {
+  date: string
+  installs: number
+  /** USD proceeds (other currencies are listed in otherCurrencies, not summed). */
+  proceeds: number
+  /** ISO-2 upper-case storefront → that day's installs + USD proceeds. */
+  byCountry: Record<string, { installs: number; proceeds: number }>
+}
+export type AppStoreDaily = { days: AppStoreDay[]; reportDate: string | null; otherCurrencies: string[] } | null
+
+export async function appStoreDaily(appleAppId: string, from: string, to: string): Promise<AppStoreDaily> {
+  const jwt = signAppStoreJWT()
+  const vendor = process.env.ASC_VENDOR_NUMBER
+  if (!jwt || !vendor) return null
+  const oldest = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const start = from > oldest ? from : oldest
+  const end = to < yesterday ? to : yesterday
+  const dates: string[] = []
+  for (let d = new Date(`${start}T00:00:00Z`); d.toISOString().slice(0, 10) <= end; d.setUTCDate(d.getUTCDate() + 1)) dates.push(d.toISOString().slice(0, 10))
+  if (!dates.length) return { days: [], reportDate: null, otherCurrencies: [] }
+  const [sku, ...results] = await Promise.all([getSku(appleAppId, jwt), ...dates.map((d) => getDay(d, jwt, vendor))])
+  const other = new Set<string>()
+  const days: AppStoreDay[] = []
+  let reportDate: string | null = null
+  results.forEach((r, i) => {
+    if (r === 'error') return // unknown, not zero
+    if (r === 'missing') {
+      // Before the newest published day a missing report is a real zero day; after it, lag.
+      days.push({ date: dates[i], installs: 0, proceeds: 0, byCountry: {} })
+      return
+    }
+    reportDate = dates[i]
+    const byCountry: CountryTotals = new Map()
+    const t = tally(r, appleAppId, sku, other, byCountry)
+    days.push({
+      date: dates[i], installs: t.installs, proceeds: round2(t.proceeds),
+      byCountry: Object.fromEntries(Array.from(byCountry, ([code, v]) => [code, { installs: v.installs, proceeds: round2(v.proceeds) }])),
+    })
+  })
+  const last = reportDate as string | null
+  return { days: last ? days.filter((d) => d.date <= last) : [], reportDate: last, otherCurrencies: Array.from(other).sort() }
+}
+
+const dailyCache = new Map<string, { at: number; v: Promise<AppStoreDaily> }>()
+/** appStoreDaily, memoized 10 minutes per app + range. */
+export function appStoreDailyCached(appleAppId: string, from: string, to: string): Promise<AppStoreDaily> {
+  const k = `${appleAppId}|${from}|${to}`
+  const hit = dailyCache.get(k)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
+  const v = appStoreDaily(appleAppId, from, to).catch(() => null as AppStoreDaily)
+  dailyCache.set(k, { at: Date.now(), v })
+  if (dailyCache.size > 200) dailyCache.delete(dailyCache.keys().next().value!)
+  return v
+}

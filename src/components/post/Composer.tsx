@@ -9,9 +9,11 @@ import {
 import { anyPlatformTagged, assignPlatformMedia } from '@/lib/publish/platformMedia'
 import { Preview } from './Preview'
 import { TikTokPanel, type Creator } from './TikTokPanel'
-import { PlatformGlyph, Segmented, Toggle, card, label, when, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
+import { PlatformGlyph, Segmented, Toggle, allMediaOf, card, label, when, type ComposePrefill, type PublishApp, type QueuedPost, type QueuedSeries } from './shared'
+import { prepare, put } from './upload'
+import { MediaLibrary, nameFromUrl, type ReuseMedia } from './MediaLibrary'
 import { DAY_SHORT, checkRepeat, describeRule, upcoming, type RepeatSpec } from '@/lib/publish/recur'
-import { MARKETS, assignMedia, inZone, localTimeIn, marketsFor, wrongLanguage, type Assignment, type MarketId } from '@/lib/publish/markets'
+import { MARKETS, assignMedia, inZone, isMarket as isMarketId, localTimeIn, marketsFor, wrongLanguage, type Assignment, type MarketId } from '@/lib/publish/markets'
 import { APP_STORE_IDS, campaignLink, campaignToken, ctSlug } from '@/lib/ads/store'
 
 // ─── Composer ────────────────────────────────────────────────────────────────
@@ -37,45 +39,17 @@ const BLANK: Edition = { caption: '', overrides: {} }
 type OverridesArg = Partial<Record<Platform, string>> | ((o: Partial<Record<Platform, string>>) => Partial<Record<Platform, string>>)
 
 const DRAFT_KEY = 'clarendon:post-draft'
+/** v2 draft: each app's editions kept apart, so a caption (and its store link) never follows you to another app. */
+type DraftStore = { v: 2; appId: string; byApp: Record<string, Partial<Record<MarketId, Edition>>> }
+const hasWords = (e: Partial<Record<MarketId, Edition>> | undefined) => !!e && Object.values(e).some((x) => x?.caption.trim() || Object.values(x?.overrides ?? {}).some((v) => v?.trim()))
+/** What the composer keeps per app while you switch between them. */
+type Stash = { eds: Partial<Record<MarketId, Edition>>; notes: string; items: Item[]; picked: Partial<Record<MarketId, string[]>>; platPicked: Partial<Record<MarketId, Partial<Record<Platform, string[]>>>>; tailor: boolean; captionBy: 'brian' | 'ai'; ctWord: string }
 /** Up to 10 per platform (a carousel), and room for one cut per platform per edition. */
 const MAX_ITEMS = 40
 const initialDest = (): Dest => ({
   instagram: { on: true, format: 'feed' }, facebook: { on: false, format: 'post' },
   threads: { on: false, format: 'post' }, tiktok: { on: false, format: 'post' },
 })
-
-// Browser-side prep: read dimensions, convert photos to JPEG (Instagram's API
-// takes JPEG only), cap the long edge so phone photos don't upload at 48MP.
-async function prepare(file: File): Promise<Omit<Item, 'key' | 'progress' | 'status'> & { blob: Blob }> {
-  if (file.type.startsWith('video/')) {
-    const src = URL.createObjectURL(file)
-    const meta = await new Promise<{ w: number; h: number; d: number }>((resolve, reject) => {
-      const v = document.createElement('video')
-      v.preload = 'metadata'; v.src = src
-      v.onloadedmetadata = () => resolve({ w: v.videoWidth, h: v.videoHeight, d: v.duration })
-      v.onerror = () => reject(new Error('This video format can’t be read — export it as MP4 (H.264).'))
-    })
-    return { name: file.name, src, kind: 'video', mime: file.type || 'video/mp4', width: meta.w, height: meta.h, duration: meta.d, size: file.size, blob: file }
-  }
-  const bitmap = await createImageBitmap(file).catch(() => { throw new Error('This image can’t be read here — export HEIC photos as JPEG first.') })
-  const scale = Math.min(1, 3000 / Math.max(bitmap.width, bitmap.height))
-  const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale)
-  const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h
-  const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(bitmap, 0, 0, w, h)
-  const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), 'image/jpeg', 0.92))
-  return { name: file.name.replace(/\.\w+$/, '') + '.jpg', src: URL.createObjectURL(blob), kind: 'image', mime: 'image/jpeg', width: w, height: h, size: blob.size, blob }
-}
-
-function put(url: string, blob: Blob, type: string, onProgress: (p: number) => void) {
-  return new Promise<void>((resolve, reject) => {
-    const x = new XMLHttpRequest()
-    x.open('PUT', url); x.setRequestHeader('Content-Type', type)
-    x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total)
-    x.onload = () => (x.status < 300 ? resolve() : reject(new Error(`Upload failed (${x.status}).`)))
-    x.onerror = () => reject(new Error('Upload failed — check the connection.'))
-    x.send(blob)
-  })
-}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const localInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -112,7 +86,7 @@ type BestTime = { heat: number[]; reason: string; best: string[]; auto: string[]
 const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago' } catch { return 'America/Chicago' } })()
 const shortWhen = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
-export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[]; onPosted: () => void }) {
+export function Composer({ pw, apps, onPosted, prefill }: { pw: string; apps: PublishApp[]; onPosted: () => void; prefill?: ComposePrefill | null }) {
   const [appId, setAppId] = useState(apps[0]?.id ?? '')
   const [items, setItems] = useState<Item[]>([])
   const [tailor, setTailor] = useState(false)
@@ -173,6 +147,8 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   // one per platform, so App Store Connect → Campaigns shows installs per post.
   const [ctWord, setCtWord] = useState('')
   const [ctCopied, setCtCopied] = useState<Platform | null>(null)
+  const [ctOpen, setCtOpen] = useState(false)
+  const [ttOpen, setTtOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const mediaKey = useRef('')
   const [connecting, setConnecting] = useState(false)
@@ -192,13 +168,22 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   const available = useMemo(() => marketsFor(appId), [appId])
   const home = available[0].id
   // New app → back to its home market (its other editions are opt-in).
-  useEffect(() => { setMkts([home]); setActive(home); setPicked({}); setChoosing(null) }, [home])
+  // New app → its home market (other editions are opt-in), unless a prefill asked for one.
+  const pendingMarket = useRef<MarketId | null>(null)
+  useEffect(() => {
+    const want = pendingMarket.current; pendingMarket.current = null
+    const start = want && available.some((m) => m.id === want) ? want : home
+    setMkts([start]); setActive(start); setChoosing(null)
+  }, [appId, home]) // eslint-disable-line react-hooks/exhaustive-deps
   // Prefill from the URL (Ad insights "Reuse angle": /post?app=&caption=&notes=&media=), once.
+  const urlPrefilled = useRef(false)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search)
     if (!q.get('app') && !q.get('caption') && !q.get('media')) return
-    const app = q.get('app'); if (app && apps.some((a) => a.id === app)) setAppId(app)
-    const cap = q.get('caption'); if (cap) setEds((e) => ({ ...e, us: { ...(e.us ?? BLANK), caption: cap } }))
+    urlPrefilled.current = true
+    const app = q.get('app'); const target = app && apps.some((a) => a.id === app) ? app : appId
+    if (target !== appId) setAppId(target)
+    const cap = q.get('caption'); if (cap) { const h = marketsFor(target)[0].id; setEds({ [h]: { ...BLANK, caption: cap } }) }
     const n = q.get('notes'); if (n) setNotes(n)
     const media = q.get('media')
     if (media) {
@@ -210,7 +195,6 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const multi = mkts.length > 1
-  const sx = available.length > 1 ? 1 : 0
   useEffect(() => { if (!mkts.includes(active)) setActive(mkts[0]) }, [mkts, active])
   useEffect(() => { if (multi && mode === 'repeat') setMode('now') }, [multi, mode])
   useEffect(() => {
@@ -220,21 +204,60 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   }, [appId])
   const account = useCallback((p: Platform) => app?.accounts.find((a) => a.platform === p), [app])
 
-  // Draft survives a reload (caption + app only; media is re-picked).
+  // Drafts survive a reload — per app (captions only; media is re-picked).
+  const stash = useRef(new Map<string, Stash>())
+  const draftsLoaded = useRef(false)
   useEffect(() => {
+    if (draftsLoaded.current) return
+    draftsLoaded.current = true
     try {
-      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null')
-      if (d) { setCaption(d.caption ?? ''); if (apps.some((a) => a.id === d.appId)) setAppId(d.appId) }
+      const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null')
+      // v1 was one caption for whichever app was open: file it under that app's home edition.
+      const d: DraftStore | null = raw?.v === 2 ? raw : raw && typeof raw.caption === 'string' && raw.appId
+        ? { v: 2, appId: raw.appId, byApp: raw.caption.trim() ? { [raw.appId]: { [marketsFor(raw.appId)[0].id]: { caption: raw.caption, overrides: {} } } } : {} } : null
+      if (!d) return
+      for (const [id, e] of Object.entries(d.byApp ?? {})) {
+        if (!apps.some((a) => a.id === id) || !hasWords(e)) continue
+        stash.current.set(id, { eds: e, notes: '', items: [], picked: {}, platPicked: {}, tailor: Object.values(e).some((x) => Object.keys(x?.overrides ?? {}).length), captionBy: 'brian', ctWord: '' })
+      }
+      if (urlPrefilled.current) return
+      const open = apps.some((a) => a.id === d.appId) ? d.appId : appId
+      const mine = stash.current.get(open)
+      if (open !== appId) setAppId(open)
+      if (mine) { setEds(mine.eds); setTailor(mine.tailor) }
     } catch { /* private mode */ }
-  }, [apps])
-  useEffect(() => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ caption, appId })) } catch { /* ignore */ } }, [caption, appId])
+  }, [apps]) // eslint-disable-line react-hooks/exhaustive-deps
+  const writeDrafts = useCallback((current: Partial<Record<MarketId, Edition>>, skipCurrent = false) => {
+    try {
+      const byApp: DraftStore['byApp'] = {}
+      for (const [id, st] of stash.current) if (id !== appId && hasWords(st.eds)) byApp[id] = st.eds
+      if (!skipCurrent && hasWords(current)) byApp[appId] = current
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 2, appId, byApp } satisfies DraftStore))
+    } catch { /* ignore */ }
+  }, [appId])
+  useEffect(() => { if (draftsLoaded.current) writeDrafts(eds) }, [eds, writeDrafts])
+  /** Posted: forget this app's draft (other apps keep theirs). */
+  const clearDraft = () => { stash.current.delete(appId); writeDrafts({}, true) }
+
+  /** Switch app: park this app's words + media, bring the other app's back (or a blank page). */
+  const switchApp = (id: string) => {
+    if (id === appId) return
+    stash.current.set(appId, { eds, notes, items, picked, platPicked, tailor, captionBy, ctWord })
+    const st = stash.current.get(id)
+    setEds(st?.eds ?? {}); setNotes(st?.notes ?? ''); setItems(st?.items ?? []); setPicked(st?.picked ?? {}); setPlatPicked(st?.platPicked ?? {})
+    setTailor(st?.tailor ?? false); setCaptionBy(st?.captionBy ?? 'brian'); setCtWord(st?.ctWord ?? '')
+    setAiNote(null); setChoosingPlat(null); setError(null); frameCache.current = null
+    setAppId(id)
+  }
 
   // Every place this app can post to starts switched on ("post everywhere");
   // ones it can't are off, with the reason shown as the fix.
+  const pendingPlatforms = useRef<Platform[] | null>(null)
   useEffect(() => {
+    const want = pendingPlatforms.current; pendingPlatforms.current = null
     setDest((d) => {
       const next = { ...d }
-      for (const p of PLATFORMS) next[p.id] = { ...next[p.id], on: !!account(p.id)?.ready }
+      for (const p of PLATFORMS) next[p.id] = { ...next[p.id], on: !!account(p.id)?.ready && (!want || want.includes(p.id)) }
       return next
     })
   }, [account])
@@ -379,6 +402,38 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     }))
   }, [pw, appId, items.length])
 
+  /** Media already on studio-media (a past post, a duplicate): no upload. */
+  const addReady = useCallback((list: ReuseMedia[]) => {
+    setItems((xs) => [...xs, ...list.filter((m) => !xs.some((x) => x.url === m.url)).slice(0, Math.max(0, MAX_ITEMS - xs.length)).map((m) => ({
+      key: crypto.randomUUID(), name: m.name, src: m.url, kind: m.kind, mime: m.kind === 'video' ? 'video/mp4' : 'image/jpeg',
+      width: m.width || 1, height: m.height || 1, duration: (m as { duration?: number }).duration, size: 0, progress: 1, status: 'ready' as const, url: m.url,
+    }))])
+  }, [])
+  const [library, setLibrary] = useState<'drive' | 'past' | null>(null)
+
+  // Prefill: a time picked on the Calendar, or a post to duplicate.
+  useEffect(() => {
+    if (!prefill) return
+    const target = prefill.appId && apps.some((a) => a.id === prefill.appId) ? prefill.appId : appId
+    const mk = isMarketId(prefill.market) && marketsFor(target).some((m) => m.id === prefill.market) ? prefill.market : null
+    setResult(null); setResults(null); setError(null)
+    if (target !== appId) {
+      switchApp(target)
+      pendingMarket.current = mk
+      if (prefill.platforms) pendingPlatforms.current = prefill.platforms
+    } else {
+      if (mk) { setMkts([mk]); setActive(mk) }
+      if (prefill.platforms) setDest((d) => { const n = { ...d }; for (const p of PLATFORMS) n[p.id] = { ...n[p.id], on: !!account(p.id)?.ready && prefill.platforms!.includes(p.id) }; return n })
+    }
+    if (prefill.caption !== undefined || prefill.overrides) {
+      const ed = mk ?? marketsFor(target)[0].id
+      const ov = Object.fromEntries(Object.entries(prefill.overrides ?? {}).filter(([, v]) => v)) as Partial<Record<Platform, string>>
+      setEds({ [ed]: { caption: prefill.caption ?? '', overrides: ov } }); setTailor(Object.keys(ov).length > 0)
+    }
+    if (prefill.media) { setItems([]); addReady(prefill.media.map((m) => ({ ...m, name: nameFromUrl(m.url) }))) }
+    if (prefill.at) { setMode('later'); setAt(localInput(new Date(prefill.at))) }
+  }, [prefill?.key]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const uploadBlob = async (blob: Blob, name: string) => {
     const res = await fetch('/api/publish/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId, filename: name }) })
     const up = await res.json()
@@ -465,7 +520,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       }))
       const ok = out.filter((x): x is { market: MarketId; post: QueuedPost } => 'post' in x)
       const bad = out.filter((x) => 'error' in x) as { market: MarketId; error: string }[]
-      if (ok.length) { setResults(ok); onPosted(); try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ } }
+      if (ok.length) { setResults(ok); onPosted(); clearDraft() }
       if (bad.length) setError(bad.map((b) => tag(b.market) + b.error).join(' · '))
       setSending(false)
       return
@@ -483,8 +538,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? 'Posting failed.')
-      setResult(body.post); setResultSeries(body.series ?? null); onPosted()
-      try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+      setResult(body.post); setResultSeries(body.series ?? null); onPosted(); clearDraft()
     } catch (e) { setError((e as Error).message) }
     setSending(false)
   }
@@ -508,7 +562,7 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const reset = () => { setItems([]); setEds({}); setPicked({}); setResults(null); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null; setSplitPref(false); splitTouched.current = false; setPlatPicked({}); setChoosingPlat(null) }
+  const reset = () => { clearDraft(); setItems([]); setEds({}); setPicked({}); setResults(null); setTailor(false); setResult(null); setResultSeries(null); setMode('now'); setNotes(''); setCaptionBy('brian'); setAiNote(null); frameCache.current = null; setSplitPref(false); splitTouched.current = false; setPlatPicked({}); setChoosingPlat(null) }
   const move = (from: string, to: string) => setItems((xs) => {
     const a = [...xs], i = a.findIndex((x) => x.key === from), j = a.findIndex((x) => x.key === to)
     if (i < 0 || j < 0) return xs
@@ -541,43 +595,43 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
   if (result) return <Result post={result} series={resultSeries} app={app} onNew={reset} />
   if (results) return <EditionsResult results={results} app={app} onNew={reset} />
 
-  const step = (n: number, title: string, aside?: React.ReactNode) => (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
-      <span style={{ fontFamily: C.mono, fontSize: 11, color: C.faint }}>0{n}</span>
-      <h2 style={{ fontFamily: C.serif, fontSize: 19, fontWeight: 800, margin: 0 }}>{title}</h2>
+  const step = (_n: number, title: string, aside?: React.ReactNode) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+      <h2 style={{ fontFamily: C.sans, fontSize: 17, fontWeight: 750, margin: 0, letterSpacing: '-.01em' }}>{title}</h2>
       <span style={{ flex: 1 }} />{aside}
     </div>
   )
 
   return (
-    <div className="composer" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 400px', gap: 26, alignItems: 'start' }}>
-      <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
-        {/* 1 · App */}
-        <section style={card}>
-          {step(1, 'Which app?')}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>
-            {apps.map((a) => {
-              const on = a.id === appId
-              const ready = a.accounts.filter((x) => x.ready).length
-              return (
-                <button key={a.id} onClick={() => setAppId(a.id)} aria-pressed={on}
-                  style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', padding: 10, borderRadius: 14, cursor: 'pointer', fontFamily: C.sans,
-                           background: on ? C.card : C.card2, border: `2px solid ${on ? a.accent : 'transparent'}`,
-                           boxShadow: on ? `0 6px 18px ${a.accent}33` : 'none', transition: 'all .15s' }}>
-                  <img src={a.icon} alt="" width={40} height={40} style={{ borderRadius: 10, flexShrink: 0 }} />
-                  <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontWeight: 800, fontSize: 14.5, color: C.ink }}>{a.name}</span>
-                    <span style={{ display: 'block', fontSize: 11.5, color: C.soft }}>{ready} of 4 ready</span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </section>
+    <div className="composer-wrap">
+    <div className="composer">
+      {/* Which app — one compact row; each app keeps its own draft. */}
+      <div className="cmp-apps" role="radiogroup" aria-label="Which app" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {apps.map((a) => {
+          const on = a.id === appId
+          const ready = a.accounts.filter((x) => x.ready).length
+          const drafted = !on && hasWords(stash.current.get(a.id)?.eds)
+          return (
+            <button key={a.id} role="radio" aria-checked={on} onClick={() => switchApp(a.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 6px', borderRadius: 99, cursor: 'pointer', fontFamily: C.sans,
+                       background: C.card, border: `1.5px solid ${on ? a.accent : C.rule}`, boxShadow: on ? `0 6px 18px ${a.accent}33, 0 0 0 3px ${a.accent}1f` : 'none', transition: 'all .15s' }}>
+              <img src={a.icon} alt="" width={28} height={28} style={{ borderRadius: 7, flexShrink: 0 }} />
+              <span style={{ fontWeight: 800, fontSize: 13.5, color: C.ink }}>{a.name}</span>
+              <span style={{ fontSize: 11.5, color: C.soft }}>{ready}/4</span>
+              {drafted && <span title="Has a draft" style={{ width: 7, height: 7, borderRadius: 99, background: a.accent }} />}
+            </button>
+          )
+        })}
+      </div>
 
-        {/* 2 · Media */}
+      <div className="cmp-work" style={{ display: 'grid', gap: 18, minWidth: 0, alignContent: 'start' }}>
+        {/* Media */}
         <section style={card}>
-          {step(2, 'Photos & video', items.length > 0 && <span style={{ fontSize: 12.5, color: C.soft }}>{items.length} item{items.length === 1 ? '' : 's'} · drag to reorder</span>)}
+          {step(2, 'Photos & video', <span style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12.5, color: C.soft }}>
+            {items.length > 0 && <span>{items.length} item{items.length === 1 ? '' : 's'} · drag to reorder</span>}
+            {items.length > 0 && <button onClick={() => setLibrary('drive')} style={{ border: 0, background: 'none', color: C.mint, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', padding: 0, fontFamily: C.sans }}>From Drive</button>}
+            {items.length > 0 && <button onClick={() => setLibrary('past')} style={{ border: 0, background: 'none', color: C.mint, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', padding: 0, fontFamily: C.sans }}>Reuse</button>}
+          </span>)}
           <div
             onDragOver={(e) => { e.preventDefault(); if (!dragKey) setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
@@ -588,7 +642,11 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
                 <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={C.mint} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-9 9" /></svg>
                 <b style={{ fontSize: 15 }}>Drop photos or a video here</b>
                 <span style={{ fontSize: 13, color: C.soft }}>JPEG, PNG, MP4 or MOV · up to 10 for a carousel · one cut per platform (name them _ig, _fb, _tiktok, _threads) · or text only to Threads and Facebook</span>
-                <button style={{ ...btn('ghost'), marginTop: 6 }} onClick={() => fileInput.current?.click()}>Choose files</button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>
+                  <button style={btn('ghost')} onClick={() => fileInput.current?.click()}>Choose files</button>
+                  <button style={btn('ghost')} onClick={() => setLibrary('drive')}>From Drive</button>
+                  <button style={btn('ghost')} onClick={() => setLibrary('past')}>Reuse a past post</button>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 10 }}>
@@ -698,10 +756,188 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         </section>
 
+        {/* 3 · Caption */}
+        <section style={card}>
+          {step(3, multi ? 'Captions' : 'Caption', <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button onClick={writeWithAi} disabled={!ai?.ready || aiBusy || !targets.length || uploading}
+              title={!ai?.ready ? 'AI captions need ANTHROPIC_API_KEY on Vercel' : !targets.length ? 'Pick where it’s going first' : uploading ? 'Wait for the upload' : 'Claude writes a caption for each platform'}
+              style={{ ...btn('ghost'), fontSize: 13, padding: '7px 13px', opacity: !ai?.ready || !targets.length || uploading ? 0.5 : 1 }}>
+              {aiBusy ? (multi ? `Writing ${mkts.length} editions…` : 'Writing…') : multi ? `✦ Write all ${mkts.length} with AI` : caption ? '✦ Rewrite with AI' : '✦ Write with AI'}
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.ink2, cursor: 'pointer' }}>
+              Tailor per platform <Toggle on={tailor} onChange={setTailor} label="Tailor caption per platform" />
+            </label>
+          </div>)}
+          {multi && (
+            <div role="tablist" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+              {mkts.map((id) => {
+                const m = MARKETS[id], on = id === active, has = !!(eds[id]?.caption.trim())
+                return (
+                  <button key={id} role="tab" aria-selected={on} onClick={() => setActive(id)}
+                    style={{ border: `1.5px solid ${on ? C.ink : C.rule2}`, background: on ? C.ink : C.card, color: on ? C.paper : C.ink2, borderRadius: 99,
+                             padding: '5px 11px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans }}>
+                    {m.flag} {m.short}{has ? ' ✓' : ''}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000}
+            placeholder="What’s this post about? (optional — steers the AI, e.g. “new 3D dice, Friday game night vibe”)"
+            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 13.5, color: C.ink, background: C.card, marginBottom: 10 }} />
+          {aiNote && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: aiNote.ok ? C.mint : C.red }}>{aiNote.text}</p>}
+          <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={6}
+            placeholder={multi ? `${MARKETS[active].flag} ${MARKETS[active].langName} caption — or ✦ Write with AI for every edition` : `What's new with ${app?.name ?? 'the app'}? Hashtags and @mentions welcome.`}
+            style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.rule2}`, borderRadius: 12, padding: '12px 14px', fontFamily: C.sans, fontSize: 15, lineHeight: 1.5, color: C.ink, background: C.paper, outline: 'none' }} />
+          <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
+            <span style={{ color: strictest && caption.length > strictest.max ? C.red : C.soft }}>
+              {caption.length.toLocaleString()}{strictest ? ` / ${strictest.max.toLocaleString()} (${pname(strictest.t.platform)})` : ''}
+            </span>
+            <span style={{ color: tags > 30 ? C.red : C.soft }}>{tags} hashtag{tags === 1 ? '' : 's'}</span>
+            <span style={{ flex: 1 }} /><span>⌘↵ to {mode === 'repeat' ? 'start repeating' : schedule ? 'schedule' : 'post'}</span>
+          </div>
+          {targets.length > 0 && (
+            <div style={{ marginTop: 12, border: `1px solid ${C.rule}`, borderRadius: 12, background: C.card2 }}>
+              <button onClick={() => setCtOpen((v) => !v)} aria-expanded={ctOpen}
+                style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', fontSize: 12.5, color: C.ink2 }}>
+                <span style={{ ...label, margin: 0 }}>Campaign link</span>
+                <span style={{ fontFamily: C.mono, fontSize: 12, color: C.ink }}>{ctSlugUsed}</span>
+                <span>· {ctLinks.length} link{ctLinks.length === 1 ? '' : 's'}</span>
+                {ctLinks.every((l) => captionFor(l.platform, caption, tailor ? overrides : {}).includes(l.url)) && <span style={{ color: C.mint, fontWeight: 700 }}>· in captions ✓</span>}
+                <span style={{ flex: 1 }} /><span aria-hidden>{ctOpen ? '▴' : '▾'}</span>
+              </button>
+              {ctOpen && (
+                <div style={{ padding: '0 12px 12px', display: 'grid', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <input value={ctWord} onChange={(e) => setCtWord(e.target.value)} maxLength={30} placeholder={ctSlugUsed} aria-label="Campaign slug"
+                      style={{ width: 170, border: `1px solid ${C.rule2}`, borderRadius: 8, padding: '5px 9px', fontFamily: C.mono, fontSize: 12.5, color: C.ink, background: C.card }} />
+                    <span style={{ flex: 1 }} />
+                    <button onClick={() => addCtLink(ctLinks)} disabled={!onStore} title={onStore ? 'Append each platform’s link to its own caption' : 'Not on the App Store yet'}
+                      style={{ ...btn('ghost'), fontSize: 12.5, padding: '6px 11px', opacity: onStore ? 1 : 0.5 }}>Add to all captions</button>
+                  </div>
+                  {!onStore && <p style={{ margin: 0, fontSize: 12, color: C.amber }}>{app?.name ?? appId} has no App Store ID yet — clarendon.dev/get/{appId} answers 404 until it’s set in src/lib/ads/store.ts.</p>}
+                  {ctLinks.map((l) => {
+                    const inCaption = captionFor(l.platform, caption, tailor ? overrides : {}).includes(l.url)
+                    return (
+                      <div key={l.platform} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, flexWrap: 'wrap' }}>
+                        <PlatformGlyph platform={l.platform} size={15} />
+                        <code style={{ fontFamily: C.mono, fontSize: 12, color: C.ink, overflowWrap: 'anywhere', flex: '1 1 200px', minWidth: 0 }}>{l.url}</code>
+                        {inCaption ? <span style={{ color: C.mint, fontWeight: 700 }}>In caption ✓</span>
+                          : <button onClick={() => addCtLink([l])} disabled={!onStore} style={{ border: 0, background: 'none', color: C.mint, fontWeight: 700, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, padding: 0 }}>Add</button>}
+                        <button onClick={() => copyCt(l.platform, l.url)} style={{ border: 0, background: 'none', color: C.ink2, fontWeight: 600, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, padding: 0 }}>{ctCopied === l.platform ? 'Copied ✓' : 'Copy'}</button>
+                      </div>
+                    )
+                  })}
+                  <p style={{ margin: 0, fontSize: 11.5, color: C.soft }}>
+                    ct = platform · {mode === 'later' ? 'scheduled' : 'today’s'} date · slug. Clickable on Facebook and Threads; on Instagram and TikTok put it in the bio instead.
+                    Installs show in App Store Connect → App Analytics → Campaigns.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {tailor && targets.length > 0 && (
+            <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+              {targets.map((t) => {
+                const spec = PLATFORMS.find((p) => p.id === t.platform)!
+                const effective = captionFor(t.platform, caption, overrides)
+                return (
+                  <div key={t.platform} style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10 }}>
+                    <div style={{ paddingTop: 10 }}><PlatformGlyph platform={t.platform} size={20} /></div>
+                    <div>
+                      <textarea value={overrides[t.platform] ?? ''} rows={2} onChange={(e) => setOverrides((o) => ({ ...o, [t.platform]: e.target.value }))}
+                        placeholder={`${spec.name}: same as above — type to change it just here`}
+                        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 14, color: C.ink, background: C.card }} />
+                      <div style={{ fontSize: 11.5, color: effective.length > spec.captionMax ? C.red : C.soft, marginTop: 3 }}>{effective.length.toLocaleString()} / {spec.captionMax.toLocaleString()}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+      </div>
+
+      {/* Where + when: platforms, countries, schedule, the Post button, checks. */}
+      <div className="cmp-plan" style={{ display: 'grid', gap: 14, minWidth: 0, alignContent: 'start' }}>
+        {/* Where to post — one compact row per platform: icon · handle · format · switch. */}
+        <section style={{ ...card, padding: 18 }}>
+          {step(0, 'Where to post', <span style={{ fontSize: 12.5, color: C.soft }}>{targets.length} of 4</span>)}
+          <div style={{ display: 'grid', gap: 8, alignItems: 'start' }}>
+            {PLATFORMS.map((p) => {
+              const acc = account(p.id)
+              const on = dest[p.id].on
+              const pm = mediaOf(p.id)
+              const oneVideo = pm.length === 1 && pm[0].kind === 'video'
+              const ttIssue = p.id === 'tiktok' && issues.some((i) => i.platform === 'tiktok' && i.level === 'error')
+              return (
+                <div key={p.id} style={{ borderRadius: 12, padding: '9px 12px', border: `1px solid ${on ? C.mint : C.rule}`, background: on ? C.mintTint : acc?.ready ? C.card : C.paper, display: 'grid', gap: 8, transition: 'all .15s' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
+                    <span style={{ width: 30, height: 30, borderRadius: 9, background: C.card, display: 'grid', placeItems: 'center', border: `1px solid ${C.rule}`, flexShrink: 0 }}>
+                      <PlatformGlyph platform={p.id} size={17} color={acc?.ready ? undefined : C.faint} />
+                    </span>
+                    <div style={{ minWidth: 0, flex: '1 1 90px' }}>
+                      <div style={{ fontWeight: 800, fontSize: 13.5, color: acc?.ready ? C.ink : C.soft, lineHeight: 1.2 }}>{p.name}</div>
+                      <div style={{ fontSize: 11.5, color: C.soft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {acc?.handle ? (p.id === 'facebook' ? acc.handle : `@${acc.handle}`) : acc?.ready ? 'Connected' : 'Not set up yet'}
+                      </div>
+                    </div>
+                    {p.id === 'instagram' && acc?.ready && (
+                      <Segmented<Format> value={dest.instagram.format} disabled={!on}
+                        onChange={(f) => setDest((d) => ({ ...d, instagram: { ...d.instagram, format: f } }))}
+                        options={[
+                          { value: 'feed', label: 'Post', disabled: oneVideo, title: oneVideo ? 'A single video posts as a Reel' : 'Photo or carousel in the grid' },
+                          { value: 'reel', label: 'Reel', disabled: !oneVideo, title: 'One video' },
+                          { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video, gone in 24 hours' },
+                        ]} />
+                    )}
+                    {p.id === 'facebook' && acc?.ready && pm.length > 0 && (
+                      <Segmented<Format> value={dest.facebook.format} disabled={!on}
+                        onChange={(f) => setDest((d) => ({ ...d, facebook: { ...d.facebook, format: f } }))}
+                        options={[
+                          { value: 'post', label: oneVideo ? 'Video' : 'Post', title: 'A regular post on the Page' },
+                          ...(oneVideo ? [{ value: 'reel' as Format, label: 'Reel', disabled: !fbReelOK(pm[0]), title: fbReelOK(pm[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' }] : []),
+                          { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video on the Page’s Story, gone in 24 hours' },
+                        ]} />
+                    )}
+                    {p.id === 'tiktok' && acc?.ready && on && (
+                      <button onClick={() => setTtOpen((v) => !v)} aria-expanded={ttOpen}
+                        style={{ border: `1px solid ${ttIssue ? C.amber : C.rule2}`, background: C.card, borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: C.sans, color: ttIssue ? C.amber : C.ink2 }}>
+                        {ttIssue && !ttOpen ? '● ' : ''}Options {ttOpen ? '▴' : '▾'}
+                      </button>
+                    )}
+                    <Toggle on={on} disabled={!acc?.ready} label={`Post to ${p.name}`} onChange={(v) => setDest((d) => ({ ...d, [p.id]: { ...d[p.id], on: v } }))} />
+                  </div>
+                  {!acc?.ready && (acc?.reason || acc?.connect) && (
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {acc?.reason && <span style={{ fontSize: 12, color: C.ink2, lineHeight: 1.45, flex: '1 1 200px' }}>{acc.reason}</span>}
+                      {acc?.connect && <button onClick={() => connect(acc.connect!)} disabled={connecting} style={{ ...btn('solid'), fontSize: 12.5, padding: '7px 12px' }}>{connecting ? `Opening ${p.name}…` : `Connect ${p.name}`}</button>}
+                    </div>
+                  )}
+                  {p.id === 'tiktok' && acc?.ready && on && ttOpen && (
+                    <TikTokPanel creator={creator.info} audited={creator.audited} loading={creator.loading} error={creator.error}
+                      value={tt} onChange={setTt} duration={ttVideo?.duration} />
+                  )}
+                  {p.id === 'tiktok' && !acc?.ready && oneVideo && pm[0]?.url && pm[0].url !== 'https://pending' && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>Post it yourself</span>
+                      <button style={{ ...btn('ghost'), fontSize: 12, padding: '6px 11px' }}
+                        onClick={() => { navigator.clipboard?.writeText(captionFor('tiktok', caption, tailor ? overrides : {})); setCopied(true); setTimeout(() => setCopied(false), 1800) }}>
+                        {copied ? 'Copied ✓' : 'Copy caption'}
+                      </button>
+                      <a href={pm[0].url} target="_blank" rel="noreferrer" download style={{ ...btn('ghost'), fontSize: 12, padding: '6px 11px', textDecoration: 'none' }}>Open video</a>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
         {/* 3 · Countries & languages (apps that ship in more than one) */}
         {available.length > 1 && (
-          <section style={card}>
-            {step(3, 'Countries & languages', <span style={{ fontSize: 12.5, color: C.soft }}>{mkts.length} edition{mkts.length === 1 ? '' : 's'}</span>)}
+          <section style={{ ...card, padding: 18 }}>
+            {step(0, 'Countries & languages', <span style={{ fontSize: 12.5, color: C.soft }}>{mkts.length} edition{mkts.length === 1 ? '' : 's'}</span>)}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
               {available.map((m) => {
                 const on = mkts.includes(m.id)
@@ -784,198 +1020,8 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           </section>
         )}
 
-        {/* 3 · Caption */}
-        <section style={card}>
-          {step(3 + sx, multi ? 'Captions' : 'Caption', <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button onClick={writeWithAi} disabled={!ai?.ready || aiBusy || !targets.length || uploading}
-              title={!ai?.ready ? 'AI captions need ANTHROPIC_API_KEY on Vercel' : !targets.length ? 'Pick where it’s going first' : uploading ? 'Wait for the upload' : 'Claude writes a caption for each platform'}
-              style={{ ...btn('ghost'), fontSize: 13, padding: '7px 13px', opacity: !ai?.ready || !targets.length || uploading ? 0.5 : 1 }}>
-              {aiBusy ? (multi ? `Writing ${mkts.length} editions…` : 'Writing…') : multi ? `✦ Write all ${mkts.length} with AI` : caption ? '✦ Rewrite with AI' : '✦ Write with AI'}
-            </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.ink2, cursor: 'pointer' }}>
-              Tailor per platform <Toggle on={tailor} onChange={setTailor} label="Tailor caption per platform" />
-            </label>
-          </div>)}
-          {multi && (
-            <div role="tablist" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-              {mkts.map((id) => {
-                const m = MARKETS[id], on = id === active, has = !!(eds[id]?.caption.trim())
-                return (
-                  <button key={id} role="tab" aria-selected={on} onClick={() => setActive(id)}
-                    style={{ border: `1.5px solid ${on ? C.ink : C.rule2}`, background: on ? C.ink : C.card, color: on ? C.paper : C.ink2, borderRadius: 99,
-                             padding: '5px 11px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans }}>
-                    {m.flag} {m.short}{has ? ' ✓' : ''}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-          <input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000}
-            placeholder="What’s this post about? (optional — steers the AI, e.g. “new 3D dice, Friday game night vibe”)"
-            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 13.5, color: C.ink, background: C.card, marginBottom: 10 }} />
-          {aiNote && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: aiNote.ok ? C.mint : C.red }}>{aiNote.text}</p>}
-          <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={6}
-            placeholder={multi ? `${MARKETS[active].flag} ${MARKETS[active].langName} caption — or ✦ Write with AI for every edition` : `What's new with ${app?.name ?? 'the app'}? Hashtags and @mentions welcome.`}
-            style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.rule2}`, borderRadius: 12, padding: '12px 14px', fontFamily: C.sans, fontSize: 15, lineHeight: 1.5, color: C.ink, background: C.paper, outline: 'none' }} />
-          <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
-            <span style={{ color: strictest && caption.length > strictest.max ? C.red : C.soft }}>
-              {caption.length.toLocaleString()}{strictest ? ` / ${strictest.max.toLocaleString()} (${pname(strictest.t.platform)})` : ''}
-            </span>
-            <span style={{ color: tags > 30 ? C.red : C.soft }}>{tags} hashtag{tags === 1 ? '' : 's'}</span>
-            <span style={{ flex: 1 }} /><span>⌘↵ to {mode === 'repeat' ? 'start repeating' : schedule ? 'schedule' : 'post'}</span>
-          </div>
-          {targets.length > 0 && (
-            <div style={{ marginTop: 14, padding: '12px 14px', border: `1px solid ${C.rule}`, borderRadius: 12, background: C.card2, display: 'grid', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ ...label, margin: 0 }}>Campaign link</span>
-                <input value={ctWord} onChange={(e) => setCtWord(e.target.value)} maxLength={30} placeholder={ctSlugUsed} aria-label="Campaign slug"
-                  style={{ width: 170, border: `1px solid ${C.rule2}`, borderRadius: 8, padding: '5px 9px', fontFamily: C.mono, fontSize: 12.5, color: C.ink, background: C.card }} />
-                <span style={{ flex: 1 }} />
-                <button onClick={() => addCtLink(ctLinks)} disabled={!onStore} title={onStore ? 'Append each platform’s link to its own caption' : 'Not on the App Store yet'}
-                  style={{ ...btn('ghost'), fontSize: 12.5, padding: '6px 11px', opacity: onStore ? 1 : 0.5 }}>Add to all captions</button>
-              </div>
-              {!onStore && <p style={{ margin: 0, fontSize: 12, color: C.amber }}>{app?.name ?? appId} has no App Store ID yet — clarendon.dev/get/{appId} answers 404 until it’s set in src/lib/ads/store.ts.</p>}
-              {ctLinks.map((l) => {
-                const inCaption = captionFor(l.platform, caption, tailor ? overrides : {}).includes(l.url)
-                return (
-                  <div key={l.platform} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, flexWrap: 'wrap' }}>
-                    <PlatformGlyph platform={l.platform} size={15} />
-                    <code style={{ fontFamily: C.mono, fontSize: 12, color: C.ink, overflowWrap: 'anywhere' }}>{l.url}</code>
-                    <span style={{ flex: 1 }} />
-                    {inCaption ? <span style={{ color: C.mint, fontWeight: 700 }}>In caption ✓</span>
-                      : <button onClick={() => addCtLink([l])} disabled={!onStore} style={{ border: 0, background: 'none', color: C.mint, fontWeight: 700, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, padding: 0 }}>Add</button>}
-                    <button onClick={() => copyCt(l.platform, l.url)} style={{ border: 0, background: 'none', color: C.ink2, fontWeight: 600, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, padding: 0 }}>{ctCopied === l.platform ? 'Copied ✓' : 'Copy'}</button>
-                  </div>
-                )
-              })}
-              <p style={{ margin: 0, fontSize: 11.5, color: C.soft }}>
-                ct = platform · {mode === 'later' ? 'scheduled' : 'today’s'} date · slug (a–z 0–9 - _, 40 chars max). Clickable on Facebook and Threads; on Instagram and TikTok put it in the bio instead.
-                Installs show in App Store Connect → App Analytics → Campaigns once APPSTORE_PROVIDER_TOKEN is set on Vercel.
-              </p>
-            </div>
-          )}
-          {tailor && targets.length > 0 && (
-            <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-              {targets.map((t) => {
-                const spec = PLATFORMS.find((p) => p.id === t.platform)!
-                const effective = captionFor(t.platform, caption, overrides)
-                return (
-                  <div key={t.platform} style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10 }}>
-                    <div style={{ paddingTop: 10 }}><PlatformGlyph platform={t.platform} size={20} /></div>
-                    <div>
-                      <textarea value={overrides[t.platform] ?? ''} rows={2} onChange={(e) => setOverrides((o) => ({ ...o, [t.platform]: e.target.value }))}
-                        placeholder={`${spec.name}: same as above — type to change it just here`}
-                        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.rule2}`, borderRadius: 10, padding: '9px 12px', fontFamily: C.sans, fontSize: 14, color: C.ink, background: C.card }} />
-                      <div style={{ fontSize: 11.5, color: effective.length > spec.captionMax ? C.red : C.soft, marginTop: 3 }}>{effective.length.toLocaleString()} / {spec.captionMax.toLocaleString()}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* 4 · Destinations */}
-        <section style={card}>
-          {step(4 + sx, 'Where to post', <span style={{ fontSize: 12.5, color: C.soft }}>{targets.length} selected</span>)}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 10 }}>
-            {PLATFORMS.map((p) => {
-              const acc = account(p.id)
-              const on = dest[p.id].on
-              const pm = mediaOf(p.id)
-              const oneVideo = pm.length === 1 && pm[0].kind === 'video'
-              return (
-                <div key={p.id} style={{ borderRadius: 14, padding: 14, border: `1.5px solid ${on ? C.mint : C.rule}`, background: on ? C.mintTint : acc?.ready ? C.card : C.paper, display: 'grid', gap: 10, transition: 'all .15s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ width: 34, height: 34, borderRadius: 10, background: C.card, display: 'grid', placeItems: 'center', border: `1px solid ${C.rule}`, flexShrink: 0 }}>
-                      <PlatformGlyph platform={p.id} size={19} color={acc?.ready ? undefined : C.faint} />
-                    </span>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: acc?.ready ? C.ink : C.soft }}>{p.name}</div>
-                      <div style={{ fontSize: 12, color: C.soft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {acc?.handle ? (p.id === 'facebook' ? acc.handle : `@${acc.handle}`) : acc?.ready ? '' : 'Not set up yet'}
-                      </div>
-                    </div>
-                    <Toggle on={on} disabled={!acc?.ready} label={`Post to ${p.name}`} onChange={(v) => setDest((d) => ({ ...d, [p.id]: { ...d[p.id], on: v } }))} />
-                  </div>
-                  {p.id === 'instagram' && acc?.ready && (
-                    <Segmented<Format> value={dest.instagram.format} disabled={!on}
-                      onChange={(f) => setDest((d) => ({ ...d, instagram: { ...d.instagram, format: f } }))}
-                      options={[
-                        { value: 'feed', label: 'Post', disabled: oneVideo, title: oneVideo ? 'A single video posts as a Reel' : 'Photo or carousel in the grid' },
-                        { value: 'reel', label: 'Reel', disabled: !oneVideo, title: 'One video' },
-                        { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video, gone in 24 hours' },
-                      ]} />
-                  )}
-                  {p.id === 'facebook' && acc?.ready && pm.length > 0 && (
-                    <Segmented<Format> value={dest.facebook.format} disabled={!on}
-                      onChange={(f) => setDest((d) => ({ ...d, facebook: { ...d.facebook, format: f } }))}
-                      options={[
-                        { value: 'post', label: oneVideo ? 'Video' : 'Post', title: 'A regular post on the Page' },
-                        ...(oneVideo ? [{ value: 'reel' as Format, label: 'Reel', disabled: !fbReelOK(pm[0]), title: fbReelOK(pm[0]) ? 'Vertical, up to 90 seconds — Reels reach more people' : 'Reels need a vertical video of 3–90 seconds' }] : []),
-                        { value: 'story', label: 'Story', disabled: pm.length > 1, title: 'One photo or video on the Page’s Story, gone in 24 hours' },
-                      ]} />
-                  )}
-                  {!acc?.ready && acc?.reason && <p style={{ margin: 0, fontSize: 12, color: C.ink2, lineHeight: 1.45 }}>{acc.reason}</p>}
-                  {!acc?.ready && acc?.connect && (
-                    <button onClick={() => connect(acc.connect!)} disabled={connecting} style={{ ...btn('solid'), justifySelf: 'start', fontSize: 13, padding: '8px 14px' }}>
-                      {connecting ? `Opening ${p.name}…` : `Connect ${p.name}`}
-                    </button>
-                  )}
-                  {p.id === 'tiktok' && acc?.ready && on && (
-                    <TikTokPanel creator={creator.info} audited={creator.audited} loading={creator.loading} error={creator.error}
-                      value={tt} onChange={setTt} duration={ttVideo?.duration} />
-                  )}
-                  {p.id === 'tiktok' && !acc?.ready && oneVideo && pm[0]?.url && pm[0].url !== 'https://pending' && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: C.ink, width: '100%' }}>Post it yourself</span>
-                      <button style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px' }}
-                        onClick={() => { navigator.clipboard?.writeText(captionFor('tiktok', caption, tailor ? overrides : {})); setCopied(true); setTimeout(() => setCopied(false), 1800) }}>
-                        {copied ? 'Copied ✓' : 'Copy caption'}
-                      </button>
-                      <a href={pm[0].url} target="_blank" rel="noreferrer" download style={{ ...btn('ghost'), fontSize: 12.5, padding: '7px 12px', textDecoration: 'none' }}>Open video</a>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      </div>
-
-      {/* Right rail: preview, checks, send */}
-      <aside style={{ position: 'sticky', top: 24, display: 'grid', gap: 14 }}>
-        <section style={{ ...card, padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-            <span style={{ ...label, marginRight: 6 }}>Preview{multi ? ` · ${MARKETS[active].flag} ${MARKETS[active].short}` : ''}</span>
-            {targets.map((t) => (
-              <button key={t.platform} onClick={() => setPreviewOn(t.platform)} aria-pressed={previewOn === t.platform} title={pname(t.platform)}
-                style={{ width: 32, height: 32, borderRadius: 9, cursor: 'pointer', display: 'grid', placeItems: 'center',
-                         border: `1.5px solid ${previewOn === t.platform ? C.ink : C.rule}`, background: previewOn === t.platform ? C.card : C.card2 }}>
-                <PlatformGlyph platform={t.platform} size={16} />
-              </button>
-            ))}
-            {(previewTarget?.platform === 'instagram' || previewTarget?.platform === 'facebook') && <span style={{ fontSize: 12, color: C.soft, marginLeft: 'auto' }}>{FORMAT_LABEL[previewTarget.format]}</span>}
-          </div>
-          {previewTarget ? (
-            <Preview platform={previewTarget.platform} format={previewTarget.format} appName={app?.name ?? ''}
-              handle={account(previewTarget.platform)?.handle} avatar={account(previewTarget.platform)?.avatar ?? app?.icon ?? ''}
-              caption={previewTarget.format === 'story' ? '' : captionFor(previewTarget.platform, caption, tailor ? overrides : {})}
-              media={platItemsFor(active, previewTarget.platform).filter((i) => i.src).map((i) => ({ src: i.src, kind: i.kind, width: i.width, height: i.height }))} />
-          ) : <p style={{ color: C.soft, fontSize: 13.5, textAlign: 'center', margin: '30px 0' }}>Turn on a platform to preview it.</p>}
-        </section>
-
-        <section style={{ ...card, padding: 18, display: 'grid', gap: 10 }}>
-          <span style={label}>Checks</span>
-          {targets.length === 0 ? <Check tone="muted" text="Pick at least one place to post." /> :
-            issues.length === 0 ? <Check tone="ok" text={`Ready for ${targets.map((t) => pname(t.platform)).join(', ')}.`} /> :
-              // Red only for real conflicts; anything not added yet is a neutral To do.
-              [...issues].sort((a, b) => Number(!!a.todo) - Number(!!b.todo)).map((i, k) => <Check key={k} tone={i.todo ? 'todo' : i.level === 'error' ? 'bad' : 'warn'} platform={i.platform} text={i.text} />)}
-          {uploading && <Check tone="muted" text="Uploading media…" />}
-          {failedUploads && <Check tone="bad" text="Remove the media that failed to upload." />}
-        </section>
-
-        <section style={{ ...card, padding: 18, display: 'grid', gap: 12 }}>
+        <section className="cmp-send" style={{ ...card, padding: 18, display: 'grid', gap: 12 }}>
+          <span style={label}>When</span>
           <Segmented<'now' | 'later' | 'repeat'> value={mode} onChange={setMode}
             options={[{ value: 'now', label: 'Post now' }, { value: 'later', label: 'Schedule' },
               { value: 'repeat', label: 'Repeat', disabled: multi, title: multi ? 'Repeating posts go to one market — turn the other editions off to repeat' : undefined }]} />
@@ -1027,8 +1073,52 @@ export function Composer({ pw, apps, onPosted }: { pw: string; apps: PublishApp[
           {sending && mode === 'now' && <span style={{ fontSize: 12, color: C.soft, textAlign: 'center' }}>Videos can take a minute while {dest.tiktok.on ? 'Meta and TikTok process' : 'Meta processes'} them.</span>}
           {error && <span style={{ fontSize: 13, color: C.red }}>{error}</span>}
         </section>
+        <section style={{ ...card, padding: 18, display: 'grid', gap: 10 }}>
+          <span style={label}>Checks</span>
+          {targets.length === 0 ? <Check tone="muted" text="Pick at least one place to post." /> :
+            issues.length === 0 ? <Check tone="ok" text={`Ready for ${targets.map((t) => pname(t.platform)).join(', ')}.`} /> :
+              // Red only for real conflicts; anything not added yet is a neutral To do.
+              [...issues].sort((a, b) => Number(!!a.todo) - Number(!!b.todo)).map((i, k) => <Check key={k} tone={i.todo ? 'todo' : i.level === 'error' ? 'bad' : 'warn'} platform={i.platform} text={i.text} />)}
+          {uploading && <Check tone="muted" text="Uploading media…" />}
+          {failedUploads && <Check tone="bad" text="Remove the media that failed to upload." />}
+        </section>
+
+      </div>
+
+      {/* Live preview at phone size, platform tabs. */}
+      <aside className="cmp-preview" style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+        <section style={{ ...card, padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+            <span style={{ ...label, marginRight: 6 }}>Preview{multi ? ` · ${MARKETS[active].flag} ${MARKETS[active].short}` : ''}</span>
+            {targets.map((t) => (
+              <button key={t.platform} onClick={() => setPreviewOn(t.platform)} aria-pressed={previewOn === t.platform} title={pname(t.platform)}
+                style={{ width: 32, height: 32, borderRadius: 9, cursor: 'pointer', display: 'grid', placeItems: 'center',
+                         border: `1.5px solid ${previewOn === t.platform ? C.ink : C.rule}`, background: previewOn === t.platform ? C.card : C.card2 }}>
+                <PlatformGlyph platform={t.platform} size={16} />
+              </button>
+            ))}
+            {(previewTarget?.platform === 'instagram' || previewTarget?.platform === 'facebook') && <span style={{ fontSize: 12, color: C.soft, marginLeft: 'auto' }}>{FORMAT_LABEL[previewTarget.format]}</span>}
+          </div>
+          {previewTarget ? (
+            <Preview platform={previewTarget.platform} format={previewTarget.format} appName={app?.name ?? ''}
+              handle={account(previewTarget.platform)?.handle} avatar={account(previewTarget.platform)?.avatar ?? app?.icon ?? ''}
+              caption={previewTarget.format === 'story' ? '' : captionFor(previewTarget.platform, caption, tailor ? overrides : {})}
+              media={platItemsFor(active, previewTarget.platform).filter((i) => i.src).map((i) => ({ src: i.src, kind: i.kind, width: i.width, height: i.height }))} />
+          ) : <p style={{ color: C.soft, fontSize: 13.5, textAlign: 'center', margin: '30px 0' }}>Turn on a platform to preview it.</p>}
+        </section>
+
       </aside>
-      <style>{`@media (max-width: 1100px){ .composer{ grid-template-columns: 1fr !important } .composer aside{ position: static !important } }`}</style>
+      {library && <MediaLibrary appId={appId} appName={app?.name ?? appId} start={library} onClose={() => setLibrary(null)} onFiles={(f) => addFiles(f)} onReuse={addReady} />}
+      <style>{`
+        .composer-wrap{container-type:inline-size}
+        .composer{display:grid;gap:20px;align-items:start;grid-template-columns:minmax(0,1.35fr) minmax(340px,1fr) 400px;grid-template-areas:"apps apps apps" "work plan preview";max-width:2100px}
+        .cmp-apps{grid-area:apps}.cmp-work{grid-area:work}.cmp-plan{grid-area:plan}.cmp-preview{grid-area:preview}
+        .cmp-plan,.cmp-preview{position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow-y:auto;scrollbar-width:thin;padding-bottom:2px}
+        @container (max-width:1279px){.composer{grid-template-columns:minmax(0,1fr) 380px;grid-template-areas:"apps apps" "work preview" "plan preview"}
+          .cmp-plan{position:static;max-height:none;overflow:visible}.cmp-send{position:sticky;bottom:12px;z-index:4;box-shadow:0 10px 30px rgba(15,17,21,.12)}}
+        @container (max-width:759px){.composer{grid-template-columns:minmax(0,1fr);grid-template-areas:"apps" "work" "preview" "plan"}.cmp-preview{position:static;max-height:none;overflow:visible}.cmp-send{position:static;box-shadow:none}}
+      `}</style>
+    </div>
     </div>
   )
 }

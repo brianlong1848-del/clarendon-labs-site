@@ -117,7 +117,7 @@ function PreviewInner({ platform, format, media, caption, handle, avatar, appNam
 
   if ((platform === 'instagram' && (format === 'story' || format === 'reel')) || (platform === 'facebook' && format === 'story')) {
     return (
-      <div style={{ width: 260, aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111', boxShadow: '0 12px 30px rgba(0,0,0,.18)' }}>
+      <div style={{ width: 'min(340px, 100%)', aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111', boxShadow: '0 12px 30px rgba(0,0,0,.18)' }}>
         {current ? <Media m={current} fit="cover" /> : <Empty dark />}
         {zones && <SafeZones platform={platform} format={format} />}
         {format === 'story' && <div style={{ position: 'absolute', top: 8, left: 10, right: 10, height: 2.5, borderRadius: 9, background: 'rgba(255,255,255,.45)' }}><div style={{ width: '35%', height: '100%', background: '#fff', borderRadius: 9 }} /></div>}
@@ -172,7 +172,7 @@ function PreviewInner({ platform, format, media, caption, handle, avatar, appNam
 
   if (platform === 'facebook' && format === 'reel') {
     return (
-      <div style={{ width: 260, aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111', boxShadow: '0 12px 30px rgba(0,0,0,.18)' }}>
+      <div style={{ width: 'min(340px, 100%)', aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111', boxShadow: '0 12px 30px rgba(0,0,0,.18)' }}>
         {current ? <Media m={current} fit="cover" /> : <Empty dark />}
         {zones && <SafeZones platform="facebook" format="reel" />}
         <div style={{ display: zones ? 'none' : undefined, position: 'absolute', bottom: 16, left: 12, right: 12, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,.5)' }}>
@@ -206,7 +206,7 @@ function PreviewInner({ platform, format, media, caption, handle, avatar, appNam
   }
 
   return (
-    <div style={{ width: 260, aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111' }}>
+    <div style={{ width: 'min(340px, 100%)', aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111' }}>
       {current ? <Media m={current} fit="cover" /> : <Empty dark />}
       {zones && <SafeZones platform="tiktok" format="video" />}
       <div style={{ display: zones ? 'none' : undefined, position: 'absolute', left: 12, right: 50, bottom: 16, color: '#fff', fontSize: 12, textShadow: '0 1px 3px rgba(0,0,0,.6)' }}>
@@ -218,7 +218,7 @@ function PreviewInner({ platform, format, media, caption, handle, avatar, appNam
 }
 
 const Phone = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ width: 300, margin: '0 auto', background: C.card, borderRadius: 18, overflow: 'hidden', border: `1px solid ${C.rule}`, boxShadow: '0 12px 30px rgba(20,20,19,.10)' }}>{children}</div>
+  <div style={{ width: 'min(352px, 100%)', margin: '0 auto', background: C.card, borderRadius: 18, overflow: 'hidden', border: `1px solid ${C.rule}`, boxShadow: '0 12px 30px rgba(20,20,19,.10)' }}>{children}</div>
 )
 const Row = ({ avatar, name, sub }: { avatar: string; name: string; sub?: string }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 12px' }}>

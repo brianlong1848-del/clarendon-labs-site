@@ -3,11 +3,12 @@ import { consoleAuthed } from '@/lib/console'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { PLATFORMS, validate, type MediaItem, type MediaOverrides, type Platform, type Target } from '@/lib/publish/rules'
 import { checkRepeat, type RepeatSpec } from '@/lib/publish/recur'
-import { failedPosts, getPost, insertPost, listPosts, listSeries, updatePost, type Post, type TargetState } from '@/lib/publish/store'
+import { failedPosts, getPost, insertPost, listPosts, listSeries, updatePost, updateScheduled, type Post, type TargetState } from '@/lib/publish/store'
 import { createSeries, recaption } from '@/lib/publish/series'
 import { run } from '@/lib/publish/runner'
 import { APP_MARKETS, isMarket, marketFromName } from '@/lib/publish/markets'
 import { anyPlatformTagged, assignPlatformMedia, isMaster } from '@/lib/publish/platformMedia'
+import { parseEdit } from '@/lib/publish/edit'
 
 // ─── /api/publish — the "post everywhere" queue ─────────────────────────────
 //
@@ -25,6 +26,11 @@ import { anyPlatformTagged, assignPlatformMedia, isMaster } from '@/lib/publish/
 //                               or — with `repeat` (see lib/publish/recur.ts) — starts a series
 //   PATCH ?id=                → retry the failed platforms of a post
 //   PATCH ?id=&action=recaption → fresh AI caption for a post that hasn't gone out
+//   PATCH ?id=&action=edit    → change a SCHEDULED post (body: EditPostRequest in
+//                               lib/publish/edit.ts: caption, overrides, scheduledAt,
+//                               media, mediaOverrides, targets — any subset). 409 when
+//                               the post is no longer scheduled. Reschedule = { scheduledAt }.
+//   POST /api/publish/bulk    → cancel / shift several scheduled posts (see bulk/route.ts)
 //   DELETE ?id=               → cancel a scheduled post (for a repeating post: skips just that copy),
 //                               or clear a failed one (see clear() below)
 //   DELETE ?failed=all[&app=] → clear every failed / partly-failed post (for one app)
@@ -127,6 +133,17 @@ export async function PATCH(req: Request) {
   const id = q.get('id') ?? ''
   const post = await getPost(id).catch(() => null)
   if (!post) return bad('Not found.', 404)
+  if (q.get('action') === 'edit') {
+    if (post.status !== 'scheduled') return bad('Only scheduled posts can be edited — this one has already gone out or was canceled.', 409)
+    const body = await req.json().catch(() => null)
+    const parsed = parseEdit(body, post)
+    if ('error' in parsed) return bad(parsed.error)
+    try {
+      const out = await updateScheduled(id, parsed.patch)
+      if (!out) return bad('It started going out while you were editing — nothing was changed.', 409)
+      return NextResponse.json({ post: out })
+    } catch (e) { return bad((e as Error).message, 500) }
+  }
   if (q.get('action') === 'recaption') {
     try { return NextResponse.json({ post: await recaption(post) }) } catch (e) { return bad((e as Error).message, 500) }
   }

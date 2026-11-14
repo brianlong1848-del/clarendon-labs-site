@@ -17,6 +17,9 @@ export type QueuedPost = {
   market?: string | null; edition_group?: string | null
   /** A platform's own cut, replacing `media` there (rules.ts mediaFor). */
   media_overrides?: Partial<Record<Platform, QueuedPost['media']>> | null
+  /** Each platform's reach + engagement, read ~48h after it went out. */
+  stats?: Partial<Record<Platform, { reach: number; engagement: number; at: string }>> | null
+  notes?: string
 }
 /** Everything a post sends — shared media plus each platform's own cut — once each. */
 export function allMediaOf(p: Pick<QueuedPost, 'media' | 'media_overrides'>): QueuedPost['media'] {
@@ -80,3 +83,20 @@ export function Segmented<T extends string>({ value, options, onChange, disabled
 }
 
 export const when = (iso: string) => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+/** A Date as the value of an <input type="datetime-local"> (this browser's time zone). */
+export const localInput = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+
+/** Prefill for the composer: a time from the Calendar, or a post to duplicate. */
+export type ComposePrefill = {
+  key: number
+  appId?: string
+  /** ISO instant to schedule at. */
+  at?: string
+  caption?: string
+  overrides?: Partial<Record<Platform, string>>
+  media?: QueuedPost['media']
+  platforms?: Platform[]
+  market?: string | null
+}

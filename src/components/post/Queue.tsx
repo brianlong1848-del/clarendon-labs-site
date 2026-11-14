@@ -8,45 +8,13 @@ import { MediaViewer, Thumb } from './MediaViewer'
 import { describeRule } from '@/lib/publish/recur'
 import { PromoteSheet, Promotions, promotable, type AdsData, type PromotionRow } from './Promote'
 import { TikTokVideoPicker, tiktokTarget, type AccountVideo, type TikTokAdsData } from './PromoteTikTok'
-import { APP_MARKETS, isMarket, MARKETS, type Market, type MarketId } from '@/lib/publish/markets'
+import { MARKETS, type Market, type MarketId } from '@/lib/publish/markets'
+import { CountryTag, FlagStack, countryOf, marketOf } from './country'
+import { PostDrawer, statusOf } from './PostDrawer'
 
 // Repeating posts (pause / resume / stop), then everything scheduled, in
 // flight, and recently sent — with the per-platform
 // outcome, links to the live posts, and cancel / retry.
-
-const STATUS: Record<string, { text: string; color: string; bg: string }> = {
-  scheduled: { text: 'Scheduled', color: C.ink2, bg: C.card2 },
-  publishing: { text: 'Publishing…', color: C.amber, bg: '#FBF0DD' },
-  done: { text: 'Posted', color: C.mint, bg: C.mintTint },
-  partial: { text: 'Partly posted', color: C.amber, bg: '#FBF0DD' },
-  failed: { text: 'Failed', color: C.red, bg: '#FBE7E5' },
-}
-
-/** Which country a post is for. Only apps that post to more than one country
- *  show it; a post without a market is the app's home edition. */
-function marketOf(p: { app_id: string; market?: string | null }): Market | null {
-  const list = APP_MARKETS[p.app_id] ?? ['us']
-  if (list.length < 2) return null
-  return MARKETS[isMarket(p.market) ? p.market : list[0]]
-}
-/** The country a post is for in the By-country view: single-country apps are home (US). */
-function countryOf(p: { app_id: string; market?: string | null }): Market {
-  return marketOf(p) ?? MARKETS[(APP_MARKETS[p.app_id] ?? ['us'])[0]]
-}
-
-/** Up to four flags, overlapping, for an edition group ("3 countries"). */
-function FlagStack({ markets }: { markets: Market[] }) {
-  const shown = markets.slice(0, 4)
-  return (
-    <span title={markets.map((m) => m.name).join(', ')} style={{ display: 'inline-flex', alignItems: 'center' }}>
-      {shown.map((m, i) => (
-        <span key={m.id} aria-hidden style={{ width: 20, height: 20, borderRadius: 99, background: C.card, border: `1.5px solid ${C.card}`, boxShadow: `0 0 0 1px ${C.rule}`,
-                                              display: 'grid', placeItems: 'center', fontSize: 12, marginLeft: i ? -6 : 0, zIndex: shown.length - i }}>{m.flag}</span>
-      ))}
-      {markets.length > shown.length && <span style={{ fontSize: 11, fontWeight: 700, color: C.soft, marginLeft: 4 }}>+{markets.length - shown.length}</span>}
-    </span>
-  )
-}
 
 /** Queue items: a lone post, or the editions of one multi-country post kept together. */
 type Item = { kind: 'post'; post: QueuedPost } | { kind: 'editions'; key: string; posts: QueuedPost[] }
@@ -63,15 +31,16 @@ function groupEditions(list: QueuedPost[]): Item[] {
   return out.map((i) => (i.kind === 'editions' && i.posts.length === 1 ? { kind: 'post', post: i.posts[0] } : i))
 }
 
-function CountryTag({ m, size = 12 }: { m: Market; size?: number }) {
-  return (
-    <span title={`${m.name} · ${m.langName}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: size, fontWeight: 700, color: C.ink, background: C.card2, borderRadius: 99, padding: '2px 8px 2px 6px', whiteSpace: 'nowrap' }}>
-      <span aria-hidden style={{ fontSize: size + 1 }}>{m.flag}</span>{m.name}
-    </span>
-  )
-}
-
-export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string; apps: PublishApp[]; refreshKey: number; onCount: (n: number) => void; onCompose?: () => void }) {
+export function Queue({ pw, apps, refreshKey, onCount, onCompose, onDuplicate, onChanged }: {
+  pw: string; apps: PublishApp[]; refreshKey: number; onCount: (n: number) => void; onCompose?: () => void
+  /** Open the composer with this post's words and media. */
+  onDuplicate?: (p: QueuedPost) => void
+  /** Something in the queue changed here (the Calendar reloads). */
+  onChanged?: () => void
+}) {
+  const [drawer, setDrawer] = useState<{ post: QueuedPost; start?: 'edit' | 'reschedule' } | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const pick = (id: string) => setSelected((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const [posts, setPosts] = useState<QueuedPost[] | null>(null)
   const [series, setSeries] = useState<QueuedSeries[]>([])
   const [busy, setBusy] = useState<string | null>(null)
@@ -198,82 +167,98 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
     return Array.from(m.entries()).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
   }
 
-  const section = (title: string, list: QueuedPost[], empty: string) => (
-    <section style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={label}>{title}</span><span style={{ flex: 1, height: 1, background: C.rule }} />
-      </div>
-      {list.length === 0 ? <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{empty}</p> : groupByApp(list).map(([appId, group]) => (
-        <div key={appId} style={{ display: 'grid', gap: 10 }}>
-          {appFilter === 'all' && (() => { const a = apps.find((x) => x.id === appId); return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-              {a && <img src={a.icon} alt="" width={18} height={18} style={{ borderRadius: 5 }} />}
-              <b style={{ fontSize: 13.5 }}>{a?.name ?? appId}</b><span style={{ fontSize: 12.5, color: C.soft }}>{group.length}</span>
-            </div>) })()}
-          {group.map((p) => {
-        const app = apps.find((a) => a.id === p.app_id)
-        const s = STATUS[p.status] ?? STATUS.scheduled
-        const every = allMediaOf(p)
-        const cuts = Object.keys(p.media_overrides ?? {}).length
-        const first = every[0]
-        return (
-          <article key={p.id} style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: '84px minmax(0,1fr) auto', gap: 16, alignItems: 'center' }}>
-            <div style={{ width: 84, height: 84, borderRadius: 12, overflow: 'hidden', background: C.card2, position: 'relative' }}>
-              {first ? <Thumb item={first} onOpen={() => setViewing({ media: every, index: 0 })} />
-                : <div style={{ padding: 8, fontSize: 11, color: C.soft }}>Text only</div>}
-              {every.length > 1 && <span title={cuts ? 'A different cut for each platform' : undefined} style={{ position: 'absolute', right: 5, top: 5, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10.5, fontWeight: 700, borderRadius: 99, padding: '1px 6px' }}>{cuts ? `${every.length} cuts` : every.length}</span>}
-            </div>
-            <div style={{ minWidth: 0, display: 'grid', gap: 7 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                {app && <img src={app.icon} alt="" width={20} height={20} style={{ borderRadius: 5 }} />}
-                <b style={{ fontSize: 14 }}>{app?.name ?? p.app_id}</b>
-                <span style={{ fontSize: 12.5, color: C.soft }}>{p.scheduled_at ? when(p.scheduled_at) : when(p.created_at)}</span>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 99, padding: '2px 9px' }}>{s.text}</span>
-                {(() => { const m = marketOf(p); return m ? <CountryTag m={m} size={11.5} /> : null })()}
-                {p.series_id && <span title="A copy of a repeating post" style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2, border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '1px 8px' }}>↻ #{p.occurrence ?? '?'}</span>}
-                {p.caption_by === 'ai' && <span title="Caption written by Claude" style={{ fontSize: 11.5, fontWeight: 700, color: C.mint }}>✦ AI caption</span>}
-              </div>
-              <p style={{ margin: 0, fontSize: 13.5, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.caption || <i>No caption</i>}</p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {p.targets.map((t) => {
-                  const name = PLATFORMS.find((x) => x.id === t.platform)?.name
-                  const tone = t.status === 'published' ? C.mint : t.status === 'failed' ? C.red : C.ink2
-                  const chip = (
-                    <span title={t.error} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: tone,
-                                                   border: `1px solid ${C.rule2}`, borderRadius: 99, padding: '3px 10px 3px 7px' }}>
-                      <PlatformGlyph platform={t.platform} size={14} color={tone} />
-                      {name}{t.platform === 'instagram' || (t.platform === 'facebook' && t.format !== 'post') ? ` ${FORMAT_LABEL[t.format as Format]}` : ''}
-                      {t.status === 'published' ? ' ↗' : t.status === 'failed' ? ' ✕' : t.status === 'processing' ? ' …' : ''}
-                    </span>
-                  )
-                  return t.permalink ? <a key={t.platform} href={t.permalink} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>{chip}</a> : <span key={t.platform}>{chip}</span>
-                })}
-              </div>
-              {p.targets.filter((t) => t.status === 'failed' && t.error).map((t) => (
-                <p key={t.platform} style={{ margin: 0, fontSize: 12, color: C.red }}>{PLATFORMS.find((x) => x.id === t.platform)?.name}: {t.error}</p>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {p.status === 'scheduled' && p.series_id && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH', 'recaption')}>{busy === p.id ? 'Writing…' : '✦ New caption'}</button>}
-              {p.status === 'scheduled' && <button style={btn('ghost')} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip this one' : 'Cancel'}</button>}
-              {canPromote(p) && <button style={btn('mint')} onClick={() => setPromoting(p)}>{allPromotions.some((x) => x.post_id === p.id && (x.status === 'active' || x.status === 'paused')) ? 'Promote again' : 'Promote'}</button>}
-              {(p.status === 'failed' || p.status === 'partial') && <button style={btn('solid')} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? 'Retrying…' : 'Retry failed'}</button>}
-              {(p.status === 'failed' || p.status === 'partial') && <button style={btn('ghost')} disabled={busy === p.id} title={p.status === 'partial' ? 'Keeps what went out; drops the failed platforms' : 'Remove it from the queue'} onClick={() => act(p.id, 'DELETE')}>{p.status === 'partial' ? 'Clear failures' : 'Clear'}</button>}
-            </div>
-          </article>
-        )
-      })}
+  const dayFmt = (iso: string) => new Date(iso).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
+  const timeFmt = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const small: React.CSSProperties = { ...btn('ghost'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }
+  // Dense list (Up next / Recent for one app): thumbnail · time · caption on two
+  // lines · where · status. A row opens the detail drawer; scheduled rows can be
+  // ticked for bulk cancel / shift.
+  const section = (title: string, list: QueuedPost[], empty: string, selectable = false) => {
+    const ids = list.filter((p) => p.status === 'scheduled').map((p) => p.id)
+    const allOn = selectable && ids.length > 0 && ids.every((id) => selected.has(id))
+    return (
+      <section style={{ display: 'grid', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {selectable && ids.length > 1 && (
+            <input type="checkbox" aria-label={`Select all ${title}`} checked={allOn} onChange={() => setSelected((x) => { const n = new Set(x); for (const id of ids) { if (allOn) n.delete(id); else n.add(id) } return n })}
+              style={{ width: 16, height: 16, accentColor: C.mint, cursor: 'pointer' }} />
+          )}
+          <span style={label}>{title}</span><span style={{ fontSize: 12, color: C.soft }}>{list.length || ''}</span><span style={{ flex: 1, height: 1, background: C.rule }} />
         </div>
-      ))}
-    </section>
-  )
+        {list.length === 0 ? <p style={{ color: C.soft, fontSize: 14, margin: 0 }}>{empty}</p> : (
+          <div style={{ ...card, padding: '2px 0', overflow: 'hidden' }}>
+            {list.map((p, i) => denseRow(p, i, selectable && p.status === 'scheduled'))}
+          </div>
+        )}
+      </section>
+    )
+  }
+  const denseRow = (p: QueuedPost, i: number, selectable: boolean) => {
+    const app = apps.find((a) => a.id === p.app_id)
+    const s = statusOf(p.status)
+    const every = allMediaOf(p)
+    const first = every[0]
+    const at = p.scheduled_at ?? p.created_at
+    const mk = marketOf(p)
+    const bad = p.status === 'failed' || p.status === 'partial'
+    const on = selected.has(p.id)
+    return (
+      <div key={p.id} className="q-row" onClick={() => setDrawer({ post: p })} role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setDrawer({ post: p }) }}
+        style={{ display: 'grid', gridTemplateColumns: '22px 52px 74px minmax(0,1fr) auto', gap: 12, alignItems: 'center', padding: '10px 16px', cursor: 'pointer',
+                 borderTop: i ? `1px solid ${C.rule}` : 0, background: on ? C.mintTint : undefined, boxShadow: appFilter === 'all' ? `inset 3px 0 0 ${app?.accent ?? C.mint}` : undefined }}>
+        <span onClick={(e) => e.stopPropagation()}>
+          {selectable && <input type="checkbox" aria-label="Select post" checked={on} onChange={() => pick(p.id)} style={{ width: 16, height: 16, accentColor: C.mint, cursor: 'pointer' }} />}
+        </span>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 52, height: 52, borderRadius: 8, overflow: 'hidden', background: C.card2, position: 'relative' }}>
+          {first ? <Thumb item={first} onOpen={() => setViewing({ media: every, index: 0 })} badge={every.length > 1 ? String(every.length) : undefined} />
+            : <span style={{ display: 'grid', placeItems: 'center', height: '100%', fontSize: 10.5, color: C.soft }}>Text</span>}
+        </div>
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: bad ? C.red : C.ink }}>{dayFmt(at)}</div>
+          <div style={{ fontSize: 12, color: C.soft }}>{timeFmt(at)}</div>
+        </div>
+        <div style={{ minWidth: 0, display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+            {p.caption || <i style={{ color: C.soft }}>No caption</i>}
+          </span>
+          <span style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+            {appFilter === 'all' && <AppTag id={p.app_id} name={app?.name} size={14} style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2 }} />}
+            {p.targets.map((t) => <span key={t.platform} title={`${pname(t.platform)}${t.platform === 'instagram' || t.platform === 'facebook' ? ` ${FORMAT_LABEL[t.format as Format]}` : ''} · ${t.status}${t.error ? ` — ${t.error}` : ''}`} style={{ display: 'inline-flex' }}>
+              <PlatformGlyph platform={t.platform} size={14} color={t.status === 'failed' ? C.red : t.status === 'published' ? C.mint : C.soft} /></span>)}
+            {mk && <CountryTag m={mk} size={11} short />}
+            {p.series_id && <span style={{ fontSize: 11, color: C.soft }}>↻ #{p.occurrence ?? '?'}</span>}
+            {p.caption_by === 'ai' && <span style={{ fontSize: 11, fontWeight: 700, color: C.mint }}>✦ AI</span>}
+            {p.stats && Object.values(p.stats).length > 0 && <span style={{ fontSize: 11.5, color: C.ink2 }}>{Object.values(p.stats).reduce((t, x) => t + (x?.reach ?? 0), 0).toLocaleString()} reached</span>}
+            {bad && <span style={{ fontSize: 11.5, color: C.red, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{p.targets.filter((t) => t.status === 'failed').map((t) => pname(t.platform)).join(', ')} failed</span>}
+          </span>
+        </div>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 99, padding: '2px 9px', whiteSpace: 'nowrap' }}>{s.text}</span>
+      </div>
+    )
+  }
+
+  /** Bulk: cancel or shift every ticked scheduled post. */
+  const bulk = async (action: 'cancel' | 'shift', minutes?: number) => {
+    const ids = Array.from(selected)
+    if (action === 'cancel' && !confirm(`Cancel ${ids.length} scheduled post${ids.length === 1 ? '' : 's'}? Copies of repeating posts are skipped.`)) return
+    setBusy('bulk'); setNotice(null)
+    const res = await fetch('/api/publish/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, action, ...(minutes ? { minutes } : {}) }) }).catch(() => null)
+    const body = await res?.json().catch(() => ({})) ?? {}
+    setBusy(null)
+    if (!res?.ok) setNotice({ ok: false, text: body.error ?? 'Bulk change failed.' })
+    else {
+      const n = body.updated?.length ?? 0, k = body.skipped?.length ?? 0
+      const why = Array.from(new Set(((body.skipped ?? []) as { reason: string }[]).map((x) => x.reason))).join(' ')
+      setNotice({ ok: k === 0, text: `${action === 'cancel' ? 'Canceled' : 'Moved'} ${n} post${n === 1 ? '' : 's'}${k ? ` · ${k} left alone (${why})` : ''}.` })
+      setSelected(new Set())
+    }
+    load(); onChanged?.()
+  }
 
   // "All apps": one lane per app — what's next, what needs attention, how it's
   // going — instead of every card from every app in one long column. Picking
   // an app (or "Open") switches to the full cards for that app.
-  const dayFmt = (iso: string) => new Date(iso).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
-  const timeFmt = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  const small: React.CSSProperties = { ...btn('ghost'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }
   type RowOpts = { tone?: 'bad'; country?: boolean; app?: boolean; tz?: string; nested?: boolean }
   const zoned = (iso: string, tz: string) => {
     const d = new Date(iso)
@@ -301,11 +286,12 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
         )}
         <div style={{ minWidth: 0, display: 'grid', gap: 3 }}>
           {o.app && <AppTag id={p.app_id} name={app?.name} size={15} style={{ fontSize: 12, fontWeight: 700, color: C.ink }} />}
-          <span style={{ fontSize: 13, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <button onClick={() => setDrawer({ post: p })} title="Open details"
+            style={{ all: 'unset', cursor: 'pointer', fontSize: 13, color: C.ink2, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
             {p.caption || <i>No caption</i>}
-          </span>
+          </button>
           <span style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
-            {mk && <CountryTag m={mk} size={11} />}
+            {mk && <CountryTag m={mk} size={11} short />}
             {p.targets.map((t) => <PlatformGlyph key={t.platform} platform={t.platform} size={13} color={t.status === 'failed' ? C.red : t.status === 'published' ? C.mint : C.soft} />)}
             {p.series_id && <span style={{ fontSize: 11, color: C.soft }}>↻ #{p.occurrence ?? '?'}</span>}
             {p.caption_by === 'ai' && <span style={{ fontSize: 11, fontWeight: 700, color: C.mint }}>✦ AI</span>}
@@ -318,6 +304,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
         <div style={{ display: 'flex', gap: 6 }}>
           {tone && <button style={{ ...small, ...btn('solid'), padding: '5px 11px', fontSize: 12, borderRadius: 9 }} disabled={busy === p.id} onClick={() => act(p.id, 'PATCH')}>{busy === p.id ? '…' : 'Retry'}</button>}
           {tone && <button style={small} disabled={busy === p.id} title="Remove the failure from the queue" onClick={() => act(p.id, 'DELETE')}>Clear</button>}
+          {!tone && p.status === 'scheduled' && <button style={small} onClick={() => setDrawer({ post: p, start: 'edit' })}>Edit</button>}
           {!tone && <button style={small} disabled={busy === p.id} onClick={() => act(p.id, 'DELETE')}>{p.series_id ? 'Skip' : 'Cancel'}</button>}
         </div>
       </div>
@@ -342,7 +329,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
             {first.media[0] ? <Thumb item={first.media[0]} onOpen={() => setViewing({ media: first.media, index: 0 })} /> : null}
           </div>
           <div style={{ minWidth: 0, display: 'grid', gap: 3 }}>
-            <span style={{ fontSize: 13, color: C.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{first.caption || <i>No caption</i>}</span>
+            <button onClick={() => setDrawer({ post: first })} style={{ all: 'unset', cursor: 'pointer', fontSize: 13, color: C.ink2, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{first.caption || <i>No caption</i>}</button>
             <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <FlagStack markets={ms} />
               <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2 }}>{ms.length} countries{sameLocal ? ' · same local time' : ''}</span>
@@ -510,6 +497,23 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
       )}
       {shownAds && <Promotions ads={shownAds} apps={apps} onChange={loadAds} />}
       {viewing && <MediaViewer media={viewing.media} start={viewing.index} onClose={() => setViewing(null)} />}
+      {drawer && <PostDrawer post={drawer.post} start={drawer.start} apps={apps} onClose={() => setDrawer(null)}
+        onChanged={(np) => { if (np) setDrawer((d) => d ? { post: np } : d); load(); onChanged?.() }}
+        onDuplicate={(p) => { setDrawer(null); onDuplicate?.(p) }}
+        onPromote={(p) => { if (canPromote(p)) { setDrawer(null); setPromoting(p) } }} />}
+      {selected.size > 0 && (
+        <div role="toolbar" aria-label="Selected posts" style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', width: 'min(760px, calc(100vw - 32px))', boxSizing: 'border-box', zIndex: 40, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                                                               padding: '10px 14px', borderRadius: 14, background: C.ink, color: '#fff', boxShadow: '0 12px 30px rgba(15,17,21,.25)' }}>
+          <b style={{ fontSize: 13.5 }}>{selected.size} selected</b>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 12.5, opacity: 0.75 }}>Shift</span>
+          {([[-60, '−1 h'], [60, '+1 h'], [1440, '+1 day'], [10080, '+1 week']] as const).map(([m, l]) => (
+            <button key={l} disabled={busy === 'bulk'} onClick={() => bulk('shift', m)} style={{ border: '1px solid rgba(255,255,255,.3)', background: 'transparent', color: '#fff', borderRadius: 9, padding: '6px 11px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: C.sans }}>{l}</button>
+          ))}
+          <button disabled={busy === 'bulk'} onClick={() => bulk('cancel')} style={{ border: 0, background: '#fff', color: C.red, borderRadius: 9, padding: '7px 12px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: C.sans }}>{busy === 'bulk' ? 'Working…' : 'Cancel posts'}</button>
+          <button onClick={() => setSelected(new Set())} aria-label="Clear selection" style={{ all: 'unset', cursor: 'pointer', fontSize: 18, padding: '0 6px' }}>×</button>
+        </div>
+      )}
       {promoting && ads && <PromoteSheet post={promoting} app={apps.find((a) => a.id === promoting.app_id)} ads={ads} tt={tt} onClose={() => setPromoting(null)} onDone={() => { setPromoting(null); loadAds() }} />}
       {pickingVideo && <TikTokVideoPicker app={pickingVideo} onClose={() => setPickingVideo(null)} onPick={(v) => { setPickingVideo(null); setBoostingVideo(v) }} />}
       {boostingVideo && ads && <PromoteSheet video={boostingVideo} app={apps.find((a) => a.id === boostingVideo.appId)} ads={ads} tt={tt} onClose={() => setBoostingVideo(null)} onDone={() => { setBoostingVideo(null); loadAds() }} />}
@@ -568,7 +572,7 @@ export function Queue({ pw, apps, refreshKey, onCount, onCompose }: { pw: string
           )}
         </section>
       ) : (<>
-        {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.')}
+        {section('Up next', scheduled, 'Nothing scheduled. Posts you schedule land here.', true)}
         {section('Recent', rest, 'Nothing posted from Studio yet.')}
       </>)}
     </div>
