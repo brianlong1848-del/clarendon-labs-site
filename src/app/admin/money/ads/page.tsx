@@ -93,7 +93,7 @@ export default function Ads() {
     <AdminShell title="Money · Ads" subtitle="Every campaign, what it cost, and what it brought back"
       actions={<button style={btn('ghost')} disabled={busy} onClick={() => sync()}>{busy ? 'Syncing…' : 'Sync now'}</button>}>
       <MoneyTabs />
-      <div style={{ padding: '24px 0', maxWidth: 1180 }}>
+      <div style={{ padding: '24px 0', maxWidth: 1760 }}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
           {[7, 30, 90, 365].map((n) => (
             <button key={n} onClick={() => setDays(n)} style={{ ...btn(n === days ? 'solid' : 'ghost'), padding: '7px 12px' }}>{n === 365 ? '1 year' : `${n} days`}</button>

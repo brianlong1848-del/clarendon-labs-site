@@ -18,12 +18,15 @@ export type ViewerMedia = { url: string; kind: 'image' | 'video' }
  *  image, and opens the full player on click. Videos get a ▶ badge so it
  *  reads as playable; `badge` adds a small label (e.g. "+2" more ads). */
 export function Thumb({ item, onOpen, poster, badge, title }: { item: ViewerMedia; onOpen: () => void; poster?: string; badge?: string; title?: string }) {
+  // A poster from a platform CDN expires after a few hours: fall back to the video's own first frame, or a plain tile.
+  const [dead, setDead] = useState(false)
   return (
     <button onClick={onOpen} aria-label={item.kind === 'video' ? 'Play video' : 'View image'} title={title}
       style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%', height: '100%', position: 'relative' }}>
-      {item.kind === 'video' && !poster
+      {item.kind === 'video' && (!poster || dead)
         ? <video src={`${item.url}#t=0.1`} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
-        : <img src={poster ?? item.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+        : dead ? <span style={{ display: 'block', width: '100%', height: '100%', background: 'linear-gradient(160deg,#e9eef5,#dfe6f0)' }} />
+        : <img src={poster ?? item.url} alt="" onError={() => setDead(true)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
       {item.kind === 'video' && (
         <span aria-hidden style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
           <span style={{ width: 30, height: 30, borderRadius: 99, background: 'rgba(0,0,0,.55)', display: 'grid', placeItems: 'center' }}>
