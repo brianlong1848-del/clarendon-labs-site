@@ -149,7 +149,16 @@ export function validate(targets: Target[], shared: MediaItem[], caption: string
 
     if (t.platform === 'tiktok') {
       const s = t.tiktok
-      if (videos.length !== 1 || images.length) add(t.platform, 'error', 'TikTok here posts one video.', media.length === 0)
+      // One video, or a photo post: 1–35 photos people swipe through (never a mix).
+      if (media.length === 0) add(t.platform, 'error', 'TikTok needs a video or photos.', true)
+      else if (videos.length && images.length) add(t.platform, 'error', 'TikTok takes one video or a set of photos, not a mix.')
+      else if (videos.length > 1) add(t.platform, 'error', 'TikTok takes one video per post.')
+      else if (images.length > 35) add(t.platform, 'error', 'A TikTok photo post holds up to 35 photos.')
+      for (const m of images) {
+        if (m.mime === 'image/png') add(t.platform, 'error', 'TikTok photo posts take JPEG or WebP, not PNG.')
+        if ((m.size ?? 0) > 20 * 1024 * 1024) add(t.platform, 'error', 'TikTok photos can be up to 20 MB each.')
+        if (m.width && m.height && (Math.max(m.width, m.height) > 1920 || Math.min(m.width, m.height) > 1080)) add(t.platform, 'error', 'TikTok photos can be up to 1080×1920 (or 1920×1080).')
+      }
       for (const m of videos) if (m.duration && m.duration < 3) add(t.platform, 'error', 'TikTok videos must be at least 3 seconds.')
       if (!s) add(t.platform, 'error', 'Choose how to send it to TikTok.', true)
       else if (s.mode === 'direct') {

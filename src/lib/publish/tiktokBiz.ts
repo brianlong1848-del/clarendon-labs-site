@@ -166,6 +166,32 @@ export async function bizPublish(row: StoredToken, videoUrl: string, caption: st
   return out.share_id
 }
 
+/** A photo post (swipeable carousel): TikTok pulls 1–35 JPEG/WebP photos (≤1080×1920,
+ *  ≤20 MB each) from studio-media. Fields per the Business API doc "Publish a photo post
+ *  to an owned account" (/business/photo/publish/, checked 2026-11-14): post_info needs
+ *  privacy_level, is_brand_organic and is_branded_content; the draft flag is is_draft
+ *  (video uses upload_to_draft) and needs the video.upload scope. Returns the share_id
+ *  ("p_pub_url~…"), polled as publish_id with bizStatus like a video. */
+export async function bizPublishPhotos(row: StoredToken, photoUrls: string[], caption: string, s: TikTokSettings) {
+  const prefix = bizMediaPrefix()
+  if (!prefix || photoUrls.some((u) => !u.startsWith(prefix))) throw new Error('TikTok can only take photos uploaded to Studio.')
+  if (photoUrls.length < 1 || photoUrls.length > 35) throw new Error('A TikTok photo post holds 1 to 35 photos.')
+  const media = await mediaVerified()
+  if (media.status !== 'verified') throw new Error(`TikTok hasn’t verified the media storage link yet${media.detail ? ` (${media.detail})` : ''} — Studio re-checks it before each post; try again in a minute.`)
+  const disclose = { is_brand_organic: !!(s.commercial && s.yourBrand), is_branded_content: !!(s.commercial && s.brandedContent) }
+  const text = caption.slice(0, 4000)
+  const out = await call<{ share_id: string }>('POST', '/business/photo/publish/', {
+    token: row.token,
+    body: {
+      business_id: row.account_id, photo_images: photoUrls, photo_cover_index: 0,
+      post_info: s.mode === 'draft'
+        ? { caption: text, is_draft: true, privacy_level: 'PUBLIC_TO_EVERYONE', ...disclose }
+        : { caption: text, privacy_level: s.privacy ?? 'PUBLIC_TO_EVERYONE', ...disclose, disable_comment: !s.allowComment, auto_add_music: true },
+    },
+  })
+  return out.share_id
+}
+
 export async function bizStatus(row: StoredToken, publishId: string): Promise<PublishStatus> {
   const d = await call<{ status: PublishStatus['status']; post_ids?: string[]; reason?: string }>('GET', '/business/publish/status/', {
     token: row.token, query: { business_id: row.account_id ?? '', publish_id: publishId },

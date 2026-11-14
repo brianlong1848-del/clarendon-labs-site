@@ -205,15 +205,40 @@ function PreviewInner({ platform, format, media, caption, handle, avatar, appNam
     )
   }
 
+  // TikTok: one video full-bleed, or a photo post people swipe through. TikTok
+  // letterboxes photos that aren't 9:16 (a 4:5 carousel shows bars), so contain-fit.
+  const photos = media.length > 0 && media.every((m) => m.kind === 'image')
+  const many = photos && media.length > 1
+  let touchX = 0
   return (
-    <div style={{ width: 'min(340px, 100%)', aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111' }}>
-      {current ? <Media m={current} fit="cover" /> : <Empty dark />}
+    <div style={{ width: 'min(340px, 100%)', aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 22, overflow: 'hidden', position: 'relative', background: '#111' }}
+      onTouchStart={many ? (e) => { touchX = e.touches[0].clientX } : undefined}
+      onTouchEnd={many ? (e) => { const dx = e.changedTouches[0].clientX - touchX; if (Math.abs(dx) > 30) setIndex(Math.min(media.length - 1, Math.max(0, i + (dx < 0 ? 1 : -1)))) } : undefined}>
+      {current ? <Media m={current} fit={photos && Math.abs(current.width / current.height - 9 / 16) > 0.02 ? 'contain' : 'cover'} /> : <Empty dark />}
+      {many && <TikTokPhotoNav n={media.length} i={i} setIndex={setIndex} />}
       {zones && <SafeZones platform="tiktok" format="video" />}
       <div style={{ display: zones ? 'none' : undefined, position: 'absolute', left: 12, right: 50, bottom: 16, color: '#fff', fontSize: 12, textShadow: '0 1px 3px rgba(0,0,0,.6)' }}>
         <b>@{name}</b><p style={{ margin: '4px 0 0', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{caption}</p>
       </div>
       <div style={{ display: zones ? 'none' : undefined, position: 'absolute', right: 10, bottom: 70 }}><PlatformGlyph platform="tiktok" color="#fff" size={22} /></div>
     </div>
+  )
+}
+
+function TikTokPhotoNav({ n, i, setIndex }: { n: number; i: number; setIndex: (k: number) => void }) {
+  const arrow = (dir: -1 | 1) => (
+    <button aria-label={dir < 0 ? 'Previous photo' : 'Next photo'} onClick={() => setIndex(Math.min(n - 1, Math.max(0, i + dir)))}
+      style={{ position: 'absolute', top: '50%', [dir < 0 ? 'left' : 'right']: 8, transform: 'translateY(-50%)', width: 26, height: 26, borderRadius: 99, border: 0, zIndex: 2,
+               background: 'rgba(255,255,255,.85)', cursor: 'pointer', fontWeight: 900, opacity: (dir < 0 ? i === 0 : i === n - 1) ? 0 : 1 }}>{dir < 0 ? '‹' : '›'}</button>
+  )
+  return (
+    <>
+      {arrow(-1)}{arrow(1)}
+      <div style={{ position: 'absolute', top: 12, left: 0, right: 0, textAlign: 'center', zIndex: 2, color: '#fff', fontSize: 11, fontWeight: 700, textShadow: '0 1px 2px rgba(0,0,0,.6)' }}>{i + 1}/{n}</div>
+      <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 4, zIndex: 2 }}>
+        {Array.from({ length: n }, (_, k) => <span key={k} style={{ width: 5, height: 5, borderRadius: 9, background: k === i ? '#fff' : 'rgba(255,255,255,.4)' }} />)}
+      </div>
+    </>
   )
 }
 

@@ -218,6 +218,10 @@ export function Composer({ pw, apps, onPosted, prefill }: { pw: string; apps: Pu
       if (!d) return
       for (const [id, e] of Object.entries(d.byApp ?? {})) {
         if (!apps.some((a) => a.id === id) || !hasWords(e)) continue
+        // A caption that names another app (and not this one) was filed here by the old shared draft: drop it.
+        const mine = apps.find((a) => a.id === id)!, words = Object.values(e).map((x) => x?.caption ?? '').join(' ').toLowerCase()
+        const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
+        if (!flat(words).includes(flat(mine.name)) && apps.some((a) => a.id !== id && flat(words).includes(flat(a.name)))) continue
         stash.current.set(id, { eds: e, notes: '', items: [], picked: {}, platPicked: {}, tailor: Object.values(e).some((x) => Object.keys(x?.overrides ?? {}).length), captionBy: 'brian', ctWord: '' })
       }
       if (urlPrefilled.current) return
@@ -917,7 +921,7 @@ export function Composer({ pw, apps, onPosted, prefill }: { pw: string; apps: Pu
                   )}
                   {p.id === 'tiktok' && acc?.ready && on && ttOpen && (
                     <TikTokPanel creator={creator.info} audited={creator.audited} loading={creator.loading} error={creator.error}
-                      value={tt} onChange={setTt} duration={ttVideo?.duration} />
+                      value={tt} onChange={setTt} duration={ttVideo?.duration} photos={ttMedia.length > 0 && ttMedia.every((m) => m.kind === 'image')} />
                   )}
                   {p.id === 'tiktok' && !acc?.ready && oneVideo && pm[0]?.url && pm[0].url !== 'https://pending' && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

@@ -22,9 +22,11 @@ export type Creator = {
 
 const link = { color: C.ink, fontWeight: 700 } as const
 
-export function TikTokPanel({ creator, audited, loading, error, value, onChange, duration, disabled }: {
+export function TikTokPanel({ creator, audited, loading, error, value, onChange, duration, disabled, photos }: {
   creator: Creator | null; audited: boolean; loading: boolean; error: string | null
   value: TikTokSettings; onChange: (s: TikTokSettings) => void; duration?: number; disabled?: boolean
+  /** A photo post: Duet and Stitch are video-only. */
+  photos?: boolean
 }) {
   const set = (patch: Partial<TikTokSettings>) => onChange({ ...value, ...patch })
   if (loading) return <p style={{ margin: 0, fontSize: 12.5, color: C.soft }}>Checking this TikTok account…</p>
@@ -50,11 +52,11 @@ export function TikTokPanel({ creator, audited, loading, error, value, onChange,
       {tooLong && <p style={{ margin: 0, fontSize: 12, color: C.red }}>This account can post videos up to {creator.max_video_post_duration_sec} seconds; this one is {Math.round(duration!)}s.</p>}
 
       {!direct ? (
-        <p style={{ margin: 0, fontSize: 12, color: C.soft, lineHeight: 1.45 }}>TikTok sends a notification to this account; open it in the TikTok app to add sounds and post.</p>
+        <p style={{ margin: 0, fontSize: 12, color: C.soft, lineHeight: 1.45 }}>TikTok sends a notification to this account; open it in the TikTok app to add sounds and post.{photos ? ' Photo drafts need the draft permission — reconnect TikTok in Accounts if it fails.' : ''}</p>
       ) : (
         <>
           <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: C.ink }}>
-            Who can watch this video
+            Who can see this {photos ? 'post' : 'video'}
             <select value={value.privacy ?? ''} onChange={(e) => set({ privacy: (e.target.value || undefined) as TikTokPrivacy | undefined })}
               style={{ border: `1px solid ${value.privacy ? C.rule2 : C.amber}`, borderRadius: 9, padding: '8px 10px', fontFamily: C.sans, fontSize: 13.5, color: C.ink, background: C.card }}>
               <option value="">Choose…</option>
@@ -68,7 +70,7 @@ export function TikTokPanel({ creator, audited, loading, error, value, onChange,
 
           <div style={{ display: 'grid', gap: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Allow viewers to</span>
-            {([['allowComment', 'Comment', creator.comment_disabled], ['allowDuet', 'Duet', creator.duet_disabled], ['allowStitch', 'Stitch', creator.stitch_disabled]] as const).map(([k, name, off]) => (
+            {([['allowComment', 'Comment', creator.comment_disabled], ['allowDuet', 'Duet', creator.duet_disabled], ['allowStitch', 'Stitch', creator.stitch_disabled]] as const).filter(([k]) => !photos || k === 'allowComment').map(([k, name, off]) => (
               <label key={k} style={{ ...row, color: off ? C.faint : C.ink2 }} title={off ? `${name} is turned off in this account’s TikTok settings` : undefined}>
                 <Toggle on={!off && !!value[k]} disabled={off} onChange={(v) => set({ [k]: v })} label={`Allow ${name}`} /> {name}{off ? ' — off in TikTok settings' : ''}
               </label>
@@ -79,7 +81,7 @@ export function TikTokPanel({ creator, audited, loading, error, value, onChange,
             <label style={{ ...row, fontWeight: 700, color: C.ink }}>
               <Toggle on={!!value.commercial} onChange={(v) => set({ commercial: v, ...(v ? {} : { yourBrand: false, brandedContent: false }) })} label="Disclose commercial content" /> Disclose commercial content
             </label>
-            <span style={{ fontSize: 11.5, color: C.soft, lineHeight: 1.45 }}>Turn on if this video promotes yourself, a third party, or both.</span>
+            <span style={{ fontSize: 11.5, color: C.soft, lineHeight: 1.45 }}>Turn on if this {photos ? 'post' : 'video'} promotes yourself, a third party, or both.</span>
             {value.commercial && (
               <div style={{ display: 'grid', gap: 7, paddingLeft: 4 }}>
                 <label style={{ ...row, cursor: 'pointer' }}>
@@ -91,7 +93,7 @@ export function TikTokPanel({ creator, audited, loading, error, value, onChange,
                 </label>
                 {(value.yourBrand || value.brandedContent) && (
                   <span style={{ fontSize: 11.5, color: C.ink2 }}>
-                    Your video will be labeled “{value.brandedContent ? 'Paid partnership' : 'Promotional content'}”.
+                    Your {photos ? 'post' : 'video'} will be labeled “{value.brandedContent ? 'Paid partnership' : 'Promotional content'}”.
                   </span>
                 )}
                 {!value.yourBrand && !value.brandedContent && <span style={{ fontSize: 11.5, color: C.amber }}>Choose at least one.</span>}

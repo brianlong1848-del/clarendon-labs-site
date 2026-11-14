@@ -24,7 +24,7 @@ import type { Post, TargetState } from './store'
 import { clearTokenCache, connectedElsewhere, getToken } from './tokens'
 import { handleFits, wrongAccount } from './ownership'
 import { creatorInfo, publishStatus, startUpload, tiktokConfigured, tiktokToken, type CreatorInfo, type PublishStatus } from './tiktok'
-import { bizConfigured, bizCreatorInfo, bizPublish, bizStatus, bizToken, ensureMediaVerified } from './tiktokBiz'
+import { bizConfigured, bizCreatorInfo, bizPublish, bizPublishPhotos, bizStatus, bizToken, ensureMediaVerified } from './tiktokBiz'
 import type { StoredToken } from './tokens'
 
 const G = 'https://graph.facebook.com/v21.0'
@@ -424,7 +424,9 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
   if (!handleFits(p.app_id, row.username)) return { status: 'failed', error: wrongAccount(p.app_id, row.username!, 'TikTok') }
   let settings = t.tiktok ?? { mode: 'draft' as const }
   const video = p.media.find((m) => m.kind === 'video')
-  if (!video) return { status: 'failed', error: 'TikTok here posts one video.' }
+  const photos = p.media.filter((m) => m.kind === 'image')
+  if (!video && !photos.length) return { status: 'failed', error: 'TikTok needs a video or photos.' }
+  if (!video && !biz) return { status: 'failed', error: 'Photo posts need the TikTok Business connection — reconnect TikTok in Accounts.' }
 
   if (!t.containerId) {
     // TikTok asks for creator info right before each post; it also catches a
@@ -438,12 +440,14 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
         if (!biz) return { status: 'failed', error: 'That privacy choice isn’t available for this TikTok account — pick again.' }
         settings = { ...settings, privacy: c.privacy_level_options.includes('PUBLIC_TO_EVERYONE') ? 'PUBLIC_TO_EVERYONE' : c.privacy_level_options[0] }
       }
-      if (video.duration && c.max_video_post_duration_sec && video.duration > c.max_video_post_duration_sec) {
+      if (video?.duration && c.max_video_post_duration_sec && video.duration > c.max_video_post_duration_sec) {
         return { status: 'failed', error: `This account can post videos up to ${c.max_video_post_duration_sec}s on TikTok.` }
       }
     }
     const caption = captionFor('tiktok', p.caption, p.overrides)
-    const publishId = biz
+    const publishId = !video
+      ? await bizPublishPhotos(row, photos.map((m) => m.url), caption, settings)
+      : biz
       ? await bizPublish(row, video.url, caption, settings)
       : await startUpload(row.token, video.url, video.mime, caption, settings)
     // Keep what actually went out (e.g. the privacy fallback) on the target.
@@ -456,7 +460,7 @@ async function tiktok(p: Post, t: TargetState): Promise<Step> {
   if (st.status === 'SEND_TO_USER_INBOX') return { status: 'published', remoteId: t.containerId, permalink: profile }
   if (st.status === 'PUBLISH_COMPLETE') {
     const id = st.publicaly_available_post_id?.[0]
-    return { status: 'published', remoteId: id ? String(id) : t.containerId, permalink: id && profile ? `${profile}/video/${id}` : profile }
+    return { status: 'published', remoteId: id ? String(id) : t.containerId, permalink: id && profile ? `${profile}/${/^p_pub/.test(t.containerId) ? 'photo' : 'video'}/${id}` : profile }
   }
   return { status: 'processing' }
 }
