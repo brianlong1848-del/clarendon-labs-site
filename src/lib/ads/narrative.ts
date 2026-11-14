@@ -20,6 +20,7 @@ import type { CampaignRow, Range } from './campaigns'
 import type { Action, Analysis, Insight } from './insights'
 import { STAGE_LABEL, VERDICT_LABEL } from './insights'
 import { KID_APPS, type Promotion } from './meta'
+import { campaignLabel, isAutoName } from './labels'
 
 const MODEL = () => process.env.ANTHROPIC_INSIGHTS_MODEL || 'claude-opus-5-5'
 export const narrativeConfigured = () => !!process.env.ANTHROPIC_API_KEY
@@ -92,7 +93,7 @@ function campaignBlock(r: CampaignRow, i: Insight, p?: Input['promotions'][numbe
   const f = (v?: number, d = 2) => (v == null ? 'n/a' : Number(v.toFixed(d)))
   const usd = (c?: number) => (c == null ? 'n/a' : `$${(c / 100).toFixed(2)}`)
   const lines = [
-    `campaign_id: ${r.campaign_id} | ${app} | ${r.platform} | "${r.name}" | objective ${r.objective ?? 'n/a'} (${i.objective_kind}) | status ${r.status ?? 'unknown'}${r.budget_daily_cents ? ` | budget ${usd(r.budget_daily_cents)}/day` : ''}${r.promotion_id ? ' | Studio boost' : ''}`,
+    `campaign_id: ${r.campaign_id} | ${app} | ${r.platform} | "${campaignLabel({ name: r.name, app_id: r.app_id, objective: r.objective, first_day: r.daily[0]?.day })}"${isAutoName(r.name) ? ` (platform name "${r.name}")` : ''} | objective ${r.objective ?? 'n/a'} (${i.objective_kind}) | status ${r.status ?? 'unknown'}${r.budget_daily_cents ? ` | budget ${usd(r.budget_daily_cents)}/day` : ''}${r.promotion_id ? ' | Studio boost' : ''}`,
     `  spend ${usd(m.spend_cents)} | impressions ${m.impressions ?? 'n/a'} | reach ${r.reach ?? 'n/a'} | frequency ${f(m.frequency, 1)} | 2s views ${r.views2s ?? 'n/a'} | 15s views ${r.views15s ?? 'n/a'} | watched to end ${r.views100 ?? 'n/a'} | clicks ${r.clicks ?? 'n/a'} | follows ${r.follows ?? 'n/a'} | profile visits ${r.profile_visits ?? 'n/a'} | likes ${r.likes ?? 'n/a'} | shares ${r.shares ?? 'n/a'}`,
     `  hook rate ${f(m.hook_rate)} | hold rate ${f(m.hold_rate)} | CTR ${f(m.ctr)}% | CPC ${usd(m.cpc_cents)} | CPM ${usd(m.cpm_cents)} | cost per 15s view ${usd(m.cost_per_view15_cents)} | follows per $ ${f(m.follows_per_dollar)} | installs ${m.installs ?? 'not visible'} | CPI ${usd(m.cpi_cents)} | est. ROAS ${f(m.est_roas)}`,
     m.trend ? `  trend (last 3 days vs 3 before): CTR change ${f(m.trend.ctr_change)} | frequency change ${f(m.trend.frequency_change)} | fatigue ${m.trend.fatigue}` : '',
@@ -184,6 +185,15 @@ export async function cachedNarrative(input: Input, fresh = false): Promise<Narr
     body: JSON.stringify({ day, app: input.app, range: input.range, narrative: n, model: n.model }),
   }).catch(() => { /* the answer still goes back; only the cache missed */ })
   return n
+}
+
+/** The newest write-up on file for this app + range, whatever day it was
+ *  written — never calls Claude. Money → Ads shows it at once with its age;
+ *  only the Regenerate button (fresh=1) asks for a new one. */
+export async function latestNarrative(app: string, range: Range): Promise<Narrative | null> {
+  const hit = (await rest<Row[]>(`studio_ad_insights?app=eq.${encodeURIComponent(app)}&range=eq.${range}&select=day,app,range,narrative,model,created_at&order=day.desc&limit=1`).catch(() => []))[0]
+  if (!hit?.narrative?.summary) return null
+  return { ...hit.narrative, generated_at: hit.narrative.generated_at ?? hit.created_at }
 }
 
 export const actionsBlocked = (a: Action) => a.blocked

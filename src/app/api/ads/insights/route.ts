@@ -3,9 +3,11 @@ import { consoleAuthed } from '@/lib/console'
 import { supabaseServer } from '@/lib/supabase/server'
 import { PUBLISH_APPS } from '@/lib/publish/platforms'
 import { rest } from '@/lib/publish/store'
-import { campaignsFor, RANGES, type Range } from '@/lib/ads/campaigns'
+import { campaignsFor, RANGES, type MediaFields, type Range } from '@/lib/ads/campaigns'
 import { analyze, type MoneyFacts } from '@/lib/ads/insights'
-import { cachedNarrative, chicagoDay, narrativeConfigured } from '@/lib/ads/narrative'
+import { cachedNarrative, chicagoDay, latestNarrative, narrativeConfigured } from '@/lib/ads/narrative'
+import { campaignLabel } from '@/lib/ads/labels'
+import { adsState } from '@/lib/ads/strategy'
 import { runAction, type ActionRequest } from '@/lib/ads/actions'
 import { enrichActions } from '@/lib/ads/enrich'
 import { adsReportForSession } from '@/lib/money/adsReport'
@@ -17,7 +19,10 @@ import type { Promotion } from '@/lib/ads/meta'
 // the week's ranked actions, and Claude's narrative (summary, why / try next
 // per campaign, ideas) — cached once a day per app + range; `fresh=1` is the
 // Regenerate button (it also refetches the campaigns). `narrative=0` skips
-// Claude (rules only, fast). POST runs one action from the card.
+// Claude (rules only, fast). `narrative=cached` (Money → Ads, This week) never
+// calls Claude: it returns the newest write-up on file, whatever its day, with
+// `narrative_day` so the card can show its age; Regenerate sends fresh=1.
+// POST runs one action from the card.
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -29,6 +34,7 @@ export async function GET(req: Request) {
   const range = (RANGES.includes(u.searchParams.get('range') as Range) ? u.searchParams.get('range') : '30d') as Range
   const fresh = u.searchParams.get('fresh') === '1'
   const wantNarrative = u.searchParams.get('narrative') !== '0'
+  const cachedOnly = u.searchParams.get('narrative') === 'cached' && !fresh
   if (app !== 'all' && !PUBLISH_APPS.some((a) => a.id === app)) return NextResponse.json({ error: 'Unknown app.' }, { status: 400 })
 
   const [{ campaigns, errors }, money, promotions] = await Promise.all([
@@ -44,6 +50,7 @@ export async function GET(req: Request) {
   let narrative = null, narrativeError: string | undefined
   if (wantNarrative && campaigns.length) {
     if (!narrativeConfigured()) narrativeError = 'ANTHROPIC_API_KEY isn’t set, so there’s no write-up — the verdicts above are the rules engine’s.'
+    else if (cachedOnly) narrative = await latestNarrative(app, range).catch(() => null)
     else narrative = await cachedNarrative({ app, range, rows: campaigns, analysis, promotions }, fresh).catch((e) => { narrativeError = (e as Error).message; return null })
   }
   const byId = new Map((narrative?.campaigns ?? []).map((c) => [c.campaign_id, c]))
@@ -51,18 +58,20 @@ export async function GET(req: Request) {
   // (the ranking can shift between the cached write-up and today's rules run).
   const sayByTitle = new Map((narrative?.actions ?? []).map((a) => [a.title.trim().toLowerCase(), a.say]))
   const actions = analysis.actions.map((a) => ({ ...a, say: sayByTitle.get(a.title.trim().toLowerCase()) }))
-  const mediaOf = (r: (typeof campaigns)[number]) => ({ media_kind: r.media_kind, thumbnail_url: r.thumbnail_url, video_url: r.video_url, permalink: r.permalink, media_note: r.media_note })
+  const mediaOf = (r: MediaFields) => ({ media_kind: r.media_kind, thumbnail_url: r.thumbnail_url, video_url: r.video_url, permalink: r.permalink, media_note: r.media_note })
   return NextResponse.json({
     day: chicagoDay(), range, app,
     campaigns: campaigns.map((r) => ({
       platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, name: r.name, status: r.status, objective: r.objective,
+      label: campaignLabel({ name: r.name, app_id: r.app_id, objective: r.objective, first_day: r.daily[0]?.day }), ads_state: adsState(r.app_id),
       insight: analysis.campaigns[`${r.platform}:${r.campaign_id}`],
       media: mediaOf(r),
-      ads: r.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, insight: analysis.ads[`${r.platform}:${r.campaign_id}:${a.ad_id}`] })),
+      ads: r.ads.map((a) => ({ ad_id: a.ad_id, name: a.name, status: a.status, spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, ...mediaOf(a), insight: analysis.ads[`${r.platform}:${r.campaign_id}:${a.ad_id}`] })),
       narrative: byId.get(r.campaign_id) ? { why: byId.get(r.campaign_id)!.why, try_next: byId.get(r.campaign_id)!.try_next } : undefined,
     })),
     actions,
-    summary: narrative?.summary, headline: narrative?.headline, ideas: narrative?.ideas ?? [], model: narrative?.model, generated_at: narrative?.generated_at, fallback: narrative?.fallback ?? false,
+    summary: narrative?.summary, headline: narrative?.headline, ideas: narrative?.ideas ?? [], model: narrative?.model, generated_at: narrative?.generated_at,
+    narrative_day: narrative?.generated_at ? chicagoDay(new Date(narrative.generated_at)) : undefined, fallback: narrative?.fallback ?? false,
     installs_visible: !!money, errors: [...errors, ...(narrativeError ? [narrativeError] : [])],
   })
 }

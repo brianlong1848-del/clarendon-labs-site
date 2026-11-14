@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppTag, C, Label, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph } from '@/components/post/shared'
 import { AdThumb, type AdThumbMedia } from './AdThumb'
+import { appName } from '@/lib/ads/labels'
 
 // ─── Ad insights (FEAT-CLA-023) ──────────────────────────────────────────────
 //
@@ -20,17 +21,22 @@ export type Insight = {
   metrics: { spend_cents: number; impressions?: number; hook_rate?: number; hold_rate?: number; ctr?: number; cpc_cents?: number; cpm_cents?: number; cost_per_view15_cents?: number; follows_per_dollar?: number; frequency?: number; installs?: number; cpi_cents?: number; est_roas?: number; trend?: { ctr_change?: number; frequency_change?: number; days: number; fatigue: boolean } }
 }
 export type InsightAction = {
-  id: string; kind: 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'widen_audience' | 'open_in_manager' | 'creative' | 'wait'
+  id: string; kind: 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'widen_audience' | 'open_in_manager' | 'creative' | 'wait' | 'leave_off' | 'delete_campaign'
   platform: 'tiktok' | 'meta'; campaign_id: string; app_id: string | null; campaign_name: string; promotion_id?: string
+  /** Readable label for auto-named campaigns; campaign_name is the raw platform name. */
+  campaign_label?: string; ads_state?: 'paused' | 'gated' | 'live'
   advertiser_id?: string; adgroup_ids?: string[]; ad_ids?: string[]; item_id?: string; post_id?: string; manager_url?: string
   title: string; detail: string; button?: string; confirm?: string; confirm_fields?: { budget_cents?: number; pause_original?: boolean }
   amount_cents?: number; href?: string; note?: string; blocked?: string; done?: { at?: string; note: string; label?: string; result_ids?: Record<string, unknown> }; score: number
   /** Claude's plain-words "do this, because" (FEAT-CLA-023 round 2). Absent until the day's write-up lands. */
   say?: string
 }
+export type InsightsAd = AdThumbMedia & { ad_id: string; name: string; status?: string; spend_cents?: number; impressions?: number; clicks?: number; ctr?: number; insight: Insight }
 export type InsightsPayload = {
   day: string; range: string; app: string
-  campaigns: { platform: 'tiktok' | 'meta'; campaign_id: string; app_id: string | null; name: string; status?: string; insight: Insight; media?: AdThumbMedia; ads: { ad_id: string; name: string; insight: Insight }[]; narrative?: { why: string; try_next: string } }[]
+  campaigns: { platform: 'tiktok' | 'meta'; campaign_id: string; app_id: string | null; name: string; label?: string; objective?: string; ads_state?: 'paused' | 'gated' | 'live'; status?: string; insight: Insight; media?: AdThumbMedia; ads: InsightsAd[]; narrative?: { why: string; try_next: string } }[]
+  /** Chicago day the write-up was written (it can be older than `day`). */
+  narrative_day?: string
   actions: InsightAction[]
   headline?: string
   summary?: string; ideas: { app_id?: string; title: string; detail: string }[]; model?: string; generated_at?: string
@@ -80,7 +86,7 @@ export function WhyNext({ insight, narrative }: { insight?: Insight; narrative?:
           </div>
           <p style={{ margin: 0, color: C.ink }}><b>Why.</b> {narrative?.why || insight.reason}</p>
           {narrative?.try_next && <p style={{ margin: 0, color: C.ink }}><b>Try next.</b> {narrative.try_next}</p>}
-          {!narrative && <p style={{ margin: 0, color: C.soft }}>Claude’s write-up arrives with the day’s first load of the This week card.</p>}
+          {!narrative && <p style={{ margin: 0, color: C.soft }}>No write-up for this one yet — press Regenerate on the analyst note.</p>}
         </div>
       )}
     </div>
@@ -89,7 +95,10 @@ export function WhyNext({ insight, narrative }: { insight?: Insight; narrative?:
 
 /** One action: title, app, detail, the button (confirm step, duplicate
  *  sheet, link), result / Done. Used by This week and the Console cards. */
-export function ActionItem({ a, n, insight, media, compact = false, onDone }: { a: InsightAction; n?: number; insight?: Insight; media?: AdThumbMedia; compact?: boolean; onDone?: () => void }) {
+/** The first sentence of a paragraph (rail cards say one sentence). */
+const firstSentence = (t: string) => (t.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? t).trim()
+
+export function ActionItem({ a, n, insight, media, compact = false, rail = false, onDone }: { a: InsightAction; n?: number; insight?: Insight; media?: AdThumbMedia; compact?: boolean; rail?: boolean; onDone?: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -111,29 +120,45 @@ export function ActionItem({ a, n, insight, media, compact = false, onDone }: { 
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
   // The ad itself, big enough to recognise and play (9:16 like the cuts we run).
   // Compact rows (Console, Studio app) keep the small square.
-  const tile = media && !compact
-    ? <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} width={92} height={164} radius={12} />
-    : media ? <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} size={44} /> : null
+  // No picture to show (TikTok without the Creative scope, a deleted post): no tile and no empty gutter.
+  const hasMedia = !!(media && (media.thumbnail_url || media.video_url))
+  const tile = !hasMedia || !media ? null
+    : rail ? <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} width={56} height={100} radius={8} />
+    : !compact ? <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} width={92} height={164} radius={12} />
+    : <AdThumb platform={a.platform} campaignId={a.campaign_id} appId={a.app_id} media={media} size={44} />
+  const label = a.campaign_label ?? a.campaign_name
   const cols = [n != null ? '28px' : null, tile ? 'auto' : null, 'minmax(0,1fr)', 'auto'].filter(Boolean).join(' ')
   const [showNumbers, setShowNumbers] = useState(false)
   return (
-    <div onClick={stop} className="adm-action" style={{ display: 'grid', gridTemplateColumns: cols, gap: compact ? 12 : 16, alignItems: 'start', padding: compact ? '8px 10px' : '14px 16px', borderRadius: 14, background: C.card2 }}>
+    <div onClick={stop} className="adm-action" style={{ display: 'grid', gridTemplateColumns: cols, gap: compact || rail ? 12 : 16, alignItems: 'start', padding: compact ? '8px 10px' : rail ? '12px 12px' : '14px 16px', borderRadius: 14, background: C.card2 }}>
       {n != null && <span style={{ ...labelStyle, fontSize: 12, paddingTop: 3 }}>{n}</span>}
       {tile}
       <div style={{ minWidth: 0, display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <b style={{ fontSize: compact ? 13 : 13.5, ...(a.done ? { color: C.soft } : {}) }}>{a.title}</b>
+          <b title={a.campaign_label && a.campaign_label !== a.campaign_name ? `Platform name: ${a.campaign_name}` : undefined} style={{ fontSize: compact ? 13 : 13.5, ...(a.done ? { color: C.soft } : {}) }}>{a.title}</b>
           {insight && <VerdictPill insight={insight} size={11} />}
           {a.done && <span style={{ fontSize: 11.5, fontWeight: 800, color: C.teal, background: C.mintTint, borderRadius: 99, padding: '2px 9px' }}>{a.done.label ?? (a.done.at ? `Done ${new Date(a.done.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ✓` : 'Done ✓')}</span>}
         </div>
         {!compact && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
-            {a.app_id && <AppTag id={a.app_id} name={a.app_id} size={14} />}
+            {a.app_id && <AppTag id={a.app_id} name={appName(a.app_id)} size={14} />}
             <PlatformGlyph platform={a.platform === 'tiktok' ? 'tiktok' : 'facebook'} size={13} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>{a.campaign_name}</span>
+            {!rail && <span title={a.campaign_name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>{label}</span>}
           </div>
         )}
-        {a.say && !compact
+        {rail
+          ? (
+            <>
+              <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: C.ink }}>
+                {firstSentence(a.say || a.detail)}{' '}
+                <button onClick={() => setShowNumbers((v) => !v)} aria-expanded={showNumbers} style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: C.sans, fontSize: 12.5, fontWeight: 700, color: C.teal }}>
+                  {showNumbers ? 'Hide the numbers' : 'Show the numbers'}
+                </button>
+              </p>
+              {showNumbers && <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: C.ink2, fontFamily: C.mono }}>{a.say ? `${a.say} ` : ''}{a.detail}</p>}
+            </>
+          )
+          : a.say && !compact
           ? (
             <>
               <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: C.ink }}>{a.say}</p>
@@ -185,52 +210,119 @@ export function ActionItem({ a, n, insight, media, compact = false, onDone }: { 
   )
 }
 
-/** The card at the top of /analytics and Money → Ads. */
-export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?: '7d' | '30d' | '90d' }) {
+// ── Loading the write-up: cached first, Claude only on the button ───────────
+//
+// The page shows the last payload from localStorage at once, then refreshes in
+// the background with narrative=cached (the newest write-up on file, never a
+// Claude call). Regenerate sends fresh=1. Both time out with a plain message.
+
+const BACKGROUND_TIMEOUT = 45_000
+const REGENERATE_TIMEOUT = 115_000
+
+export type InsightsState = {
+  data: InsightsPayload | null
+  /** A background refresh is running (data, if any, is still shown). */
+  updating: boolean
+  /** Regenerate is running. */
+  regenerating: boolean
+  error: string | null
+  regenerate: () => void
+}
+
+export function useInsights(app: string, range: '7d' | '30d' | '90d'): InsightsState {
   const [data, setData] = useState<InsightsPayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const key = `insights:${app}:${range}`
 
-  const load = useCallback(async (fresh = false) => {
-    setLoading(true); setError(null)
+  const load = useCallback(async (fresh: boolean) => {
+    const ctl = new AbortController()
+    const t = setTimeout(() => ctl.abort(), fresh ? REGENERATE_TIMEOUT : BACKGROUND_TIMEOUT)
+    if (fresh) setRegenerating(true); else setUpdating(true)
+    setError(null)
     try {
-      const res = await fetch(`/api/ads/insights?app=${encodeURIComponent(app)}&range=${range}${fresh ? '&fresh=1' : ''}`)
+      const res = await fetch(`/api/ads/insights?app=${encodeURIComponent(app)}&range=${range}${fresh ? '&fresh=1' : '&narrative=cached'}`, { signal: ctl.signal })
+      if (res.status === 401) { window.location.href = '/login'; return }
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       setData(body)
       try { localStorage.setItem(key, JSON.stringify(body)) } catch { /* private mode */ }
-    } catch (e) { setError((e as Error).message) }
-    setLoading(false)
+    } catch (e) {
+      const aborted = (e as Error).name === 'AbortError'
+      setError(aborted
+        ? (fresh ? 'The new write-up took too long, so it stopped. The last one is still shown — try Regenerate again in a minute.' : 'Couldn’t refresh the campaigns in time. Showing the last saved write-up.')
+        : (e as Error).message)
+    } finally {
+      clearTimeout(t)
+      if (fresh) setRegenerating(false); else setUpdating(false)
+    }
   }, [app, range, key])
+
   useEffect(() => {
-    try { const c = localStorage.getItem(key); if (c) setData(JSON.parse(c)) } catch { /* ignore */ }
-    load()
+    try { const c = localStorage.getItem(key); setData(c ? JSON.parse(c) : null) } catch { /* ignore */ }
+    load(false)
   }, [load, key])
 
+  return { data, updating, regenerating, error, regenerate: () => load(true) }
+}
+
+/** "today 9:14 AM" / "yesterday" / "3 days ago" */
+export function writeupAge(iso?: string): string | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return null
+  const day = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(d)
+  const days = Math.round((Date.parse(day(new Date())) - Date.parse(day(new Date(t)))) / 86400000)
+  if (days <= 0) return `today ${new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+  if (days === 1) return 'yesterday'
+  return `${days} days ago`
+}
+
+/** The analyst's note: headline + summary, its age, Regenerate. */
+export function AnalystNote({ s, compact = false }: { s: InsightsState; compact?: boolean }) {
+  const { data, updating, regenerating, error, regenerate } = s
+  const age = writeupAge(data?.generated_at)
+  const stale = !!data?.narrative_day && !!data?.day && data.narrative_day < data.day
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <Label as="span">Your analyst{data?.model ? ` · ${data.model.replace(/-\d{8}$/, '')}` : ''}</Label>
+        <span style={{ fontSize: 12, color: stale ? C.amber : C.soft }}>{age ? `Written ${age}` : data ? 'No write-up yet' : ''}</span>
+        {updating && !regenerating && <span style={{ fontSize: 11.5, color: C.soft, background: C.card2, borderRadius: 99, padding: '2px 8px' }}>Updating…</span>}
+        <span style={{ flex: 1 }} />
+        <button style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} disabled={regenerating} onClick={regenerate} title="Ask Claude for a new write-up from today’s numbers (up to a minute or two)">
+          {regenerating ? 'Writing…' : 'Regenerate'}
+        </button>
+      </div>
+      {error && <p role="status" style={{ margin: 0, fontSize: 12.5, color: C.amber }}>{error}</p>}
+      {data?.errors.map((e, i) => <p key={i} style={{ margin: 0, fontSize: 12, color: C.amber }}>{e}</p>)}
+      {!data && updating && <div style={{ display: 'grid', gap: 8 }}>{[0, 1].map((i) => <div key={i} style={{ height: 40, borderRadius: 12, background: C.card2 }} />)}</div>}
+      {data && (data.headline || data.summary) && (
+        <div style={{ display: 'grid', gap: 8, padding: compact ? '14px 16px' : '16px 18px', borderRadius: 14, background: C.indigoTint, border: `1px solid ${C.rule}` }}>
+          {data.headline && <p style={{ margin: 0, fontSize: compact ? 18 : 20, lineHeight: 1.3, fontWeight: 700, letterSpacing: '-.01em', color: C.ink }}>{data.headline}</p>}
+          {data.summary && <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, color: C.ink }}>{data.summary}</p>}
+        </div>
+      )}
+      {data && !data.headline && !data.summary && data.campaigns.length > 0 && !regenerating && (
+        <p style={{ margin: 0, fontSize: 13.5, color: C.ink2 }}>No write-up on file for this range yet. Press Regenerate for one; the actions below are the rules engine’s and stand on their own.</p>
+      )}
+    </div>
+  )
+}
+
+/** The card at the top of /analytics and each app page. */
+export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?: '7d' | '30d' | '90d' }) {
+  const s = useInsights(app, range)
+  const { data } = s
   const actions = data?.actions ?? []
-  const when = data?.generated_at ? new Date(data.generated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
   return (
     <section aria-label="This week" style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22, display: 'grid', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h2 style={{ fontFamily: C.serif, fontSize: 17, fontWeight: 800, margin: 0 }}>This week</h2>
-        <span style={{ fontSize: 12.5, color: C.soft }}>{when ? `Write-up ${when}${data?.model ? ` · ${data.model}` : ''}` : ''}{loading && data ? ' · Updating…' : ''}</span>
-        <span style={{ flex: 1 }} />
-        <button style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} disabled={loading} onClick={() => load(true)} title="Ask Claude for a new write-up and re-read the campaigns">{loading ? 'Working…' : 'Regenerate'}</button>
-      </div>
-      {error && <p style={{ margin: 0, fontSize: 13, color: C.red }}>{error}</p>}
-      {data?.errors.map((e, i) => <p key={i} style={{ margin: 0, fontSize: 12.5, color: C.amber }}>{e}</p>)}
-      {!data && loading && <div style={{ display: 'grid', gap: 8 }}>{[0, 1, 2].map((i) => <div key={i} style={{ height: 44, borderRadius: 12, background: C.card2 }} />)}</div>}
+      <h2 style={{ fontFamily: C.serif, fontSize: 17, fontWeight: 700, margin: 0 }}>This week</h2>
+      <AnalystNote s={s} />
       {data && (
         <>
-          {(data.headline || data.summary) && (
-            <div style={{ display: 'grid', gap: 8, padding: '16px 18px', borderRadius: 14, background: C.indigoTint, border: `1px solid ${C.rule}` }}>
-              {data.headline && <p style={{ margin: 0, fontSize: 20, lineHeight: 1.3, fontWeight: 800, letterSpacing: '-.01em', color: C.ink }}>{data.headline}</p>}
-              {data.summary && <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: C.ink }}>{data.summary}</p>}
-              <span style={{ ...labelStyle, fontSize: 11 }}>Your analyst · {data.model ? data.model.replace(/-\d{8}$/, '') : 'Claude'}</span>
-            </div>
-          )}
-          {!data.campaigns.length && <p style={{ margin: 0, fontSize: 13.5, color: C.soft }}>No campaigns in this window, so nothing to judge. Boost a post from Post → Queue to start one.</p>}
+          {!data.campaigns.length && <p style={{ margin: 0, fontSize: 13.5, color: C.soft }}>No campaigns in this window, so nothing to judge.</p>}
           {actions.length > 0 && (
             <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 10 }}>
               {actions.map((a, i) => (
@@ -238,18 +330,29 @@ export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?:
               ))}
             </ol>
           )}
-          {data.ideas.length > 0 && (
-            <div style={{ display: 'grid', gap: 6 }}>
-              <Label as="span">Ideas</Label>
-              {data.ideas.map((i, k) => <p key={k} style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}><b>{i.title}.</b> {i.detail}{i.app_id ? <span style={{ color: C.soft }}> · {i.app_id}</span> : null}</p>)}
-            </div>
-          )}
-          <p style={{ margin: 0, fontSize: 11.5, color: C.soft, lineHeight: 1.5 }}>
-            Verdicts come from the rules engine (objective, our own medians, platform ranges); Claude writes the words and never changes a verdict or invents a number.
-            {data.installs_visible ? '' : ' Installs aren’t visible in this view.'} Nothing changes spend without the button and the confirm.
-          </p>
+          <Ideas data={data} />
+          <Footnote data={data} />
         </>
       )}
     </section>
+  )
+}
+
+export function Ideas({ data }: { data: InsightsPayload }) {
+  if (!data.ideas.length) return null
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <Label as="span">Ideas</Label>
+      {data.ideas.map((i, k) => <p key={k} style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}><b>{i.title}.</b> {i.detail}{i.app_id ? <span style={{ color: C.soft }}> · {appName(i.app_id)}</span> : null}</p>)}
+    </div>
+  )
+}
+
+export function Footnote({ data }: { data: InsightsPayload }) {
+  return (
+    <p style={{ margin: 0, fontSize: 11.5, color: C.soft, lineHeight: 1.5 }}>
+      Verdicts come from the rules engine (objective, our own medians, platform ranges) and follow the revenue strategy: while an app’s ads are paused it only suggests leaving them off, deleting dead campaigns or reusing creative organically. Claude writes the words and never changes a verdict or invents a number.
+      {data.installs_visible ? '' : ' Installs aren’t visible in this view.'} Nothing changes spend without the button and the confirm.
+    </p>
   )
 }

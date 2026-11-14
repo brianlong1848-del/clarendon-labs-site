@@ -11,6 +11,8 @@
 // changes a verdict. Nothing here spends money or calls a platform.
 
 import type { CampaignAd, CampaignRow, Range } from './campaigns'
+import { adsState, strategyFor } from './strategy'
+import { appName, campaignLabel } from './labels'
 
 export type Stage = 'hook' | 'hold' | 'click' | 'cost' | 'install' | 'fatigue'
 export type Verdict = 'too_early' | 'not_delivering' | 'winning' | 'ok' | 'needs_work'
@@ -46,6 +48,8 @@ export type Insight = {
 }
 
 export type ActionKind = 'pause' | 'resume' | 'raise_budget' | 'lower_budget' | 'duplicate_as_traffic' | 'reuse_angle' | 'widen_audience' | 'open_in_manager' | 'creative' | 'wait'
+  /** Strategy layer (./strategy.ts): the only advice a paused app gets, besides Pause. */
+  | 'leave_off' | 'delete_campaign'
 export type Action = {
   id: string
   kind: ActionKind
@@ -53,6 +57,10 @@ export type Action = {
   campaign_id: string
   app_id: string | null
   campaign_name: string
+  /** Readable label ("Rolligan · App installs · US · Jul 12"); campaign_name stays the raw platform name. */
+  campaign_label?: string
+  /** The app's ads state when the action was made (paused apps only get leave_off / delete_campaign / reuse_angle / pause). */
+  ads_state?: 'paused' | 'gated' | 'live'
   promotion_id?: string
   /** Everything the runner needs: the ad account, the ad groups / ads, the post. */
   advertiser_id?: string
@@ -336,7 +344,7 @@ export function analyze(rows: CampaignRow[], money: Map<string, MoneyFacts> = ne
       const am: Metrics = { ...metricsOf(adAsRow(a), r.platform), trend: undefined }
       ads[`${key}:${a.ad_id}`] = judge(am, r.platform, kind, med[r.platform], a.status)
     }
-    actions.push(...actionsFor(r, insight, range))
+    actions.push(...(adsState(r.app_id) === 'paused' ? pausedActionsFor(r, insight) : actionsFor(r, insight, range)))
   }
   actions.sort((a, b) => b.score - a.score)
   // One Pause per app per week, unless a second campaign is clearly wasting money.
@@ -376,7 +384,7 @@ const adAsRow = (a: CampaignAd) => ({ spend_cents: a.spend_cents, impressions: a
   reach: undefined, cpm_cents: undefined, video_views: undefined, views2s: undefined })
 
 const TIKTOK_WRITE_NOTE = 'TikTok writes answer 40001 until TikTok approves the Ads Management scope (requested 2026-10-27) — the button will say so if it fails.'
-const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, widen_audience: 35, duplicate_as_traffic: 30, resume: 20, lower_budget: 20, reuse_angle: 15, creative: 10, open_in_manager: 5, wait: 0 }
+const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, widen_audience: 35, duplicate_as_traffic: 30, delete_campaign: 25, resume: 20, lower_budget: 20, reuse_angle: 15, creative: 10, leave_off: 6, open_in_manager: 5, wait: 0 }
 
 const dayKey = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 
@@ -402,7 +410,7 @@ function stakeCents(r: CampaignRow): number {
 
 function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   const out: Action[] = []
-  const name = r.name
+  const name = campaignLabel({ name: r.name, app_id: r.app_id, objective: r.objective, first_day: r.daily[0]?.day })
   const status = liveStatus(r)
   const live = spendingNow(r)
   // Over: the platform says ended / rejected, or it spent and then stopped on its own (an ad group past its schedule).
@@ -411,7 +419,7 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   if (ended) return out   // nothing to do on a campaign that's over
   const stake = stakeCents(r)
   const score = (kind: ActionKind) => stake / 100 + KIND_BONUS[kind]
-  const base = { platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, campaign_name: name, promotion_id: r.promotion_id,
+  const base = { platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, campaign_name: r.name, campaign_label: name, ads_state: adsState(r.app_id), promotion_id: r.promotion_id,
     adgroup_ids: Array.from(new Set(r.ads.map((a) => a.adgroup_id).filter((x): x is string => !!x))), ad_ids: r.ads.map((a) => a.ad_id),
     item_id: r.ads.map((a) => a.item_id).find((x): x is string => !!x), manager_url: r.url }
   const blocked = r.platform === 'tiktok' ? TIKTOK_WRITE_NOTE : undefined
@@ -472,4 +480,58 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
     done: { label: 'Paused ✓', note: `Paused ✓ — ${PLATFORM_NAME[r.platform]} says it’s already paused; nothing is spending.` } })
   void range
   return out
+}
+
+// ── Strategy layer: an app whose paid ads are paused ─────────────────────────
+//
+// Revenue strategy (2026-11-12): no restart, widen, raise or duplicate while
+// the app's gate hasn't passed. Every campaign gets at most one of:
+//   pause            — something is still spending (it shouldn't be)
+//   delete_campaign  — zero impressions for more than 7 days: dead weight
+//   reuse_angle      — the creative earned attention: post it organically
+//   leave_off        — the rest: nothing to fix while ads are off
+/** Zero impressions and live (or unknown age) for more than this many days = dead. */
+export const DEAD_DAYS = 7
+
+function pausedActionsFor(r: CampaignRow, i: Insight): Action[] {
+  const label = campaignLabel({ name: r.name, app_id: r.app_id, objective: r.objective, first_day: r.daily[0]?.day })
+  const app = appName(r.app_id)
+  const strat = strategyFor(r.app_id)
+  const status = liveStatus(r)
+  const live = spendingNow(r)
+  const stake = stakeCents(r)
+  const base = { platform: r.platform, campaign_id: r.campaign_id, app_id: r.app_id, campaign_name: r.name, campaign_label: label, ads_state: 'paused' as const, promotion_id: r.promotion_id,
+    adgroup_ids: Array.from(new Set(r.ads.map((a) => a.adgroup_id).filter((x): x is string => !!x))), ad_ids: r.ads.map((a) => a.ad_id),
+    item_id: r.ads.map((a) => a.item_id).find((x): x is string => !!x), manager_url: r.url }
+  const id = (kind: ActionKind) => `${kind}:${r.platform}:${r.campaign_id}`
+  const why = `${app} ads are paused until its gate passes${strat?.since ? ` (since ${strat.since})` : ''}.`
+
+  if (live) {
+    return [{ ...base, id: id('pause'), kind: 'pause', title: `Pause ${label}`, button: 'Pause', score: stake / 100 + KIND_BONUS.pause + 20,
+      blocked: r.platform === 'tiktok' ? TIKTOK_WRITE_NOTE : undefined,
+      detail: `${why} This one still spent in the last two days${status === 'unknown' ? ' (its status isn’t readable — skip this if you already paused it in Ads Manager)' : ''}. ${i.reason}`,
+      confirm: `Pause "${label}"? It stops delivering until you resume it in Ads Manager. Spend to date stays.` }]
+  }
+  const hours = liveHours(r)
+  const days = hours == null ? undefined : Math.floor(hours / 24)
+  const dead = (r.impressions ?? 0) === 0 && status !== 'ended' && (days == null || days > DEAD_DAYS)
+  if (dead) {
+    return [{ ...base, id: id('delete_campaign'), kind: 'delete_campaign', title: `Delete ${label}`, score: KIND_BONUS.delete_campaign,
+      button: r.url ? (r.platform === 'tiktok' ? 'Delete in TikTok Ads' : 'Delete in Ads Manager') : undefined, href: r.url,
+      detail: `Zero impressions${days != null ? ` in ${days} days` : ''} — it never delivered and holds nothing worth keeping. Delete it (or leave it paused) so it can’t switch back on by accident.` }]
+  }
+  const m = i.metrics
+  const earned = i.verdict === 'winning' || i.grades.hook === 'good' || i.grades.hold === 'good' || i.grades.click === 'good'
+  const hasPost = r.ads.some((a) => a.item_id) || !!r.thumbnail_url || !!r.video_url || !!r.promotion_id
+  if (earned && hasPost && (m.impressions ?? 0) >= 1000) {
+    const proof = i.grades.hook === 'good' && m.hook_rate != null ? `${Math.round(m.hook_rate * 100)}% of people stopped scrolling on it`
+      : i.grades.hold === 'good' && m.hold_rate != null ? `${Math.round(m.hold_rate * 100)}% of starters watched 15 seconds`
+      : m.ctr != null ? `${m.ctr.toFixed(2)}% of people who saw it tapped` : 'it beat our other campaigns'
+    return [{ ...base, id: id('reuse_angle'), kind: 'reuse_angle', title: `Reuse ${label} organically`, button: 'Open in Post', score: KIND_BONUS.reuse_angle + Math.min(10, (m.impressions ?? 0) / 2000),
+      detail: `${why} The creative still earned attention: ${proof}. Post the same cut organically for ${app} (no spend) and keep it for the relaunch.` }]
+  }
+  if (status === 'ended') return []
+  if ((m.impressions ?? 0) === 0 && !r.spend_cents) return []
+  return [{ ...base, id: id('leave_off'), kind: 'leave_off', title: `Leave ${label} off`, score: KIND_BONUS.leave_off + Math.min(5, r.spend_cents / 2000),
+    detail: `${why} Nothing to fix while it’s off. What it showed: ${i.reason.replace(/\s*\((Paused|Ended)\.\)$/, '')}` }]
 }

@@ -31,13 +31,15 @@ export async function enrichActions(actions: Action[], promotions: Pick<Promotio
       // Widen audience edits the ad group's targeting: link straight to that level.
       if (a.kind === 'widen_audience') { out.manager_url = adGroupManagerUrl(adv, a.campaign_id); out.href = out.manager_url }
     }
+    // Delete a dead campaign: done in the platform's own manager (Studio never deletes).
+    if (a.kind === 'delete_campaign' && out.manager_url) { out.href = out.manager_url; out.button ??= a.platform === 'tiktok' ? 'Delete in TikTok Ads' : 'Delete in Ads Manager' }
     const promo = promoBy.get(`${a.platform}:${a.campaign_id}`)
     if (promo?.post_id) out.post_id = promo.post_id
     if (!out.item_id && promo?.remote_id) out.item_id = promo.remote_id
     const done = log.get(`${a.platform}:${a.campaign_id}:${a.kind}`)
     if (done && !out.done) out.done = { at: done.created_at, note: `Done ${new Date(done.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, result_ids: done.result_ids ?? undefined }
     if (a.kind === 'reuse_angle') {
-      const q = new URLSearchParams({ app: a.app_id ?? '', notes: `Reuse the angle of "${a.campaign_name}"` })
+      const q = new URLSearchParams({ app: a.app_id ?? '', notes: a.ads_state === 'paused' ? `Organic post (no spend): reuse the creative of "${a.campaign_label ?? a.campaign_name}"` : `Reuse the angle of "${a.campaign_label ?? a.campaign_name}"` })
       if (promo?.post_id) {
         const post = await getPost(promo.post_id).catch(() => null)
         if (post) { if (post.caption) q.set('caption', post.caption); const m = post.media[0]; if (m?.url) q.set('media', m.url) }

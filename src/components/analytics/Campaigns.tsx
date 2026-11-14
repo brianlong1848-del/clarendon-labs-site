@@ -4,6 +4,7 @@ import { AppTag, C, Label, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph } from '@/components/post/shared'
 import { AdThumb, type AdThumbMedia } from './AdThumb'
 import { VerdictPill, WhyNext, type InsightsPayload } from './Insights'
+import { campaignLabel } from '@/lib/ads/labels'
 
 // ─── Campaigns card (FEAT-CLA-022) ───────────────────────────────────────────
 //
@@ -86,7 +87,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
     } catch (e) { setError((e as Error).message) }
     setLoading(false)
     // Verdicts + Claude's why / try next, after the rows (FEAT-CLA-023). Never blocks the table.
-    fetch(`/api/ads/insights?app=${encodeURIComponent(app)}&range=${r}`).then((x) => (x.ok ? x.json() : null)).then((j) => j && setInsights(j)).catch(() => undefined)
+    fetch(`/api/ads/insights?app=${encodeURIComponent(app)}&range=${r}&narrative=cached`).then((x) => (x.ok ? x.json() : null)).then((j) => j && setInsights(j)).catch(() => undefined)
   }, [app])
   useEffect(() => { load(range) }, [load, range])
 
@@ -142,7 +143,7 @@ export function Campaigns({ app = 'all', title = 'Campaigns', compact = false }:
                         <PlatformGlyph platform={r.platform === 'tiktok' ? 'tiktok' : 'facebook'} size={15} />
                         <button onClick={() => toggle(key)} title={r.name} aria-expanded={isOpen}
                           style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: C.sans, fontSize: 13.5, fontWeight: 650, color: C.ink, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.name}
+                          {campaignLabel({ name: r.name, app_id: r.app_id, objective: r.objective, first_day: r.daily[0]?.day })}
                         </button>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.soft, flexWrap: 'wrap' }}>
