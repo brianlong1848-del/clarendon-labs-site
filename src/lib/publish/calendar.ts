@@ -16,7 +16,7 @@ import { analyticsRegistry } from '@/lib/analytics/registry'
 import { appStoreDailyCached } from '@/lib/analytics/appstore'
 import { fetchPlayCountries, playDaily } from '@/lib/analytics/googleplay'
 import { PLAY_PACKAGE_IDS } from '@/lib/ads/store'
-import { campaignsFor, type CampaignRow } from '@/lib/ads/campaigns'
+import { adsReportForService } from '@/lib/money/adsReport'
 import { adSpendByCountry } from '@/lib/ads/countries'
 import { APP_MARKETS, MARKETS, flagOf, postCountry } from './markets'
 import { postsBetween, rest, type Post } from './store'
@@ -125,10 +125,15 @@ export async function buildCalendar(opts: { from: string; to: string; app: strin
     const [daily, byCountry] = await Promise.all([playDaily(pkg, from, to), fetchPlayCountries(pkg, from, to)])
     return { daily, byCountry }
   }))
-  // Ad spend per day: the Campaigns rows (Meta + TikTok), last 90 days at most.
-  const adsP = campaignsFor(opts.app === 'all' ? 'all' : opts.app, '90d')
-    .then((r) => ({ rows: r.campaigns as CampaignRow[], errors: r.errors }))
-    .catch((e) => ({ rows: null as CampaignRow[] | null, errors: [(e as Error).message] }))
+  // Ad spend per day: the synced ad_spend table (same source as Money → Ads),
+  // so the calendar and the Ads page always agree.
+  type SpendRow = { app_id: string | null; daily: { day: string; spend_cents: number }[] }
+  const spanDays = Math.max(1, Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 2)
+  const adsP = adsReportForService(spanDays)
+    .then((r) => r
+      ? { rows: r.campaigns.map((c) => ({ app_id: c.app_slug, daily: c.daily_spend.map((d) => ({ day: d.day, spend_cents: d.cents })) })) as SpendRow[], errors: [] as string[] }
+      : { rows: null as SpendRow[] | null, errors: ['Studio database not configured'] })
+    .catch((e) => ({ rows: null as SpendRow[] | null, errors: [(e as Error).message] }))
   const adCountriesP = Promise.resolve()
     .then(() => adSpendByCountry({ from, to, ...(opts.app === 'all' ? {} : { app: opts.app }) }))
     .then((r: unknown) => normalizeAdCountries(r))
@@ -196,8 +201,8 @@ export async function buildCalendar(opts: { from: string; to: string; app: strin
       if (!r.app_id || !apps.includes(r.app_id)) continue
       for (const d of r.daily) if (d.day >= from && d.day <= to) { const x = day(d.day); x.adSpendCents = (x.adSpendCents ?? 0) + d.spend_cents }
     }
-    // Inside the 90 days the campaigns cover, a day with no spend is a real $0.
-    const covered = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)
+    // ad_spend holds the full history, so any day in range with no spend is a real $0.
+    const covered = from
     const today = dayIn(new Date().toISOString())
     if (!CC) for (const x of days.values()) if (x.date >= covered && x.date <= today && x.adSpendCents === undefined) x.adSpendCents = 0
   } else if (ads.errors.length) { adsState = 'error'; errors.push(...ads.errors.map((e) => `Ads: ${e}`)) }
