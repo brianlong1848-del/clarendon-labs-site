@@ -82,7 +82,7 @@ const BODY = `
 <h2>10. Contact</h2>
 <p>Privacy questions are answered by the engineer who wrote the code.</p>
 <p><strong>Email:</strong> <a href="mailto:hello@clarendon.dev">hello@clarendon.dev</a><br/>
-<strong>Mail:</strong> Clarendon Labs LLC &middot; 4801 N. Clarendon Ave. &middot; Chicago, IL 60640 &middot; United States</p>
+<strong>Mail:</strong> Clarendon Labs LLC &middot; 4016 N. Clarendon Ave. &middot; Chicago, IL 60613 &middot; United States</p>
 `
 
 export default function BoreaPrivacy() {

@@ -78,7 +78,7 @@ const BODY = `
 
 <h2>13. Contact</h2>
 <p><strong>Email:</strong> <a href="mailto:hello@clarendon.dev">hello@clarendon.dev</a><br/>
-<strong>Mail:</strong> Clarendon Labs LLC &middot; 4801 N. Clarendon Ave. &middot; Chicago, IL 60640 &middot; United States</p>
+<strong>Mail:</strong> Clarendon Labs LLC &middot; 4016 N. Clarendon Ave. &middot; Chicago, IL 60613 &middot; United States</p>
 `
 
 export default function BoreaTerms() {
