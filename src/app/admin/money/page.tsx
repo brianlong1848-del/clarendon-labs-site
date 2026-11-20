@@ -5,10 +5,17 @@ import Link from 'next/link'
 import { AdminShell, AppTag, C, Label, TILE, labelStyle } from '@/components/AdminNav'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import PlaidSyncStatus from '@/components/money/PlaidSyncStatus'
+import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 
 type Row = { month: string; app_slug: string; revenue_cents: number; direct_cost_cents: number; allocated_cost_cents: number; ad_spend_cents: number; profit_cents: number; cumulative_profit_cents: number }
 type App = { slug: string; name: string }
-type Data = { pnl: Row[]; apps: App[]; roas30: Record<string, { spend: number; proceeds: number; installs: number }>; owedCents: number; unreviewed: number }
+/** Revenue by store per app per month: source 'asc' = App Store, 'play' = Google Play (revenue table). */
+type SourceRow = { month: string; app_slug: string; source: string; proceeds_cents: number }
+type Data = { pnl: Row[]; apps: App[]; roas30: Record<string, { spend: number; proceeds: number; installs: number }>; owedCents: number; unreviewed: number; bySource?: SourceRow[] }
+const STORE: Record<string, { name: string; logo: (size: number) => React.ReactNode }> = {
+  asc: { name: 'App Store', logo: (s) => <AppleLogo size={s} /> },
+  play: { name: 'Google Play', logo: (s) => <PlayLogo size={s} /> },
+}
 
 const usd = (c: number) => (c < 0 ? '−' : '') + Math.abs(c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const monthLabel = (m: string) => new Date(m + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -51,6 +58,24 @@ export default function MoneyOverview() {
     return Array.from(by.values())
   }, [d, month])
   const periodLabel = (m: string | null) => m === 'ytd' ? `Year to date (${new Date().getFullYear()})` : m === 'all' ? 'All time' : m ? monthLabel(m) : 'This month'
+  // App Store vs Google Play, for the period on screen (and all time), per app and in total.
+  const inPeriod = (r: SourceRow) => !month || month === 'all' || (month === 'ytd' ? r.month.startsWith(String(new Date().getFullYear())) : r.month === month)
+  const storeTotals = (rowsIn: SourceRow[]) => {
+    const by = new Map<string, number>()
+    for (const r of rowsIn) by.set(r.source, (by.get(r.source) ?? 0) + r.proceeds_cents)
+    return Array.from(by).filter(([, c]) => c !== 0).sort((a, b) => b[1] - a[1])
+  }
+  const sourceRows = d?.bySource ?? []
+  const hasPlay = sourceRows.some((r) => r.source === 'play' && r.proceeds_cents !== 0)
+  const storeLine = (entries: [string, number][], size = 12) => entries.length ? (
+    <span style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
+      {entries.map(([src, cents]) => (
+        <span key={src} title={STORE[src]?.name ?? src} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {STORE[src]?.logo(size) ?? <span style={{ fontSize: 11 }}>{src}</span>}<b style={{ color: C.ink, fontVariantNumeric: 'tabular-nums' }}>{(cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</b>
+        </span>
+      ))}
+    </span>
+  ) : null
   const name = (slug: string) => d?.apps.find((a) => a.slug === slug)?.name.replace(/\s*\(.*\)/, '') ?? slug
   const tot = rows.reduce((t, r) => ({
     revenue: t.revenue + r.revenue_cents, cost: t.cost + r.direct_cost_cents + r.allocated_cost_cents,
@@ -114,6 +139,13 @@ export default function MoneyOverview() {
                 </div>
               )
             })()}
+            {/* …and from which store (App Store vs Google Play), once Play has paid anything. */}
+            {hasPlay && (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: C.ink2 }}>
+                <span style={{ color: C.soft }}>Revenue by store</span>
+                {storeLine(storeTotals(sourceRows), 13)}
+              </div>
+            )}
             {d.owedCents !== 0 && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 13.5, color: C.ink2, borderTop: `1px solid ${C.rule}`, paddingTop: 10 }}>
                 LLC owes Brian <b style={{ color: C.ink, fontVariantNumeric: 'tabular-nums' }}>{usd(d.owedCents)}</b>
@@ -133,6 +165,7 @@ export default function MoneyOverview() {
               <div key={k} data-card style={{ background: TILE[i % 4].bg, border: `1px solid ${TILE[i % 4].line}`, borderRadius: 12, padding: '16px 18px' }}>
                 <Label>{k}</Label>
                 <div style={{ fontFamily: C.sans, fontSize: 30, fontWeight: 650, letterSpacing: '-.02em', marginTop: 6, color: col }}>{v}</div>
+                {k === 'Revenue' && hasPlay && <div style={{ marginTop: 6, fontSize: 12.5, color: C.ink2 }}>{storeLine(storeTotals(sourceRows.filter(inPeriod)))}</div>}
               </div>
             ))}
           </div>
@@ -162,7 +195,14 @@ export default function MoneyOverview() {
                         <td style={{ ...td, textAlign: 'left', fontWeight: 650 }}>
                           <AppTag id={r.app_slug} name={name(r.app_slug)} />
                         </td>
-                        <td style={td}>{usd(r.revenue_cents)}</td>
+                        <td style={td}>
+                          {usd(r.revenue_cents)}
+                          {hasPlay && (() => {
+                            const parts = storeTotals(sourceRows.filter((s) => s.app_slug === r.app_slug && inPeriod(s)))
+                            return parts.length > 1 || parts.some(([src]) => src === 'play')
+                              ? <div style={{ fontSize: 11.5, color: C.soft, fontWeight: 400, marginTop: 2 }}>{storeLine(parts, 10)}</div> : null
+                          })()}
+                        </td>
                         <td style={td}>{usd(r.direct_cost_cents + r.allocated_cost_cents)}</td>
                         <td style={td}>{usd(r.ad_spend_cents)}</td>
                         <td style={{ ...td, fontWeight: 700, color: pos(r.profit_cents) }}>{usd(r.profit_cents)}</td>
@@ -176,7 +216,7 @@ export default function MoneyOverview() {
             )}
           </div>
           <p style={{ color: C.soft, fontSize: 12.5, margin: 0 }}>
-            Revenue is what Apple pays out after its cut. Costs include each app&apos;s share of tools used by every app. ROAS is revenue earned per dollar of ads over the last 30 days.
+            Revenue is what Apple pays out after its cut{hasPlay ? ', plus Google Play proceeds estimated after Google’s fee (sales reports; payouts arrive monthly)' : ''}. Costs include each app&apos;s share of tools used by every app. ROAS is revenue earned per dollar of ads over the last 30 days.
           </p>
         </>
       )}

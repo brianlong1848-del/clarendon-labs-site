@@ -6,6 +6,7 @@ import { AdminShell, C, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { Campaigns } from '@/components/analytics/Campaigns'
 import { ThisWeek } from '@/components/analytics/Insights'
+import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 
 // ─── /analytics/<app> — one app, mapped ──────────────────────────────────────
 //
@@ -25,9 +26,12 @@ type GeoCountry = {
   instagram: { status: string; followers: number; mappedFollowers: number }
   regions: Region[]; ads: { status: string; note: string }
 }
+type GooglePlay = { package: string; reportDate: string | null; last30: { installs: number; proceeds: number; days: number }; otherCurrencies: string[] } | { package: string; error: string } | null
 type AppRow = {
   id: string; name: string; accent: string
   appStore: { last30: { installs: number; proceeds: number }; reportDate: string } | null
+  /** Google Play (FEAT-CLA-025); absent from older server copies. */
+  googlePlay?: GooglePlay
   instagram: { followers: number; posts: number; reach30d: number | null } | null
   facebook: { name: string; followers: number; posts30d: number | null } | null
   tiktok: { spend: number; impressions: number; clicks: number } | null
@@ -40,8 +44,8 @@ const countryName = (cc: string) => regionNames?.of(cc) ?? cc
 const plural = (t: string) => (/y$/i.test(t) ? t.replace(/y$/i, 'ies') : t.endsWith('s') ? t : t + 's').toLowerCase()
 
 const METRICS: { key: Metric; label: string; hint: string }[] = [
-  { key: 'installs', label: 'Downloads', hint: 'First-time App Store installs, last 30 days' },
-  { key: 'proceeds', label: 'Money', hint: 'App Store proceeds (USD) — purchases, in-app buys and subscriptions, last 30 days' },
+  { key: 'installs', label: 'Downloads', hint: 'First-time App Store + Google Play installs, last 30 days' },
+  { key: 'proceeds', label: 'Money', hint: 'App Store proceeds (USD) — purchases, in-app buys and subscriptions, last 30 days (Google Play sales carry no country)' },
   { key: 'followers', label: 'Audience', hint: 'Where the app’s Instagram followers live' },
 ]
 
@@ -92,13 +96,24 @@ export default function AppAnalyticsPage() {
 
   const label = labelStyle
   const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.rule}`, borderRadius: 16, padding: 22 }
-  const big = (i: number, v: string, cap: string, sub?: string) => (
+  const big = (i: number, v: string, cap: string, sub?: React.ReactNode) => (
     <div data-card style={{ ...card, background: TILE[i].bg, border: `1px solid ${TILE[i].line}`, borderRadius: 14, padding: '18px 20px' }}>
       <div style={label}>{cap}</div>
       <div style={{ fontFamily: C.serif, fontSize: 28, fontWeight: 900, marginTop: 8 }}>{v}</div>
       {sub && <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>{sub}</div>}
     </div>
   )
+  // Both stores in one tile, with the split underneath once Google Play reports exist.
+  const play = app?.googlePlay && !('error' in app.googlePlay) && app.googlePlay.reportDate ? app.googlePlay : null
+  const split = (apple: number, g: number, fmt: (n: number) => string) => play ? (
+    <span style={{ display: 'inline-flex', gap: 12, color: C.ink2 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><AppleLogo size={10} />{fmt(apple)}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><PlayLogo size={10} />{fmt(g)}</span>
+    </span>
+  ) : undefined
+  const installs30 = (app?.appStore?.last30.installs ?? 0) + (play?.last30.installs ?? 0)
+  const proceeds30 = (app?.appStore?.last30.proceeds ?? 0) + (play?.last30.proceeds ?? 0)
+  const anyStore = !!app?.appStore || !!play
   const empty = metric === 'followers'
     ? world?.audienceStatus === 'too_small'
       ? 'Instagram shares follower locations once an account passes 100 followers.'
@@ -114,11 +129,15 @@ export default function AppAnalyticsPage() {
       {error && error !== 'signin' && <p style={{ color: C.red, fontSize: 14, margin: 0 }}>{error}</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 14 }}>
-        {big(0, app?.appStore ? num(app.appStore.last30.installs) : '—', 'Downloads, 30 days')}
-        {big(1, app?.appStore ? money(app.appStore.last30.proceeds) : '—', 'Money, 30 days', 'Proceeds after Apple’s cut')}
+        {big(0, anyStore ? num(installs30) : '—', 'Downloads, 30 days', split(app?.appStore?.last30.installs ?? 0, play?.last30.installs ?? 0, num))}
+        {big(1, anyStore ? money(proceeds30) : '—', 'Money, 30 days', split(app?.appStore?.last30.proceeds ?? 0, play?.last30.proceeds ?? 0, money) ?? (play ? 'Proceeds after the stores’ cut' : 'Proceeds after Apple’s cut'))}
         {big(2, app?.instagram ? num(app.instagram.followers) : '—', 'Instagram followers', app?.instagram?.reach30d != null ? `${num(app.instagram.reach30d)} reached · 30d` : undefined)}
         {big(3, app?.facebook ? num(app.facebook.followers) : '—', 'Facebook followers', app?.facebook?.posts30d != null ? `${app.facebook.posts30d} posts · 30d` : app?.facebook ? undefined : 'Page not linked yet')}
       </div>
+
+      {app?.googlePlay && 'error' in app.googlePlay && (
+        <p style={{ margin: 0, fontSize: 12.5, color: C.soft, display: 'flex', alignItems: 'center', gap: 6 }}><PlayLogo size={11} />Google Play: {app.googlePlay.error}</p>
+      )}
 
       {pw && <ThisWeek app={appId} />}
       {pw && <Campaigns app={appId} title={`Campaigns · ${app?.name ?? appId}`} />}

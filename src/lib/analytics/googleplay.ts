@@ -23,8 +23,30 @@ import { createSign } from 'crypto'
 import { inflateRawSync } from 'zlib'
 
 type Key = { client_email: string; private_key: string }
-export type PlayDay = { date: string; installs: number; proceeds: number }
-export type PlayMetrics = { reportDate: string | null; series: PlayDay[]; otherCurrencies: string[] }
+/** One day: first-time installs, estimated USD proceeds, and the number of charged orders (minus refunds). */
+export type PlayDay = { date: string; installs: number; proceeds: number; units?: number }
+export type PlayTally = { installs: number; proceeds: number }
+export type PlayMetrics = {
+  /** Most recent day with a published report, or null when Play hasn't written anything yet. */
+  reportDate: string | null
+  /** The last ~35 days ending on reportDate, zeros filled — the Console / Calendar window. */
+  series: PlayDay[]
+  otherCurrencies: string[]
+  /** reportDate alone, and the 30 days ending on it. */
+  day: PlayTally
+  last30: PlayTally & { days: number }
+  /** Every day since the first Play report (PLAY_SINCE), oldest first — revenue rows read this. */
+  daily: PlayDay[]
+  /** Installs by storefront country over the last 30 days, most first. */
+  countries: { code: string; installs: number }[]
+  /** Same shape as the App Store history, so the dashboards show both stores side by side. */
+  history: {
+    ytd: PlayTally & { from: string; to: string }
+    prevYtd: PlayTally & { from: string; to: string }
+    months: (PlayTally & { month: string })[]
+    allTime: PlayTally
+  }
+}
 
 function key(): Key | null {
   const raw = (process.env.PLAY_REPORTS_SA_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_JSON)?.trim()
@@ -139,7 +161,7 @@ function isoDate(v: string): string | null {
 }
 const money = (v: string | undefined) => Number((v ?? '').replace(/[^0-9.\-]/g, '')) || 0
 
-type SaleRow = { pkg: string; date: string; usd: number; currency: string }
+type SaleRow = { pkg: string; date: string; usd: number; currency: string; sign: 1 | -1 }
 export function parseSales(csv: string): SaleRow[] {
   const lines = csv.split(/\r?\n/).filter((l) => l.trim())
   if (lines.length < 2) return []
@@ -157,7 +179,7 @@ export function parseSales(csv: string): SaleRow[] {
     if (!sign) continue
     const sub = (c[iType] ?? '').toLowerCase().includes('subscription')
     const fee = sub || (c[iFirst] ?? '').toLowerCase() === 'yes' ? 0.15 : 0.30
-    out.push({ pkg: c[iPkg], date, currency: (c[iCur] ?? 'USD').toUpperCase(), usd: sign * Math.abs(money(c[iPrice])) * (1 - fee) })
+    out.push({ pkg: c[iPkg], date, currency: (c[iCur] ?? 'USD').toUpperCase(), usd: sign * Math.abs(money(c[iPrice])) * (1 - fee), sign })
   }
   return out
 }
@@ -182,32 +204,93 @@ function salesMonth(ym: string): Promise<SaleRow[]> {
 
 const ymOf = (d: Date) => `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 
-/** Daily installs + estimated USD proceeds for the last ~35 days: this month's files plus last month's. */
+/** The first month a Clarendon app was on Google Play (YulePick, 2026-11-09). Nothing to read before it. */
+const PLAY_SINCE = '202611'
+/** 'YYYYMM' for every month from `from` through `to`, inclusive. */
+function monthsBetween(from: string, to: string): string[] {
+  const out: string[] = []
+  for (let d = new Date(Date.UTC(+from.slice(0, 4), +from.slice(4) - 1, 1)); ymOf(d) <= to; d.setUTCMonth(d.getUTCMonth() + 1)) out.push(ymOf(d))
+  return out
+}
+const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
+const tally = (days: PlayDay[]): PlayTally => ({
+  installs: days.reduce((t, d) => t + d.installs, 0),
+  proceeds: Math.round(days.reduce((t, d) => t + d.proceeds, 0) * 100) / 100,
+})
+
+/** Daily installs + estimated USD proceeds for every month since PLAY_SINCE (one installs CSV per
+ *  app per month, one sales zip per month shared by every app; months Play hasn't written are 404 → []). */
 export async function fetchPlay(pkg: string): Promise<PlayMetrics> {
-  const now = new Date()
-  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
-  const [a, b, sa, sb] = await Promise.all([month(pkg, ymOf(prev)), month(pkg, ymOf(now)), salesMonth(ymOf(prev)), salesMonth(ymOf(now))])
+  const today = new Date().toISOString().slice(0, 10)
+  const months = monthsBetween(PLAY_SINCE, ymOf(new Date()))
+  const [inst, sales, countryRows] = await Promise.all([
+    Promise.all(months.map((ym) => month(pkg, ym))),
+    Promise.all(months.map((ym) => salesMonth(ym))),
+    Promise.all(months.slice(-2).map((ym) => countryMonthCached(pkg, ym).catch(() => [] as PlayCountryDay[]))),
+  ])
   const byDate = new Map<string, number>()
-  for (const d of [...a, ...b]) byDate.set(d.date, d.installs)
-  const proceeds = new Map<string, number>(), other = new Set<string>()
-  for (const r of [...sa, ...sb]) {
+  for (const d of inst.flat()) byDate.set(d.date, d.installs)
+  const proceeds = new Map<string, number>(), units = new Map<string, number>(), other = new Set<string>()
+  for (const r of sales.flat()) {
     if (r.pkg !== pkg) continue
     if (r.currency !== 'USD') { other.add(r.currency); continue }
     proceeds.set(r.date, (proceeds.get(r.date) ?? 0) + r.usd)
+    units.set(r.date, (units.get(r.date) ?? 0) + r.sign)
   }
   const dates = [...byDate.keys(), ...proceeds.keys()].sort()
   const reportDate = dates.at(-1) ?? null
-  // A continuous run of days ending on the latest report day, zeros filled in,
-  // so "last 7" means seven calendar days like the App Store series.
-  const series: PlayDay[] = []
-  if (reportDate) {
-    const end = new Date(`${reportDate}T00:00:00Z`)
-    for (let i = 34; i >= 0; i--) {
-      const day = new Date(end.getTime() - i * 86400000).toISOString().slice(0, 10)
-      series.push({ date: day, installs: byDate.get(day) ?? 0, proceeds: Math.round((proceeds.get(day) ?? 0) * 100) / 100 })
+  const empty: PlayTally = { installs: 0, proceeds: 0 }
+  const year = today.slice(0, 4), prevYear = String(+year - 1)
+  if (!reportDate) {
+    return {
+      reportDate, series: [], otherCurrencies: [...other], day: empty, last30: { ...empty, days: 0 }, daily: [], countries: [],
+      history: { ytd: { ...empty, from: `${year}-01-01`, to: today }, prevYtd: { ...empty, from: `${prevYear}-01-01`, to: `${prevYear}${today.slice(4)}` }, months: [], allTime: empty },
     }
   }
-  return { reportDate, series, otherCurrencies: [...other] }
+  // A continuous run of days from the first report day to the latest, zeros
+  // filled in, so "last 7" means seven calendar days like the App Store series.
+  const daily: PlayDay[] = []
+  for (let day = dates[0]; day <= reportDate; day = addDays(day, 1)) {
+    daily.push({ date: day, installs: byDate.get(day) ?? 0, proceeds: Math.round((proceeds.get(day) ?? 0) * 100) / 100, units: units.get(day) ?? 0 })
+  }
+  const series = daily.slice(-35)
+  const last30 = daily.slice(-30)
+  const from30 = addDays(reportDate, -29)
+  const byCountry = new Map<string, number>()
+  for (const c of countryRows.flat()) if (c.date >= from30 && c.date <= reportDate) byCountry.set(c.country, (byCountry.get(c.country) ?? 0) + c.installs)
+  const byMonth = new Map<string, PlayDay[]>()
+  for (const d of daily) { const k = d.date.slice(0, 7); byMonth.set(k, [...(byMonth.get(k) ?? []), d]) }
+  const sameDayLastYear = `${prevYear}${reportDate.slice(4)}`
+  return {
+    reportDate, series, otherCurrencies: [...other],
+    day: tally(daily.slice(-1)),
+    last30: { ...tally(last30), days: last30.length },
+    daily,
+    countries: [...byCountry].map(([code, installs]) => ({ code, installs })).filter((c) => c.installs > 0).sort((a, b) => b.installs - a.installs),
+    history: {
+      ytd: { ...tally(daily.filter((d) => d.date >= `${year}-01-01`)), from: `${year}-01-01`, to: reportDate },
+      prevYtd: { ...tally(daily.filter((d) => d.date >= `${prevYear}-01-01` && d.date <= sameDayLastYear)), from: `${prevYear}-01-01`, to: sameDayLastYear },
+      months: [...byMonth].map(([m, days]) => ({ month: m, ...tally(days) })),
+      allTime: tally(daily),
+    },
+  }
+}
+
+// ─── Connection check (/api/admin/connections) ───────────────────────────────
+
+export const playBucket = () => bucket()
+
+/** Names, sizes and update times of the report files under a prefix (e.g. 'stats/installs/'). */
+export async function listPlayReports(prefix: string, max = 200): Promise<{ name: string; size: number; updated: string }[]> {
+  const q = new URLSearchParams({ prefix, maxResults: String(max), fields: 'items(name,size,updated)' })
+  const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket()!)}/o?${q}`, {
+    headers: { Authorization: `Bearer ${await token()}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000),
+  })
+  if (res.status === 403) throw new Error(`${playAccount()} can’t list gs://${bucket()}/${prefix} — it needs “View app information and download bulk reports” (and “View financial data” for sales) in Play Console → Users and permissions.`)
+  if (res.status === 404) throw new Error(`Bucket gs://${bucket()} was not found — check PLAY_REPORTS_BUCKET against Play Console → Download reports → “Copy Cloud Storage URI”.`)
+  if (!res.ok) throw new Error(`Play reports list ${res.status}`)
+  const j = await res.json() as { items?: { name: string; size?: string; updated?: string }[] }
+  return (j.items ?? []).map((i) => ({ name: i.name, size: Number(i.size) || 0, updated: i.updated ?? '' }))
 }
 
 const cache = new Map<string, { at: number; v: Promise<PlayMetrics | { error: string }> }>()
@@ -250,21 +333,22 @@ async function countryMonth(pkg: string, ym: string): Promise<PlayCountryDay[]> 
 }
 
 const countryCache = new Map<string, { at: number; v: Promise<PlayCountryDay[]> }>()
+function countryMonthCached(pkg: string, ym: string): Promise<PlayCountryDay[]> {
+  const k = `${pkg}|${ym}`
+  const hit = countryCache.get(k)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
+  const v = countryMonth(pkg, ym)
+  countryCache.set(k, { at: Date.now(), v })
+  v.catch(() => countryCache.delete(k))
+  return v
+}
 /** Daily installs per country between two dates (inclusive), or { error }. Null when Play isn't connected. */
 export async function fetchPlayCountries(pkg: string, from: string, to: string): Promise<PlayCountryDay[] | { error: string } | null> {
   if (!playConfigured()) return null
   const months: string[] = []
   for (let d = new Date(`${from.slice(0, 7)}-01T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(ymOf(d))
   try {
-    const all = await Promise.all(months.slice(-14).map((ym) => {
-      const k = `${pkg}|${ym}`
-      const hit = countryCache.get(k)
-      if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
-      const v = countryMonth(pkg, ym)
-      countryCache.set(k, { at: Date.now(), v })
-      v.catch(() => countryCache.delete(k))
-      return v
-    }))
+    const all = await Promise.all(months.slice(-14).map((ym) => countryMonthCached(pkg, ym)))
     return all.flat().filter((d) => d.date >= from && d.date <= to)
   } catch (e) { return { error: e instanceof Error ? e.message : 'Play country reports unavailable' } }
 }
@@ -274,5 +358,5 @@ export async function playDaily(pkg: string, from: string, to: string): Promise<
   if (!playConfigured()) return null
   const m = await fetchPlayCached(pkg)
   if ('error' in m) return m
-  return m.series.filter((d) => d.date >= from && d.date <= to)
+  return m.daily.filter((d) => d.date >= from && d.date <= to)
 }

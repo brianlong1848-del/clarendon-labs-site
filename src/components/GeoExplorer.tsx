@@ -29,8 +29,8 @@ const countryName = (cc: string) => regionNames?.of(cc) ?? cc
 const plural = (t: string) => (/y$/i.test(t) ? t.replace(/y$/i, 'ies') : t.endsWith('s') ? t : t + 's').toLowerCase()
 
 const METRICS: { key: Metric; label: string; hint: string }[] = [
-  { key: 'installs', label: 'Downloads', hint: 'First-time App Store installs, last 30 days' },
-  { key: 'proceeds', label: 'Money', hint: 'App Store proceeds (USD) — purchases, in-app buys and subscriptions, last 30 days' },
+  { key: 'installs', label: 'Downloads', hint: 'First-time App Store + Google Play installs, last 30 days' },
+  { key: 'proceeds', label: 'Money', hint: 'App Store proceeds (USD) — purchases, in-app buys and subscriptions, last 30 days; Google Play sales carry no country' },
   { key: 'followers', label: 'Audience', hint: 'Where Instagram followers live' },
 ]
 

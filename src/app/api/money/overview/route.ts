@@ -11,12 +11,14 @@ export async function GET() {
   if (!(await consoleAuthed())) return NextResponse.json({ error: 'not authorised' }, { status: 401 })
   const sb = await supabaseServer()
   const since = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10)
-  const [pnl, apps, roas, owed, unreviewed] = await Promise.all([
+  const [pnl, apps, roas, owed, unreviewed, bySource] = await Promise.all([
     sb.from('v_app_pnl_monthly').select('*').order('month', { ascending: false }).limit(400),
     sb.from('apps').select('slug,name').order('name'),
     sb.from('v_roas_daily').select('app_slug,spend_cents,proceeds_cents,installs').gte('day', since),
     owedToOwner(sb).catch((e: Error) => ({ error: e })),
     sb.from('transactions').select('id', { count: 'exact', head: true }).eq('scope', 'studio').eq('status', 'unreviewed'),
+    // Which store each app's revenue came from (asc = App Store, play = Google Play), by month.
+    sb.from('v_revenue_source_monthly').select('month,app_slug,source,proceeds_cents').order('month', { ascending: false }).limit(800),
   ])
   const err = pnl.error || apps.error || roas.error || ('error' in owed ? owed.error : null)
   if (err) return NextResponse.json({ error: err.message }, { status: 500 })
@@ -34,5 +36,7 @@ export async function GET() {
     owedCents: 'error' in owed ? 0 : owed.totalCents,
     owed: 'error' in owed ? null : owed,
     unreviewed: unreviewed.count ?? 0,
+    // Optional for the Studio app: older builds ignore it. Empty if the view is missing.
+    bySource: (bySource.data ?? []).map((r) => ({ month: r.month, app_slug: r.app_slug, source: r.source, proceeds_cents: Number(r.proceeds_cents) })),
   })
 }

@@ -3,6 +3,8 @@ import { consoleAuthed } from '@/lib/console'
 import { analyticsRegistry, withInstagram } from '@/lib/analytics/registry'
 import { fetchAppStore } from '@/lib/analytics/appstore'
 import { fetchAudience } from '@/lib/analytics/audience'
+import { fetchPlayCached, playConfigured } from '@/lib/analytics/googleplay'
+import { PLAY_PACKAGE_IDS } from '@/lib/ads/store'
 
 // ─── /api/analytics/geo ──────────────────────────────────────────────────────
 //
@@ -40,16 +42,29 @@ export async function GET(req: Request) {
   const app = { id: wanted === 'all' ? 'all' : apps[0].id }
   const country = url.searchParams.get('country')?.toUpperCase() ?? null
 
-  const perApp = await Promise.all(apps.map((a) => Promise.all([fetchAppStore(a.appStoreId), fetchAudience(a.instagramAccountId)])))
+  // Google Play installs by country (last 30 days) join the App Store's on the
+  // same map; Play's sales reports carry no country, so proceeds stay Apple-only.
+  const playFor = async (id: string) => {
+    const pkg = PLAY_PACKAGE_IDS[id]
+    if (!pkg || !playConfigured()) return null
+    const m = await fetchPlayCached(pkg)
+    return 'error' in m ? null : m
+  }
+  const perApp = await Promise.all(apps.map((a) => Promise.all([fetchAppStore(a.appStoreId), fetchAudience(a.instagramAccountId), playFor(a.id)])))
   const stores = perApp.map(([s]) => s).filter(Boolean)
   const audiences = perApp.map(([, a]) => a)
-  const store = stores.length ? {
+  const plays = perApp.map(([, , p]) => p).filter((p) => !!p)
+  const store = stores.length || plays.length ? {
     reportDate: stores.map((s) => s!.reportDate).sort().pop() ?? null,
+    playReportDate: plays.map((p) => p!.reportDate ?? '').sort().pop() || null,
     countries: (() => {
-      const m = new Map<string, { code: string; installs: number; proceeds: number }>()
+      const m = new Map<string, { code: string; installs: number; proceeds: number; appStoreInstalls: number; playInstalls: number }>()
+      const row = (code: string) => { const r = m.get(code) ?? { code, installs: 0, proceeds: 0, appStoreInstalls: 0, playInstalls: 0 }; m.set(code, r); return r }
       for (const s of stores) for (const c of s!.countries ?? []) {
-        const r = m.get(c.code) ?? { code: c.code, installs: 0, proceeds: 0 }
-        r.installs += c.installs; r.proceeds += c.proceeds; m.set(c.code, r)
+        const r = row(c.code); r.installs += c.installs; r.appStoreInstalls += c.installs; r.proceeds += c.proceeds
+      }
+      for (const p of plays) for (const c of p!.countries) {
+        const r = row(c.code); r.installs += c.installs; r.playInstalls += c.installs
       }
       return Array.from(m.values())
     })(),
@@ -66,16 +81,17 @@ export async function GET(req: Request) {
   const ads = { status: 'not_connected' as const, note: 'Region-level results appear here once Meta or TikTok ads run for this app.' }
 
   if (!country) {
-    const byCode = new Map<string, { code: string; installs: number; proceeds: number; followers: number }>()
+    const byCode = new Map<string, { code: string; installs: number; proceeds: number; followers: number; appStoreInstalls: number; playInstalls: number }>()
     const row = (code: string) => {
-      if (!byCode.has(code)) byCode.set(code, { code, installs: 0, proceeds: 0, followers: 0 })
+      if (!byCode.has(code)) byCode.set(code, { code, installs: 0, proceeds: 0, followers: 0, appStoreInstalls: 0, playInstalls: 0 })
       return byCode.get(code)!
     }
-    for (const c of store?.countries ?? []) Object.assign(row(c.code), { installs: c.installs, proceeds: c.proceeds })
+    for (const c of store?.countries ?? []) Object.assign(row(c.code), { installs: c.installs, proceeds: c.proceeds, appStoreInstalls: c.appStoreInstalls, playInstalls: c.playInstalls })
     for (const c of audience.countries) row(c.code).followers = c.followers
     return NextResponse.json({
       app: app.id,
       reportDate: store?.reportDate ?? null,
+      playReportDate: store?.playReportDate ?? null,
       countries: Array.from(byCode.values()).sort((a, b) => b.installs - a.installs || b.proceeds - a.proceeds || b.followers - a.followers),
       audienceStatus: audience.status,
       ads,
@@ -112,7 +128,8 @@ export async function GET(req: Request) {
     app: app.id,
     country,
     regionType,
-    appStore: { installs: storeRow?.installs ?? 0, proceeds: storeRow?.proceeds ?? 0, note: 'Apple reports sales by country only.' },
+    appStore: { installs: storeRow?.appStoreInstalls ?? 0, proceeds: storeRow?.proceeds ?? 0, note: 'Apple reports sales by country only.' },
+    googlePlay: { installs: storeRow?.playInstalls ?? 0, note: 'Google Play reports installs by country; its sales reports carry no country.' },
     instagram: {
       status: audience.status,
       followers: followersInCountry,

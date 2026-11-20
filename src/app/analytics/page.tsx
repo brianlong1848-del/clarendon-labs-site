@@ -7,6 +7,7 @@ import { GeoExplorer } from '@/components/GeoExplorer'
 import { GeoMap } from '@/components/GeoMap'
 import { Campaigns } from '@/components/analytics/Campaigns'
 import { ThisWeek } from '@/components/analytics/Insights'
+import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 
 // ─── /analytics — per-app data ───────────────────────────────────────────────
 //
@@ -36,13 +37,49 @@ type AppStoreMetrics = {
   }
 } | null
 
+/** Google Play (FEAT-CLA-025): same shape as the App Store block where it can be —
+ *  installs are first-time installs per Google account, proceeds are estimated
+ *  (item price minus Google's fee, USD only). null = not on Play; `error` = on
+ *  Play but the reports bucket couldn't be read. */
+type GooglePlayMetrics = {
+  package: string
+  reportDate: string | null
+  day: { installs: number; proceeds: number }
+  last30: { installs: number; proceeds: number; days: number }
+  otherCurrencies: string[]
+  series: { date: string; installs: number; proceeds: number }[]
+  countries: { code: string; installs: number }[]
+  history: {
+    ytd: { installs: number; proceeds: number; from: string; to: string }
+    prevYtd: { installs: number; proceeds: number; from: string; to: string }
+    months: { month: string; installs: number; proceeds: number }[]
+    allTime: { installs: number; proceeds: number }
+  }
+} | { package: string; error: string } | null
+
 type Range = '30d' | 'ytd' | 'yoy'
 const RANGE_LABEL: Record<Range, string> = { '30d': '30 days', ytd: 'Year to date', yoy: 'Year over year' }
+type Picked = { installs: number; proceeds: number; prev?: { installs: number; proceeds: number } }
 /** Installs + proceeds for the chosen range; `prev` is last year's same stretch (YoY only). */
-function pick(s: AppStoreMetrics, r: Range): { installs: number; proceeds: number; prev?: { installs: number; proceeds: number } } | null {
+function pick(s: AppStoreMetrics, r: Range): Picked | null {
   if (!s) return null
   if (r === '30d' || !s.history) return { installs: s.last30.installs, proceeds: s.last30.proceeds }
   return r === 'ytd' ? s.history.ytd : { ...s.history.ytd, prev: s.history.prevYtd }
+}
+/** The Google Play block that has numbers, or null (not on Play / unreadable). */
+const playOk = (p: GooglePlayMetrics | undefined) => (p && !('error' in p) ? p : null)
+function pickPlay(p: GooglePlayMetrics | undefined, r: Range): Picked | null {
+  const g = playOk(p)
+  if (!g) return null
+  if (r === '30d') return { installs: g.last30.installs, proceeds: g.last30.proceeds }
+  return r === 'ytd' ? g.history.ytd : { ...g.history.ytd, prev: g.history.prevYtd }
+}
+/** Both stores added up for the chosen range; null only when neither has data. */
+function pickBoth(a: AppRow, r: Range): Picked | null {
+  const s = pick(a.appStore, r), g = pickPlay(a.googlePlay, r)
+  if (!s && !g) return null
+  const prev = s?.prev || g?.prev ? { installs: (s?.prev?.installs ?? 0) + (g?.prev?.installs ?? 0), proceeds: (s?.prev?.proceeds ?? 0) + (g?.prev?.proceeds ?? 0) } : undefined
+  return { installs: (s?.installs ?? 0) + (g?.installs ?? 0), proceeds: (s?.proceeds ?? 0) + (g?.proceeds ?? 0), prev }
 }
 const change = (now: number, before: number) =>
   before > 0 ? `${now >= before ? '+' : '−'}${Math.round(Math.abs(now - before) / before * 100)}% vs last year` : now > 0 ? 'new this year' : 'no sales either year'
@@ -51,7 +88,7 @@ type FacebookMetrics = { name: string; followers: number; posts30d: number | nul
 type TikTokMetrics = { spend: number; impressions: number; clicks: number } | null
 type AppRow = {
   id: string; name: string; accent: string
-  appStore: AppStoreMetrics; instagram: InstagramMetrics; facebook?: FacebookMetrics; tiktok: TikTokMetrics
+  appStore: AppStoreMetrics; googlePlay?: GooglePlayMetrics; instagram: InstagramMetrics; facebook?: FacebookMetrics; tiktok: TikTokMetrics
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -134,32 +171,49 @@ export default function AnalyticsPage() {
 
   // Totals across every app — the first thing an owner looks for, ahead of
   // any single app's breakdown. Only sums the sources that are actually
-  // connected, so a source nobody's wired up yet doesn't read as zero.
+  // connected, so a source nobody's wired up yet doesn't read as zero. App
+  // Store and Google Play are added together, and each tile says the split.
   const totals = apps.reduce(
-    (acc, a) => ({
-      proceeds: acc.proceeds + (pick(a.appStore, range)?.proceeds ?? 0),
-      installs: acc.installs + (pick(a.appStore, range)?.installs ?? 0),
-      prevProceeds: acc.prevProceeds + (pick(a.appStore, range)?.prev?.proceeds ?? 0),
-      prevInstalls: acc.prevInstalls + (pick(a.appStore, range)?.prev?.installs ?? 0),
-      spend: acc.spend + (a.tiktok?.spend ?? 0),
-      impressions: acc.impressions + (a.tiktok?.impressions ?? 0),
-    }),
-    { proceeds: 0, installs: 0, prevProceeds: 0, prevInstalls: 0, spend: 0, impressions: 0 },
+    (acc, a) => {
+      const s = pick(a.appStore, range), g = pickPlay(a.googlePlay, range)
+      return {
+        proceeds: acc.proceeds + (s?.proceeds ?? 0) + (g?.proceeds ?? 0),
+        installs: acc.installs + (s?.installs ?? 0) + (g?.installs ?? 0),
+        appStoreProceeds: acc.appStoreProceeds + (s?.proceeds ?? 0),
+        appStoreInstalls: acc.appStoreInstalls + (s?.installs ?? 0),
+        playProceeds: acc.playProceeds + (g?.proceeds ?? 0),
+        playInstalls: acc.playInstalls + (g?.installs ?? 0),
+        prevProceeds: acc.prevProceeds + (s?.prev?.proceeds ?? 0) + (g?.prev?.proceeds ?? 0),
+        prevInstalls: acc.prevInstalls + (s?.prev?.installs ?? 0) + (g?.prev?.installs ?? 0),
+        spend: acc.spend + (a.tiktok?.spend ?? 0),
+        impressions: acc.impressions + (a.tiktok?.impressions ?? 0),
+      }
+    },
+    { proceeds: 0, installs: 0, appStoreProceeds: 0, appStoreInstalls: 0, playProceeds: 0, playInstalls: 0, prevProceeds: 0, prevInstalls: 0, spend: 0, impressions: 0 },
   )
   const anyAppStore = apps.some((a) => a.appStore)
+  const anyPlay = apps.some((a) => playOk(a.googlePlay ?? null))
+  const anyStore = anyAppStore || anyPlay
   const anyTikTok = apps.some((a) => a.tiktok)
 
-  // Studio-wide trend for the two headline tiles, summed across apps.
+  // Studio-wide trend for the two headline tiles, summed across apps and both stores.
   const trend = (key: 'installs' | 'proceeds') => {
     const by = new Map<string, number>()
     if (range === '30d') {
-      for (const a of apps) for (const d of a.appStore?.series ?? []) by.set(d.date, (by.get(d.date) ?? 0) + d[key])
+      for (const a of apps) for (const d of [...(a.appStore?.series ?? []), ...(playOk(a.googlePlay ?? null)?.series ?? [])]) by.set(d.date, (by.get(d.date) ?? 0) + d[key])
     } else {
       const year = String(new Date().getFullYear())
-      for (const a of apps) for (const m of a.appStore?.history?.months ?? []) if (m.month.startsWith(year)) by.set(m.month, (by.get(m.month) ?? 0) + m[key])
+      for (const a of apps) for (const m of [...(a.appStore?.history?.months ?? []), ...(playOk(a.googlePlay ?? null)?.history.months ?? [])]) if (m.month.startsWith(year)) by.set(m.month, (by.get(m.month) ?? 0) + m[key])
     }
     return Array.from(by).sort((x, y) => x[0].localeCompare(y[0])).map(([, v]) => v)
   }
+  /** "🍎 $12 · ▶ $3" under a headline total, only once Google Play has anything to say. */
+  const storeSplit = (apple: number, play: number, fmt: (n: number) => string) => anyPlay ? (
+    <div style={{ display: 'flex', gap: 14, marginTop: 6, fontSize: 12.5, color: C.ink2 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><AppleLogo size={11} /><b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(apple)}</b></span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><PlayLogo size={11} /><b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(play)}</b></span>
+    </div>
+  ) : null
   const tile = (i: number): React.CSSProperties => ({ background: TILE[i].bg, border: `1px solid ${TILE[i].line}`, borderRadius: 14, padding: '20px 22px' })
 
   if (!authed) {
@@ -200,7 +254,7 @@ export default function AnalyticsPage() {
 
         {/* Totals first — the number a business owner checks before any single
             app's breakdown. Shown only once at least one source is connected. */}
-        {anyAppStore && (
+        {anyStore && (
           <div role="radiogroup" aria-label="Time range" style={{ display: 'inline-flex', justifySelf: 'start', background: C.card2, borderRadius: 10, padding: 3 }}>
             {(['30d', 'ytd', 'yoy'] as Range[]).map((r) => (
               <button key={r} role="radio" aria-checked={range === r} onClick={() => setRange(r)}
@@ -211,9 +265,9 @@ export default function AnalyticsPage() {
             ))}
           </div>
         )}
-        {(anyAppStore || anyTikTok) && (
+        {(anyStore || anyTikTok) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16 }}>
-            {anyAppStore && (
+            {anyStore && (
               <>
                 <div data-card style={tile(0)}>
                   <div style={label}>Revenue, {RANGE_LABEL[range === 'yoy' ? 'ytd' : range].toLowerCase()}</div>
@@ -221,13 +275,14 @@ export default function AnalyticsPage() {
                     <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900 }}>{money(totals.proceeds)}</div>
                     <Spark values={trend('proceeds')} color={C.teal} />
                   </div>
+                  {storeSplit(totals.appStoreProceeds, totals.playProceeds, money)}
                   {range === 'yoy' && <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 4 }}>{money(totals.prevProceeds)} same time last year · {change(totals.proceeds, totals.prevProceeds)}</div>}
-                  {/* Which app it came from — so a studio total never needs guessing. */}
+                  {/* Which app it came from (both stores) — so a studio total never needs guessing. */}
                   <div style={{ display: 'grid', gap: 4, marginTop: 12 }}>
-                    {apps.filter((a) => (pick(a.appStore, range)?.proceeds ?? 0) > 0).sort((a, b) => (pick(b.appStore, range)!.proceeds) - (pick(a.appStore, range)!.proceeds)).map((a) => (
+                    {apps.filter((a) => (pickBoth(a, range)?.proceeds ?? 0) > 0).sort((a, b) => (pickBoth(b, range)!.proceeds) - (pickBoth(a, range)!.proceeds)).map((a) => (
                       <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                         <AppTag id={a.id} name={a.name} size={16} style={{ flex: 1 }} />
-                        <b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(pick(a.appStore, range)!.proceeds)}</b>
+                        <b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(pickBoth(a, range)!.proceeds)}</b>
                       </div>
                     ))}
                   </div>
@@ -238,6 +293,7 @@ export default function AnalyticsPage() {
                     <div style={{ fontFamily: C.serif, fontSize: 29, fontWeight: 900 }}>{num(totals.installs)}</div>
                     <Spark values={trend('installs')} color={C.indigo} />
                   </div>
+                  {storeSplit(totals.appStoreInstalls, totals.playInstalls, num)}
                   {range === 'yoy' && <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 4 }}>{num(totals.prevInstalls)} same time last year · {change(totals.installs, totals.prevInstalls)}</div>}
                 </div>
               </>
@@ -259,7 +315,7 @@ export default function AnalyticsPage() {
 
         <Campaigns app="all" title="Campaigns · every app" />
 
-        {anyAppStore && <GeoExplorer pw={pw} app="all" title="All apps · world" />}
+        {anyStore && <GeoExplorer pw={pw} app="all" title="All apps · world" />}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Label as="span">By app</Label>
@@ -312,6 +368,34 @@ export default function AnalyticsPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Google Play — shown for every app that has a Play listing, even when the
+                    reports can't be read, so a broken connection is visible rather than silent. */}
+                {app.googlePlay !== null && app.googlePlay !== undefined && (
+                  <div style={{ background: C.card2, border: `1px solid ${C.rule}`, borderRadius: 12, padding: 16 }}>
+                    <div style={{ ...label, display: 'flex', alignItems: 'center', gap: 6 }}><PlayLogo size={11} />Google Play</div>
+                    {(() => {
+                      const g = playOk(app.googlePlay)
+                      if (!g) return <p style={{ fontSize: 13.5, color: C.soft, marginTop: 10 }}>{'error' in app.googlePlay! ? app.googlePlay!.error : 'Not connected yet.'}</p>
+                      if (!g.reportDate) return <p style={{ fontSize: 13.5, color: C.soft, marginTop: 10 }}>Listed on Google Play — no reports written yet (Play publishes daily, 1–3 days behind).</p>
+                      const v = pickPlay(app.googlePlay, range)!; const tag = range === '30d' ? '30d' : 'ytd'
+                      const regions = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }) : null
+                      const total = g.countries.reduce((n, c) => n + c.installs, 0)
+                      return <>
+                        <div style={{ display: 'flex', gap: 24, marginTop: 10 }}>
+                          {stat(num(v.installs), `installs · ${tag}`)}
+                          {stat(money(v.proceeds), `proceeds · ${tag}`)}
+                          {v.prev && stat(change(v.proceeds, v.prev.proceeds), `vs ${g.history.prevYtd.from.slice(0, 4)}`)}
+                        </div>
+                        <p style={{ fontSize: 11.5, color: C.soft, marginTop: 10, lineHeight: 1.5 }}>
+                          {g.reportDate}: {num(g.day.installs)} new · {money(g.day.proceeds)} · {g.last30.days < 30 ? `${g.last30.days} days of reports so far` : 'estimated after Google’s fee'}
+                          {total > 0 && <><br />Top countries (30d): {g.countries.slice(0, 3).map((c) => `${regions?.of(c.code) ?? c.code} ${Math.round((c.installs / total) * 100)}%`).join(' · ')}</>}
+                          {g.otherCurrencies.length > 0 && <><br />USD only — also sold in {g.otherCurrencies.join(', ')}</>}
+                        </p>
+                      </>
+                    })()}
+                  </div>
+                )}
 
                 <div style={{ background: C.card2, border: `1px solid ${C.rule}`,
                              borderRadius: 12, padding: 16 }}>
