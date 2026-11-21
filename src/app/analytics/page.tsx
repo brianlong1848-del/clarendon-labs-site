@@ -388,7 +388,7 @@ export default function AnalyticsPage() {
                           {v.prev && stat(change(v.proceeds, v.prev.proceeds), `vs ${g.history.prevYtd.from.slice(0, 4)}`)}
                         </div>
                         <p style={{ fontSize: 11.5, color: C.soft, marginTop: 10, lineHeight: 1.5 }}>
-                          {g.reportDate}: {num(g.day.installs)} new · {money(g.day.proceeds)} · {g.last30.days < 30 ? `${g.last30.days} days of reports so far` : 'estimated after Google’s fee'}
+                          {g.reportDate}: {num(g.day.installs)} new · {money(g.day.proceeds)} · {g.last30.days < 30 ? `${g.last30.days} ${g.last30.days === 1 ? 'day' : 'days'} of reports so far` : 'estimated after Google’s fee'}
                           {total > 0 && <><br />Top countries (30d): {g.countries.slice(0, 3).map((c) => `${regions?.of(c.code) ?? c.code} ${Math.round((c.installs / total) * 100)}%`).join(' · ')}</>}
                           {g.otherCurrencies.length > 0 && <><br />USD only — also sold in {g.otherCurrencies.join(', ')}</>}
                         </p>

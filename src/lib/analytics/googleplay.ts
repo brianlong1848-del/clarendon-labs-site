@@ -27,7 +27,8 @@ type Key = { client_email: string; private_key: string }
 export type PlayDay = { date: string; installs: number; proceeds: number; units?: number }
 export type PlayTally = { installs: number; proceeds: number }
 export type PlayMetrics = {
-  /** Most recent day with a published report, or null when Play hasn't written anything yet. */
+  /** Most recent day Play has published for ANY app in the bucket (the same for every app),
+   *  or null when Play hasn't written anything for this app yet. */
   reportDate: string | null
   /** The last ~35 days ending on reportDate, zeros filled — the Console / Calendar window. */
   series: PlayDay[]
@@ -128,6 +129,47 @@ async function month(pkg: string, ym: string): Promise<PlayDay[]> {
   return parseInstalls(decode(Buffer.from(await res.arrayBuffer())))
 }
 
+const monthCache = new Map<string, { at: number; v: Promise<PlayDay[]> }>()
+/** month(), shared for ten minutes: the newest-report-day lookup reads every app's file. */
+function monthCached(pkg: string, ym: string): Promise<PlayDay[]> {
+  const k = `${pkg}|${ym}`
+  const hit = monthCache.get(k)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v
+  const v = month(pkg, ym)
+  monthCache.set(k, { at: Date.now(), v })
+  v.catch(() => monthCache.delete(k))
+  return v
+}
+
+// Play leaves a day out of an app's overview CSV when nothing at all happened
+// (no installs, no uninstalls, no active devices), so a quiet app's file stops
+// on its last busy day even though the reports are current. The newest day in
+// ANY package's overview file is how far Play has actually published.
+let newestInstall: { at: number; v: Promise<string | null> } | null = null
+function newestInstallDay(months: string[]): Promise<string | null> {
+  if (newestInstall && Date.now() - newestInstall.at < 10 * 60_000) return newestInstall.v
+  const v = (async () => {
+    let newest: string | null = null
+    // Newest month first; an earlier month only matters when this one has no rows yet.
+    for (const ym of months.slice(-2).reverse()) {
+      const q = new URLSearchParams({ matchGlob: `stats/installs/installs_*_${ym}_overview.csv`, maxResults: '200', fields: 'items(name)' })
+      const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket()!)}/o?${q}`, {
+        headers: { Authorization: `Bearer ${await token()}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000),
+      })
+      if (!res.ok) throw new Error(`Play reports list ${res.status}`)
+      const j = await res.json() as { items?: { name: string }[] }
+      const pkgs = (j.items ?? []).map((i) => i.name.match(/installs_(.+)_\d{6}_overview\.csv$/)?.[1]).filter((p): p is string => !!p)
+      const rows = await Promise.all(pkgs.map((p) => monthCached(p, ym).catch(() => [] as PlayDay[])))
+      for (const d of rows.flat()) if (!newest || d.date > newest) newest = d.date
+      if (newest) break
+    }
+    return newest
+  })()
+  newestInstall = { at: Date.now(), v }
+  v.catch(() => { newestInstall = null })
+  return v
+}
+
 
 // ─── Revenue: estimated sales reports ───────────────────────────────────────
 // gs://<bucket>/sales/salesreport_<YYYYMM>.zip — one CSV for every app on the
@@ -223,22 +265,30 @@ const tally = (days: PlayDay[]): PlayTally => ({
 export async function fetchPlay(pkg: string): Promise<PlayMetrics> {
   const today = new Date().toISOString().slice(0, 10)
   const months = monthsBetween(PLAY_SINCE, ymOf(new Date()))
-  const [inst, sales, countryRows] = await Promise.all([
-    Promise.all(months.map((ym) => month(pkg, ym))),
+  const [inst, sales, countryRows, newestInstalls] = await Promise.all([
+    Promise.all(months.map((ym) => monthCached(pkg, ym))),
     Promise.all(months.map((ym) => salesMonth(ym))),
     Promise.all(months.slice(-2).map((ym) => countryMonthCached(pkg, ym).catch(() => [] as PlayCountryDay[]))),
+    // Best effort: if the bucket can't be listed, the app falls back to its own last row.
+    newestInstallDay(months).catch(() => null),
   ])
   const byDate = new Map<string, number>()
   for (const d of inst.flat()) byDate.set(d.date, d.installs)
   const proceeds = new Map<string, number>(), units = new Map<string, number>(), other = new Set<string>()
+  let newestSale: string | null = null
   for (const r of sales.flat()) {
+    if (r.date <= today && (!newestSale || r.date > newestSale)) newestSale = r.date
     if (r.pkg !== pkg) continue
     if (r.currency !== 'USD') { other.add(r.currency); continue }
     proceeds.set(r.date, (proceeds.get(r.date) ?? 0) + r.usd)
     units.set(r.date, (units.get(r.date) ?? 0) + r.sign)
   }
   const dates = [...byDate.keys(), ...proceeds.keys()].sort()
-  const reportDate = dates.at(-1) ?? null
+  // Every app ends on the newest report day in the bucket (any package's installs
+  // file, or the shared sales file), not on the last row of its own file — so a
+  // quiet app's "today" and 30-day numbers stay current, with zeros filled in.
+  // An app Play has written nothing for yet stays null ("no reports written yet").
+  const reportDate = dates.length ? [dates.at(-1)!, newestInstalls, newestSale].filter((d): d is string => !!d).sort().at(-1)! : null
   const empty: PlayTally = { installs: 0, proceeds: 0 }
   const year = today.slice(0, 4), prevYear = String(+year - 1)
   if (!reportDate) {
@@ -247,7 +297,7 @@ export async function fetchPlay(pkg: string): Promise<PlayMetrics> {
       history: { ytd: { ...empty, from: `${year}-01-01`, to: today }, prevYtd: { ...empty, from: `${prevYear}-01-01`, to: `${prevYear}${today.slice(4)}` }, months: [], allTime: empty },
     }
   }
-  // A continuous run of days from the first report day to the latest, zeros
+  // A continuous run of days from the app's first report day to reportDate, zeros
   // filled in, so "last 7" means seven calendar days like the App Store series.
   const daily: PlayDay[] = []
   for (let day = dates[0]; day <= reportDate; day = addDays(day, 1)) {
