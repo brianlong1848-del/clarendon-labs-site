@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link'
+import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AppTag, C, STUDIO_APPS, appAccent, btn, labelStyle } from '@/components/AdminNav'
 import { PlatformGlyph, type PublishApp, type QueuedPost } from '@/components/post/shared'
@@ -73,6 +74,79 @@ const CSS = `
 .up-live{animation:up-pulse 2s ease-out infinite}
 @media (max-width:760px){.up-item{grid-template-columns:64px minmax(0,1fr)}.up-item>.up-when{grid-column:1/-1;grid-row:1;display:flex!important;gap:10px;align-items:baseline}.up-thumb{width:64px;height:114px}}
 `
+
+function PostBody({ it, showApp, openPreview }: { it: UpPost | UpRepeat; showApp: boolean; openPreview: (it: UpPost | UpRepeat, p?: Platform, f?: Format) => void }) {
+  const caps = it.kind === 'post' ? it.captions : Object.fromEntries(it.targets.map((t) => [t.platform, it.caption]))
+  const distinct = [...new Set(Object.values(caps).map((c) => c ?? ''))]
+  const [tab, setTab] = useState<Platform>(it.targets[0]?.platform)
+  const [more, setMore] = useState(false)
+  const text = (caps[tab] ?? '') as string
+  return (
+    <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {showApp && <AppTag id={it.app_id} name={appName(it.app_id)} size={18} style={{ fontSize: 13, fontWeight: 700, marginRight: 4 }} />}
+        {it.targets.map((t) => (
+          <button key={`${t.platform}${t.format}`} className="up-chip" style={{ border: 0, cursor: 'pointer' }} onClick={() => openPreview(it, t.platform, t.format as Format)} title={`Preview on ${PNAME[t.platform]}`}>
+            <PlatformGlyph platform={t.platform} size={12} />{PNAME[t.platform]} {t.label}
+          </button>
+        ))}
+        {it.kind === 'post' && it.market && <span className="up-chip" title={it.market.name}><span aria-hidden>{it.market.flag}</span>{it.market.name}</span>}
+        {it.kind === 'post' && it.caption_by === 'ai' && <span className="up-chip" style={{ color: C.indigo, background: C.indigoTint }}>✦ AI caption</span>}
+        {it.kind === 'post' && it.occurrence ? <span className="up-chip">↻ #{it.occurrence}</span> : null}
+        {it.kind === 'repeat' && <span className="up-chip" style={{ color: C.indigo, background: C.indigoTint }}>↻ {it.rule}{it.caption_mode === 'fresh' ? ' · fresh caption each time' : ''}</span>}
+      </div>
+      {distinct.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }} role="group" aria-label="Caption per platform">
+          {it.targets.filter((t, i, a) => a.findIndex((u) => u.platform === t.platform) === i).map((t) => (
+            <button key={t.platform} className="up-tab" aria-pressed={tab === t.platform} onClick={() => setTab(t.platform)}><PlatformGlyph platform={t.platform} size={11} color={tab === t.platform ? '#fff' : undefined} />{PNAME[t.platform]}</button>
+          ))}
+        </div>
+      )}
+      {text
+        ? <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: C.ink, ...(more ? {} : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>
+            {it.kind === 'repeat' && it.caption_mode === 'fresh' ? <span style={{ color: C.soft }}>Last caption: </span> : null}{text}
+          </p>
+        : <p style={{ margin: 0, fontSize: 13, color: C.soft, fontStyle: 'italic' }}>{it.targets.every((t) => t.format === 'story') ? 'Story — no caption shown.' : 'No caption.'}</p>}
+      {text.length > 160 && <button onClick={() => setMore((v) => !v)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: C.teal, justifySelf: 'start' }}>{more ? 'Less' : 'Full caption'}</button>}
+      {it.hashtags.length > 0 && <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{it.hashtags.map((h) => <span key={h} style={{ fontSize: 11.5, fontWeight: 600, color: C.teal }}>{h}</span>)}</div>}
+      {it.kind === 'post' && it.notes ? <p style={{ margin: 0, fontSize: 12, color: C.soft }}>Note: {it.notes}</p> : null}
+    </div>
+  )
+}
+
+function BoostBody({ b, showApp }: { b: UpBoost; showApp: boolean }) {
+  const label = labelStyle
+  const a = b.audience
+  const chip = (icon: string, text: string, key?: string) => <span key={key ?? text} className="up-chip"><span aria-hidden>{icon}</span>{text}</span>
+  return (
+    <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {showApp && <AppTag id={b.app_id} name={appName(b.app_id)} size={18} style={{ fontSize: 13, fontWeight: 700, marginRight: 4 }} />}
+        <span className="up-chip" style={{ color: '#fff', background: C.grad }}>Boost</span>
+        <span className="up-chip"><PlatformGlyph platform={(b.platform === 'tiktok' ? 'tiktok' : b.platform) as Platform} size={12} />{PNAME[b.platform] ?? b.platform} · {b.network === 'meta' ? 'Meta Ads' : 'TikTok Ads'}</span>
+        <span className={b.live ? 'up-chip up-live' : 'up-chip'} style={b.live ? { color: C.indigo, background: C.indigoTint } : b.status === 'paused' ? { color: C.amber, background: '#FBF0DD' } : {}}>
+          {b.live ? '● Live now' : b.status === 'paused' ? 'Paused' : `Starts ${until(b.start_at)}`}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <div><div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{usd(b.daily_budget_cents)}<span style={{ fontSize: 12, color: C.soft, fontWeight: 500 }}>/day</span></div><div style={{ ...label, fontSize: 9.5 }}>{b.goal}</div></div>
+        <div><div style={{ fontSize: 14, fontWeight: 650 }}>{shortDate(b.start_at)} → {shortDate(b.end_at)}</div><div style={{ ...label, fontSize: 9.5 }}>{Math.max(1, Math.round((Date.parse(b.end_at) - Date.parse(b.start_at)) / DAY_MS))} days</div></div>
+        {b.total_cents > 0 && <div><div style={{ fontSize: 14, fontWeight: 650, color: C.loss }}>up to {usd(b.total_cents)}</div><div style={{ ...label, fontSize: 9.5 }}>still to spend</div></div>}
+      </div>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        {(a.places.length ? a.places : ['No location']).slice(0, 6).map((p) => chip('📍', p, `pl:${p}`))}
+        {a.places.length > 6 && chip('📍', `+${a.places.length - 6}`)}
+        {chip('👥', `${a.ages}${a.gender !== 'all' ? ` · ${a.gender}` : ''}`)}
+        {a.interests.slice(0, 5).map((i) => chip('♥', i, `in:${i}`))}
+        {a.interests.length > 5 && chip('♥', `+${a.interests.length - 5}`)}
+        {a.hashtags.slice(0, 5).map((h) => chip('#', h.replace(/^#/, ''), `h:${h}`))}
+        {a.expand && chip('↗', 'Meta may widen')}
+      </div>
+      {b.post?.caption && <p style={{ margin: 0, fontSize: 12.5, color: C.ink2, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.post.caption}</p>}
+    </div>
+  )
+}
+
 
 export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }: { app?: string; variant?: 'full' | 'next'; days?: 7 | 14 | 30 }) {
   const [days, setDays] = useState<7 | 14 | 30>(startDays)
@@ -147,7 +221,7 @@ export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }
   const counts = data?.counts
 
   // ── One item ───────────────────────────────────────────────────────────
-  const Thumb = ({ m, onClick, label: lb }: { m?: { url: string; kind: 'image' | 'video' }; onClick: () => void; label: string }) => (
+  const thumb = (m: { url: string; kind: 'image' | 'video' } | undefined, onClick: () => void, lb: string) => (
     <button className="up-thumb" onClick={onClick} aria-label={lb}>
       {m ? (m.kind === 'video' ? <video src={`${m.url}#t=0.6`} muted playsInline preload="metadata" onMouseEnter={(e) => { e.currentTarget.play().catch(() => {}) }} onMouseLeave={(e) => { e.currentTarget.pause() }} /> : <img src={m.url} alt="" loading="lazy" />)
         : <span style={{ display: 'grid', placeItems: 'center', height: '100%', color: '#8A919E', fontSize: 11, padding: 6, textAlign: 'center' }}>Text only</span>}
@@ -155,85 +229,14 @@ export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }
     </button>
   )
 
-  function PostBody({ it }: { it: UpPost | UpRepeat }) {
-    const caps = it.kind === 'post' ? it.captions : Object.fromEntries(it.targets.map((t) => [t.platform, it.caption]))
-    const distinct = [...new Set(Object.values(caps).map((c) => c ?? ''))]
-    const [tab, setTab] = useState<Platform>(it.targets[0]?.platform)
-    const [more, setMore] = useState(false)
-    const text = (caps[tab] ?? '') as string
-    return (
-      <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {app === 'all' && <AppTag id={it.app_id} name={appName(it.app_id)} size={18} style={{ fontSize: 13, fontWeight: 700, marginRight: 4 }} />}
-          {it.targets.map((t) => (
-            <button key={`${t.platform}${t.format}`} className="up-chip" style={{ border: 0, cursor: 'pointer' }} onClick={() => openPreview(it, t.platform, t.format as Format)} title={`Preview on ${PNAME[t.platform]}`}>
-              <PlatformGlyph platform={t.platform} size={12} />{PNAME[t.platform]} {t.label}
-            </button>
-          ))}
-          {it.kind === 'post' && it.market && <span className="up-chip" title={it.market.name}><span aria-hidden>{it.market.flag}</span>{it.market.name}</span>}
-          {it.kind === 'post' && it.caption_by === 'ai' && <span className="up-chip" style={{ color: C.indigo, background: C.indigoTint }}>✦ AI caption</span>}
-          {it.kind === 'post' && it.occurrence ? <span className="up-chip">↻ #{it.occurrence}</span> : null}
-          {it.kind === 'repeat' && <span className="up-chip" style={{ color: C.indigo, background: C.indigoTint }}>↻ {it.rule}{it.caption_mode === 'fresh' ? ' · fresh caption each time' : ''}</span>}
-        </div>
-        {distinct.length > 1 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }} role="group" aria-label="Caption per platform">
-            {it.targets.filter((t, i, a) => a.findIndex((u) => u.platform === t.platform) === i).map((t) => (
-              <button key={t.platform} className="up-tab" aria-pressed={tab === t.platform} onClick={() => setTab(t.platform)}><PlatformGlyph platform={t.platform} size={11} color={tab === t.platform ? '#fff' : undefined} />{PNAME[t.platform]}</button>
-            ))}
-          </div>
-        )}
-        {text
-          ? <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: C.ink, ...(more ? {} : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>
-              {it.kind === 'repeat' && it.caption_mode === 'fresh' ? <span style={{ color: C.soft }}>Last caption: </span> : null}{text}
-            </p>
-          : <p style={{ margin: 0, fontSize: 13, color: C.soft, fontStyle: 'italic' }}>{it.targets.every((t) => t.format === 'story') ? 'Story — no caption shown.' : 'No caption.'}</p>}
-        {text.length > 160 && <button onClick={() => setMore((v) => !v)} style={{ all: 'unset', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: C.teal, justifySelf: 'start' }}>{more ? 'Less' : 'Full caption'}</button>}
-        {it.hashtags.length > 0 && <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{it.hashtags.map((h) => <span key={h} style={{ fontSize: 11.5, fontWeight: 600, color: C.teal }}>{h}</span>)}</div>}
-        {it.kind === 'post' && it.notes ? <p style={{ margin: 0, fontSize: 12, color: C.soft }}>Note: {it.notes}</p> : null}
-      </div>
-    )
-  }
-
-  function BoostBody({ b }: { b: UpBoost }) {
-    const a = b.audience
-    const chip = (icon: string, text: string, key?: string) => <span key={key ?? text} className="up-chip"><span aria-hidden>{icon}</span>{text}</span>
-    return (
-      <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {app === 'all' && <AppTag id={b.app_id} name={appName(b.app_id)} size={18} style={{ fontSize: 13, fontWeight: 700, marginRight: 4 }} />}
-          <span className="up-chip" style={{ color: '#fff', background: C.grad }}>Boost</span>
-          <span className="up-chip"><PlatformGlyph platform={(b.platform === 'tiktok' ? 'tiktok' : b.platform) as Platform} size={12} />{PNAME[b.platform] ?? b.platform} · {b.network === 'meta' ? 'Meta Ads' : 'TikTok Ads'}</span>
-          <span className={b.live ? 'up-chip up-live' : 'up-chip'} style={b.live ? { color: C.indigo, background: C.indigoTint } : b.status === 'paused' ? { color: C.amber, background: '#FBF0DD' } : {}}>
-            {b.live ? '● Live now' : b.status === 'paused' ? 'Paused' : `Starts ${until(b.start_at)}`}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
-          <div><div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{usd(b.daily_budget_cents)}<span style={{ fontSize: 12, color: C.soft, fontWeight: 500 }}>/day</span></div><div style={{ ...label, fontSize: 9.5 }}>{b.goal}</div></div>
-          <div><div style={{ fontSize: 14, fontWeight: 650 }}>{shortDate(b.start_at)} → {shortDate(b.end_at)}</div><div style={{ ...label, fontSize: 9.5 }}>{Math.max(1, Math.round((Date.parse(b.end_at) - Date.parse(b.start_at)) / DAY_MS))} days</div></div>
-          {b.total_cents > 0 && <div><div style={{ fontSize: 14, fontWeight: 650, color: C.loss }}>up to {usd(b.total_cents)}</div><div style={{ ...label, fontSize: 9.5 }}>still to spend</div></div>}
-        </div>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-          {(a.places.length ? a.places : ['No location']).slice(0, 6).map((p) => chip('📍', p, `pl:${p}`))}
-          {a.places.length > 6 && chip('📍', `+${a.places.length - 6}`)}
-          {chip('👥', `${a.ages}${a.gender !== 'all' ? ` · ${a.gender}` : ''}`)}
-          {a.interests.slice(0, 5).map((i) => chip('♥', i, `in:${i}`))}
-          {a.interests.length > 5 && chip('♥', `+${a.interests.length - 5}`)}
-          {a.hashtags.slice(0, 5).map((h) => chip('#', h.replace(/^#/, ''), `h:${h}`))}
-          {a.expand && chip('↗', 'Meta may widen')}
-        </div>
-        {b.post?.caption && <p style={{ margin: 0, fontSize: 12.5, color: C.ink2, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.post.caption}</p>}
-      </div>
-    )
-  }
-
-  const Item = ({ it }: { it: UpcomingItem }) => {
+  const item = (it: UpcomingItem) => {
     const acc = it.kind === 'boost' ? C.indigo : appAccent(it.app_id)
     const media = it.kind === 'boost' ? it.post?.media[0] : it.media[0]
     return (
-      <div className="up-item" data-kind={it.kind} style={{ ['--acc' as string]: acc } as CSSProperties}>
-        <Thumb m={media} onClick={() => it.kind === 'boost' && !media && it.post?.permalink ? window.open(it.post.permalink, '_blank') : openPreview(it)} label="Preview" />
+      <div key={it.id} className="up-item" data-kind={it.kind} style={{ ['--acc' as string]: acc } as CSSProperties}>
+        {thumb(media, () => it.kind === 'boost' && !media && it.post?.permalink ? window.open(it.post.permalink, '_blank') : openPreview(it), 'Preview')}
         <div style={{ minWidth: 0, display: 'grid', gap: 10 }}>
-          {it.kind === 'boost' ? <BoostBody b={it} /> : <PostBody it={it} />}
+          {it.kind === 'boost' ? <BoostBody b={it} showApp={app === 'all'} /> : <PostBody it={it} showApp={app === 'all'} openPreview={openPreview} />}
           {it.checks.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {it.checks.map((c) => <span key={c} className="up-chip" style={{ color: C.amber, background: '#FBF0DD' }}>⚠ {c}</span>)}
@@ -294,6 +297,10 @@ export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }
       onDuplicate={() => { setDrawer(null); window.location.href = '/post' }} />
   )
 
+  // Overlays go to <body>: a card's animation makes it the containing block for
+  // position: fixed, which trapped the preview inside the card (2026-11-22).
+  const portal = (el: ReactNode) => el && typeof document !== 'undefined' ? createPortal(el, document.body) : null
+
   // ── Console strip: the next few things, side by side ───────────────────
   if (variant === 'next') {
     const next = (data?.items ?? []).filter((i) => !(i.kind === 'boost' && i.live)).slice(0, 6)
@@ -336,7 +343,7 @@ export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }
             )
           })}
         </div>
-        {overlay}{drawerEl}
+        {portal(overlay)}{portal(drawerEl)}
       </section>
     )
   }
@@ -420,12 +427,12 @@ export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }
               <span style={{ flex: 1, height: 1, background: C.rule }} />
               {focusDay && <button className="up-tab" onClick={() => setFocusDay(null)} style={{ border: `1px solid ${C.rule}` }}>Show all days</button>}
             </div>
-            {(byDay.get(d) ?? []).map((it) => <Item key={it.id} it={it} />)}
+            {(byDay.get(d) ?? []).map((it) => item(it))}
             {!(byDay.get(d) ?? []).length && <p style={{ margin: 0, fontSize: 13, color: C.soft }}>Nothing on this day.</p>}
           </div>
         ))}
       </div>
-      {overlay}{drawerEl}
+      {portal(overlay)}{portal(drawerEl)}
     </section>
   )
 }
