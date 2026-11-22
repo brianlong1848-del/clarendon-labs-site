@@ -7,6 +7,7 @@ import { GeoExplorer } from '@/components/GeoExplorer'
 import { Campaigns } from '@/components/analytics/Campaigns'
 import { ActionItem, AnalystNote, Footnote, Ideas, useInsights, type InsightAction } from '@/components/analytics/Insights'
 import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
+import { Upcoming } from '@/components/Upcoming'
 
 // ─── /analytics — every app, and the console does the work (redesign 2026-11-22)
 //
@@ -348,6 +349,9 @@ export default function AnalyticsPage() {
           {AUTO.map((t) => autoTile(t.key, t.glyph, t.danger))}
         </div>
       </section>
+
+      {/* Coming up: every scheduled post and boost across the apps, reviewable before it goes out (FEAT-CLA-037) */}
+      <Upcoming app="all" />
 
       {/* 3 · Headline numbers */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

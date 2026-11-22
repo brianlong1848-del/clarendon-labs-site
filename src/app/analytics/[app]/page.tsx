@@ -8,6 +8,7 @@ import { Campaigns } from '@/components/analytics/Campaigns'
 import { ThisWeekView, useInsights, type InsightAction } from '@/components/analytics/Insights'
 import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 import { peek, stash } from '@/lib/clientCache'
+import { Upcoming } from '@/components/Upcoming'
 
 // ─── /analytics/<app> — one app, end to end (redesign 2026-11-22) ────────────
 //
@@ -60,6 +61,7 @@ const CSS = `
 .ax-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .ax-two{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr);gap:18px;align-items:stretch}
 .ax-col:hover rect.ax-hit{fill:rgba(15,17,21,.045)}
+.ax-col:focus{outline:none}.ax-col:focus-visible rect.ax-hit{stroke:#0B7A83;stroke-width:2}
 @keyframes ax-up{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 .ax-bar{transform-box:fill-box;transform-origin:bottom;animation:ax-up .7s cubic-bezier(.2,.7,.2,1) both}
 @keyframes ax-glow{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--acc) 0%,transparent)}50%{box-shadow:0 0 30px 2px color-mix(in srgb,var(--acc) 45%,transparent)}}
@@ -263,6 +265,9 @@ export default function AppAnalyticsPage() {
         <p style={{ margin: 0, fontSize: 12.5, color: C.soft, display: 'flex', alignItems: 'center', gap: 6 }}><PlayLogo size={11} />Google Play: {app.googlePlay.error}</p>
       )}
 
+      {/* Coming up: this app's scheduled posts and boosts, reviewable before they go out (FEAT-CLA-037) */}
+      <Upcoming app={appId} />
+
       {/* Momentum + funnel */}
       <div className="ax-two">
         <section data-card style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 20, display: 'grid', gap: 12, minWidth: 0 }}>
@@ -296,7 +301,7 @@ export default function AppAnalyticsPage() {
                     {ha > 0 && <rect className="ax-bar" x={x} y={H1 - ha} width={w} height={ha} rx={Math.min(4, w / 2)} fill={accent} style={{ animationDelay: `${i * 0.012}s` }} />}
                     {hp > 0 && <rect className="ax-bar" x={x} y={H1 - ha - hp - (ha > 0 ? 2 : 0)} width={w} height={hp} rx={Math.min(4, w / 2)} fill={accent} opacity={0.45} style={{ animationDelay: `${i * 0.012}s` }} />}
                     {hs > 0 && <rect className="ax-bar" x={x} y={H1 + GAP + H2 - hs} width={w} height={hs} rx={Math.min(4, w / 2)} fill={C.indigo} opacity={0.85} style={{ animationDelay: `${0.2 + i * 0.012}s` }} />}
-                    {(i === 0 || i === 29 || i % 7 === 1) && <text x={i * colW + colW / 2} y={H1 + GAP + H2 + 14} fontSize={10} fill={C.soft} textAnchor="middle">{shortDay(d.date)}</text>}
+                    {(i === 29 || (i % 7 === 0 && i <= 22)) && <text x={i * colW + colW / 2} y={H1 + GAP + H2 + 14} fontSize={10} fill={C.soft} textAnchor="middle">{shortDay(d.date)}</text>}
                   </g>
                 )
               })}
@@ -313,9 +318,12 @@ export default function AppAnalyticsPage() {
               { k: 'Downloaded', v: num(t.installs30), rate: t.clicks ? pct((t.installs30 / t.clicks) * 100) : undefined, why: 'per tap' },
               { k: 'Paid', v: money(t.proceeds30), rate: t.installs30 ? `${money(t.proceeds30 / t.installs30)}` : undefined, why: 'per download' },
             ]
+            // No ads ran: the ad steps would only show zeros, so start at Downloaded.
+            const shown = t.impressions ? steps : steps.slice(2).map((s, i) => i === 0 ? { ...s, rate: undefined } : s)
             return (
               <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 0 }}>
-                {steps.map((s, i) => (
+                {!t.impressions && <li style={{ fontSize: 12.5, color: C.soft, marginBottom: 8 }}>No ads ran in these 30 days — every download here came on its own.</li>}
+                {shown.map((s, i) => (
                   <li key={s.k} style={{ display: 'grid', gap: 2 }}>
                     {s.rate && <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 4px 15px', fontSize: 11.5, color: C.soft }}>
                       <span style={{ width: 1, height: 16, background: C.rule2 }} />↓ <b style={{ color: C.ink2, fontWeight: 700 }}>{s.rate}</b> {s.why}

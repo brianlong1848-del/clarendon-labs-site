@@ -7,6 +7,7 @@ import { AdminShell, AppTag, C, TILE, STUDIO_APPS, appAccent, btn, labelStyle } 
 import type { InsightAction } from '@/components/analytics/Insights'
 import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 import { PlatformGlyph } from '@/components/post/shared'
+import { Upcoming } from '@/components/Upcoming'
 
 // ─── /admin — the studio console (redesign 2026-11-22) ───────────────────────
 //
@@ -493,6 +494,9 @@ export default function ConsolePage() {
           </ol>
         </section>
       </div>
+
+      {/* Up next: the next 48 hours of posts and boosts (FEAT-CLA-037) */}
+      <Upcoming app="all" variant="next" />
 
       {/* 3 · Apps */}
       <div style={{ display: 'grid', gap: 10 }}>
