@@ -1,7 +1,7 @@
 // ─── Ad insights: running an action ──────────────────────────────────────────
 //
 // SERVER ONLY. The buttons on the "This week" card (FEAT-CLA-023): pause /
-// resume, raise / lower the daily budget by 25%, duplicate a views campaign
+// resume, delete a campaign that never delivered, raise / lower the daily budget by 25%, duplicate a views campaign
 // as Traffic with a Download button (TikTok: duplicateTikTokAsTraffic; Meta
 // Studio boosts: the existing promote() flow with goal downloads). Everything
 // goes through the existing Meta / TikTok code paths; nothing runs without
@@ -161,6 +161,18 @@ async function execute(r: ActionRequest): Promise<ActionResult> {
         ctToken: campaignToken(promo.app_id, 'downloads', now).replace(/^tt-/, 'meta-') })
       if (pauseOriginal) await setPromotionStatus(promo.id, 'pause').catch(() => undefined)
       return { message: `Created the Traffic boost at ${usd(budget)}/day with a Download button${pauseOriginal ? ' and paused the original' : ''}. It shows in Post → Boosts.`, result_ids: { campaign_id: p.campaign_id, adset_id: p.adset_id, ad_id: p.ad_id, promotion_id: p.id } }
+    }
+    case 'delete_campaign': {
+      // Only offered for campaigns that never delivered (zero impressions for
+      // DEAD_DAYS+), so nothing of value goes with it. Both platforms keep the
+      // spend history of deleted campaigns in their reports.
+      if (r.platform === 'meta') {
+        await metaPost(r.campaign_id, { status: 'DELETED' })
+      } else {
+        if (!advertiserId) throw new Error('No TikTok ad account id for this app.')
+        await tiktokCall('/campaign/status/update/', { method: 'POST', body: { advertiser_id: advertiserId, campaign_ids: [r.campaign_id], operation_status: 'DELETE' } })
+      }
+      return { message: 'Deleted. It can’t switch back on now.', result_ids: { campaign_id: r.campaign_id, status: 'deleted' } }
     }
     default:
       throw new Error('That action is a link, not a button.')

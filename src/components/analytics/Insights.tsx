@@ -191,7 +191,7 @@ export function ActionItem({ a, n, insight, media, compact = false, rail = false
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button style={{ ...btn(a.kind === 'pause' ? 'ghost' : 'mint'), padding: '6px 12px', fontSize: 12.5, ...(a.kind === 'pause' ? { color: C.red, borderColor: C.red } : {}) }} onClick={run}>{a.button}</button>
+              <button style={{ ...btn(a.kind === 'pause' || a.kind === 'delete_campaign' ? 'ghost' : 'mint'), padding: '6px 12px', fontSize: 12.5, ...(a.kind === 'pause' || a.kind === 'delete_campaign' ? { color: C.red, borderColor: C.red } : {}) }} onClick={run}>{a.button}</button>
               <button style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => setConfirming(false)}>Cancel</button>
             </div>
           </div>

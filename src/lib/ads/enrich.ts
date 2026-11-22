@@ -31,8 +31,7 @@ export async function enrichActions(actions: Action[], promotions: Pick<Promotio
       // Widen audience edits the ad group's targeting: link straight to that level.
       if (a.kind === 'widen_audience') { out.manager_url = adGroupManagerUrl(adv, a.campaign_id); out.href = out.manager_url }
     }
-    // Delete a dead campaign: done in the platform's own manager (Studio never deletes).
-    if (a.kind === 'delete_campaign' && out.manager_url) { out.href = out.manager_url; out.button ??= a.platform === 'tiktok' ? 'Delete in TikTok Ads' : 'Delete in Ads Manager' }
+    // Delete a dead campaign runs from Studio now (POST /api/ads/actions, 2026-11-22); manager_url stays for "Open in Ads Manager".
     const promo = promoBy.get(`${a.platform}:${a.campaign_id}`)
     if (promo?.post_id) out.post_id = promo.post_id
     if (!out.item_id && promo?.remote_id) out.item_id = promo.remote_id

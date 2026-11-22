@@ -383,7 +383,9 @@ export function siblingOf(r: CampaignRow, rows: CampaignRow[]): Insight['sibling
 const adAsRow = (a: CampaignAd) => ({ spend_cents: a.spend_cents, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc_cents: a.cpc_cents, views15s: a.views15s, follows: a.follows,
   reach: undefined, cpm_cents: undefined, video_views: undefined, views2s: undefined })
 
-const TIKTOK_WRITE_NOTE = 'TikTok writes answer 40001 until TikTok approves the Ads Management scope (requested 2026-10-27) — the button will say so if it fails.'
+// TikTok's Ads Management scope is approved (pause / resume / duplicate ran from the console 2026-10-28),
+// so TikTok buttons carry no warning any more. A 40001 still comes back in words if the token loses it.
+const TIKTOK_WRITE_NOTE: string | undefined = undefined
 const KIND_BONUS: Record<ActionKind, number> = { pause: 50, raise_budget: 40, widen_audience: 35, duplicate_as_traffic: 30, delete_campaign: 25, resume: 20, lower_budget: 20, reuse_angle: 15, creative: 10, leave_off: 6, open_in_manager: 5, wait: 0 }
 
 const dayKey = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
@@ -517,7 +519,8 @@ function pausedActionsFor(r: CampaignRow, i: Insight): Action[] {
   const dead = (r.impressions ?? 0) === 0 && status !== 'ended' && (days == null || days > DEAD_DAYS)
   if (dead) {
     return [{ ...base, id: id('delete_campaign'), kind: 'delete_campaign', title: `Delete ${label}`, score: KIND_BONUS.delete_campaign,
-      button: r.url ? (r.platform === 'tiktok' ? 'Delete in TikTok Ads' : 'Delete in Ads Manager') : undefined, href: r.url,
+      button: 'Delete campaign',
+      confirm: `Delete "${label}" on ${r.platform === 'tiktok' ? 'TikTok' : 'Meta'}? It never delivered, so nothing is lost; its (zero) history stays in reports. This can’t be undone.`,
       detail: `Zero impressions${days != null ? ` in ${days} days` : ''} — it never delivered and holds nothing worth keeping. Delete it (or leave it paused) so it can’t switch back on by accident.` }]
   }
   const m = i.metrics

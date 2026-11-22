@@ -37,6 +37,8 @@ export type ConsoleCard = {
   play: { installs7: number; installs_prev7: number; proceeds7: number; proceeds_prev7: number; other_currencies?: string[]; report_date?: string; connected: boolean; error?: string } | null
   ads: { spend7_cents: number; active_campaigns: number; campaigns: number } | null
   action: Action | null
+  /** Every recommended ad action for the app, best first (the console's Needs-you queue runs them in place). */
+  actions: Action[]
   server: ServerState
 }
 export type ConsoleSummary = { apps: number; servers_connected: number; last_sync: string; build_ms?: Record<string, number> }
@@ -101,18 +103,18 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
     const rows = allCampaigns.campaigns.filter((r) => r.app_id === def.id)
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10)
     const active = rows.filter((r) => r.status === 'running' || (r.status === undefined && r.daily.some((d) => d.day >= since && d.spend_cents > 0))).length
-    let action: Action | null = null
+    let actions: Action[] = []
     if (rows.length) {
       const analysis = analyze(rows, new Map(), '7d')
-      const [top] = await enrichActions(analysis.actions.slice(0, 1), await promotionsP)
-      action = top ?? null
+      actions = await enrichActions(analysis.actions.slice(0, 6), await promotionsP)
     }
+    const action = actions[0] ?? null
     return {
       id: def.id, name: def.name, accent: def.accent,
       store: a ? { installs7: last.installs, installs_prev7: prev.installs, proceeds7: last.proceeds, proceeds_prev7: prev.proceeds, report_date: store?.reportDate, rating: reviews?.rating ?? null, new_reviews7: reviews?.new7 ?? 0, on_store: !!store } : null,
       play,
       ads: { spend7_cents: rows.reduce((t, r) => t + r.spend_cents, 0), active_campaigns: active, campaigns: rows.length },
-      action, server,
+      action, actions, server,
     }
   }))
   // The campaigns step's own breakdown, as campaigns.<step> (ms from its start).
