@@ -82,6 +82,9 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
   // alongside (campaigns alone took ~16 s on a cold instance, 2026-11-11).
   const promotionsP = timed('promotions', rest<Pick<Promotion, 'campaign_id' | 'network' | 'post_id' | 'remote_id'>[]>('studio_promotions?campaign_id=not.is.null&select=campaign_id,network,post_id,remote_id').catch(() => []))
   const campaignsP = timed('campaigns', campaignsFor('all', '7d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[], timings: {} as Record<string, number> })))
+  // Recommendations use the SAME window as /analytics and the Studio app (30 days),
+  // so the console and each app page always give the same advice. Spend stays 7d.
+  const actionRowsP = timed('campaigns30', campaignsFor('all', '30d').catch(() => ({ campaigns: [] as CampaignRow[], errors: [] as string[], timings: {} as Record<string, number> })))
   const cards = await Promise.all(allApps().map(async (def): Promise<ConsoleCard> => {
     const conn = connected.find((c) => c.id === def.id)
     const a = analytics.find((x) => x.id === def.id)
@@ -104,8 +107,9 @@ export async function consoleCards(): Promise<{ cards: ConsoleCard[]; summary: C
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10)
     const active = rows.filter((r) => r.status === 'running' || (r.status === undefined && r.daily.some((d) => d.day >= since && d.spend_cents > 0))).length
     let actions: Action[] = []
-    if (rows.length) {
-      const analysis = analyze(rows, new Map(), '7d')
+    const rows30 = (await actionRowsP).campaigns.filter((r) => r.app_id === def.id)
+    if (rows30.length) {
+      const analysis = analyze(rows30, new Map(), '30d')
       actions = await enrichActions(analysis.actions.slice(0, 6), await promotionsP)
     }
     const action = actions[0] ?? null

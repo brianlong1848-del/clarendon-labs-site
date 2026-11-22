@@ -314,6 +314,11 @@ export function AnalystNote({ s, compact = false }: { s: InsightsState; compact?
 /** The card at the top of /analytics and each app page. */
 export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?: '7d' | '30d' | '90d' }) {
   const s = useInsights(app, range)
+  return <ThisWeekView s={s} />
+}
+
+/** The same card from a state the page already holds (the app page shares it with its quick actions). */
+export function ThisWeekView({ s, onDone }: { s: InsightsState; onDone?: () => void }) {
   const { data } = s
   const actions = data?.actions ?? []
   return (
@@ -326,7 +331,7 @@ export function ThisWeek({ app = 'all', range = '30d' }: { app?: string; range?:
           {actions.length > 0 && (
             <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 10 }}>
               {actions.map((a, i) => (
-                <li key={a.id}>{(() => { const c = data.campaigns.find((c) => c.platform === a.platform && c.campaign_id === a.campaign_id); return <ActionItem a={a} n={i + 1} insight={c?.insight} media={c?.media} /> })()}</li>
+                <li key={a.id}>{(() => { const c = data.campaigns.find((c) => c.platform === a.platform && c.campaign_id === a.campaign_id); return <ActionItem a={a} n={i + 1} insight={c?.insight} media={c?.media} onDone={onDone} /> })()}</li>
               ))}
             </ol>
           )}

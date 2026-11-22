@@ -508,10 +508,12 @@ function pausedActionsFor(r: CampaignRow, i: Insight): Action[] {
   const id = (kind: ActionKind) => `${kind}:${r.platform}:${r.campaign_id}`
   const why = `${app} ads are paused until its gate passes${strat?.since ? ` (since ${strat.since})` : ''}.`
 
-  if (live) {
+  // Still switched on counts too, even with no spend in two days: it can start
+  // spending again any minute (Rolligan's AU/NZ boost, 2026-11-22).
+  if (live || status === 'running') {
     return [{ ...base, id: id('pause'), kind: 'pause', title: `Pause ${label}`, button: 'Pause', score: stake / 100 + KIND_BONUS.pause + 20,
       blocked: r.platform === 'tiktok' ? TIKTOK_WRITE_NOTE : undefined,
-      detail: `${why} This one still spent in the last two days${status === 'unknown' ? ' (its status isn’t readable — skip this if you already paused it in Ads Manager)' : ''}. ${i.reason}`,
+      detail: `${why} ${live ? 'This one still spent in the last two days' : 'This one is still switched on, so it can start spending again'}${status === 'unknown' ? ' (its status isn’t readable — skip this if you already paused it in Ads Manager)' : ''}. ${i.reason}`,
       confirm: `Pause "${label}"? It stops delivering until you resume it in Ads Manager. Spend to date stays.` }]
   }
   const hours = liveHours(r)
