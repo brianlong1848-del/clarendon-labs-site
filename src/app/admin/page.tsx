@@ -100,7 +100,7 @@ function writeHandled(h: Record<string, number>) { try { localStorage.setItem(HA
 
 const VERB: Partial<Record<InsightAction['kind'], [string, string]>> = {
   delete_campaign: ['Delete', 'dead campaign'], pause: ['Pause', 'campaign'], resume: ['Resume', 'campaign'],
-  raise_budget: ['Raise', 'budget'], lower_budget: ['Lower', 'budget'],
+  raise_budget: ['Raise', 'budget'], lower_budget: ['Lower', 'budget'], reuse_angle: ['Schedule', 'repost'],
 }
 const DESTRUCTIVE = new Set<InsightAction['kind']>(['delete_campaign', 'pause'])
 

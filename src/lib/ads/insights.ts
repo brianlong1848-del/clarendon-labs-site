@@ -82,6 +82,8 @@ export type Action = {
   amount_cents?: number
   /** A link instead of a POST (reuse_angle → /post prefilled, open_in_manager → Ads Manager). */
   href?: string
+  /** A second, manual route next to a runnable button (reuse_angle: "Open in Post" to edit it first). */
+  alt_href?: string
   /** Small grey note under the button (e.g. "API permission pending"). */
   note?: string
   /** Why the button may fail right now (TikTok scope review). */

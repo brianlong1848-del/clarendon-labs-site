@@ -13,7 +13,10 @@
 import { tiktokAdvertiserId, tiktokCall } from '@/lib/analytics/tiktok'
 import { LIMITS, getPromotion, metaCampaignInfo, metaGet, metaPost, promote, setPromotionStatus, type Promotion } from './meta'
 import { TT_LIMITS, campaignToken, duplicateTikTokAsTraffic, setCampaignStatus, setTikTokPromotionStatus } from './tiktok'
-import { rest } from '@/lib/publish/store'
+import { getPost, insertPost, rest } from '@/lib/publish/store'
+import { captionsConfigured, writeCaptions } from '@/lib/publish/captions'
+import { bestSlots, heatFor } from '@/lib/publish/timing'
+import { defaultFormat, validate, type Platform, type Target } from '@/lib/publish/rules'
 import type { ActionKind } from './insights'
 
 export type ActionRequest = {
@@ -174,9 +177,62 @@ async function execute(r: ActionRequest): Promise<ActionResult> {
       }
       return { message: 'Deleted. It can’t switch back on now.', result_ids: { campaign_id: r.campaign_id, status: 'deleted' } }
     }
+    case 'reuse_angle':
+      return scheduleRepost(r, promo)
     default:
       throw new Error('That action is a link, not a button.')
   }
+}
+
+// ── Reuse a winning ad organically (2026-11-22) ──────────────────────────────
+//
+// The ad's own Studio post (same video, same app) goes back out as an organic
+// post on the Meta surfaces it hasn't been on yet (Instagram, Facebook), with a
+// fresh Claude caption, at the next best hour for that app. It is *scheduled*,
+// never published on the spot: it sits in Post → Queue where it can be edited or
+// canceled. TikTok is left out on purpose — the original is already a TikTok
+// post when the ad was a Spark ad, and TikTok posts need per-post privacy
+// settings Brian picks in the composer.
+const REPOST_ON: Platform[] = ['instagram', 'facebook']
+
+async function scheduleRepost(r: ActionRequest, promo: Promotion | null): Promise<ActionResult> {
+  const postId = (typeof r.source_ids?.post_id === 'string' ? r.source_ids.post_id : undefined) ?? promo?.post_id
+  if (!postId) throw new Error('This ad wasn’t made in Studio, so there’s no file to repost. Use Open in Post and pick the video.')
+  const src = await getPost(postId).catch(() => null)
+  if (!src?.media?.length) throw new Error('The original post’s video isn’t on file any more. Use Open in Post and pick the video.')
+  const appId = r.app_id ?? promo?.app_id ?? src.app_id
+  const already = new Set(src.targets.filter((t) => t.status === 'published').map((t) => t.platform))
+  const platforms = REPOST_ON.filter((p) => !already.has(p))
+  if (!platforms.length) throw new Error('It’s already on Instagram and Facebook. Post it to TikTok from Post if you want it there too.')
+  const targets: Target[] = platforms.map((p) => ({ platform: p, format: defaultFormat(p, src.media) }))
+
+  const notes = 'Organic repost of an ad that earned attention. No spend. Write it as a native post, not an ad.'
+  let caption = src.caption, overrides: Partial<Record<Platform, string>> = {}, captionBy: 'brian' | 'ai' = 'brian'
+  if (captionsConfigured()) {
+    try {
+      const out = await writeCaptions({ appId, targets, media: src.media, frames: src.media.filter((m) => m.kind === 'image').map((m) => m.url).slice(0, 4), notes, draft: src.caption, avoid: [src.caption].filter(Boolean) })
+      caption = out.caption; overrides = out.overrides; captionBy = 'ai'
+    } catch { /* fall back to the original caption */ }
+  }
+  const problems = validate(targets, src.media, caption, overrides).filter((i) => i.level === 'error')
+  if (problems.length) throw new Error(`Can’t schedule it as is: ${problems.map((p) => p.text).join(' ')} Use Open in Post.`)
+
+  const tz = 'America/Chicago'
+  const heat = await heatFor(appId, platforms, tz).catch(() => null)
+  const at = (heat ? bestSlots(heat.heat, new Date(Date.now() + 2 * 3600_000), 1, tz, 12)[0] : undefined)
+    ?? new Date(Date.now() + 24 * 3600_000)
+  if (r.options?.dry_run) return { message: 'Dry run — nothing scheduled.', dry_run: true, payloads: { targets, caption, at: at.toISOString() } }
+
+  const post = await insertPost({
+    app_id: appId, caption, overrides, media: src.media,
+    ...(src.media_overrides && Object.keys(src.media_overrides).length ? { media_overrides: src.media_overrides } : {}),
+    targets: targets.map((t) => ({ ...t, status: 'pending' as const })),
+    status: 'scheduled', scheduled_at: at.toISOString(), source: r.source === 'ios' ? 'studio-ios' : 'insights-repost', notes, caption_by: captionBy,
+    ...(src.market ? { market: src.market } : {}),
+  })
+  const when = at.toLocaleString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const where = platforms.map((p) => p === 'instagram' ? 'Instagram' : 'Facebook').join(' + ')
+  return { message: `Scheduled on ${where} for ${when} CT${captionBy === 'ai' ? ' with a fresh caption' : ''}. Edit or cancel it in Post → Queue.`, result_ids: { post_id: post?.id, scheduled_at: at.toISOString(), platforms } }
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))

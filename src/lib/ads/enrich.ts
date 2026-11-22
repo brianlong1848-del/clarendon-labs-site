@@ -39,11 +39,16 @@ export async function enrichActions(actions: Action[], promotions: Pick<Promotio
     if (done && !out.done) out.done = { at: done.created_at, note: `Done ${new Date(done.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, result_ids: done.result_ids ?? undefined }
     if (a.kind === 'reuse_angle') {
       const q = new URLSearchParams({ app: a.app_id ?? '', notes: a.ads_state === 'paused' ? `Organic post (no spend): reuse the creative of "${a.campaign_label ?? a.campaign_name}"` : `Reuse the angle of "${a.campaign_label ?? a.campaign_name}"` })
-      if (promo?.post_id) {
-        const post = await getPost(promo.post_id).catch(() => null)
-        if (post) { if (post.caption) q.set('caption', post.caption); const m = post.media[0]; if (m?.url) q.set('media', m.url) }
-      }
-      out.href = `/post?${q}`; out.button = 'Open in Post'
+      const post = promo?.post_id ? await getPost(promo.post_id).catch(() => null) : null
+      if (post) { if (post.caption) q.set('caption', post.caption); const m = post.media[0]; if (m?.url) q.set('media', m.url) }
+      // The ad's Studio post is on file: Studio schedules the repost itself
+      // (POST /api/ads/actions → scheduleRepost). Otherwise it's the Post link.
+      const posted = new Set((post?.targets ?? []).filter((t) => t.status === 'published').map((t) => t.platform))
+      if (post?.media?.length && !(posted.has('instagram') && posted.has('facebook'))) {
+        delete out.href; out.alt_href = `/post?${q}`
+        out.button = 'Schedule repost'
+        out.confirm = `Schedule "${a.campaign_label ?? a.campaign_name}" as an organic post on ${(['instagram', 'facebook'] as const).filter((p) => !posted.has(p)).map((p) => p === 'instagram' ? 'Instagram' : 'Facebook').join(' + ')}, at the next best hour, with a fresh caption? No spend. It waits in Post → Queue, where you can edit or cancel it.`
+      } else { out.href = `/post?${q}`; out.button = 'Open in Post' }
     }
     // TikTok writes need the Ads Management scope: until then the button opens Ads Manager instead of erroring.
     if (a.platform === 'tiktok' && out.button && !out.href && a.kind !== 'reuse_angle' && scope.get(a.app_id ?? '') === false) {

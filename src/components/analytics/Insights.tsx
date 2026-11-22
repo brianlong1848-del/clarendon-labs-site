@@ -27,7 +27,7 @@ export type InsightAction = {
   campaign_label?: string; ads_state?: 'paused' | 'gated' | 'live'
   advertiser_id?: string; adgroup_ids?: string[]; ad_ids?: string[]; item_id?: string; post_id?: string; manager_url?: string
   title: string; detail: string; button?: string; confirm?: string; confirm_fields?: { budget_cents?: number; pause_original?: boolean }
-  amount_cents?: number; href?: string; note?: string; blocked?: string; done?: { at?: string; note: string; label?: string; result_ids?: Record<string, unknown> }; score: number
+  amount_cents?: number; href?: string; alt_href?: string; note?: string; blocked?: string; done?: { at?: string; note: string; label?: string; result_ids?: Record<string, unknown> }; score: number
   /** Claude's plain-words "do this, because" (FEAT-CLA-023 round 2). Absent until the day's write-up lands. */
   say?: string
 }
@@ -193,6 +193,7 @@ export function ActionItem({ a, n, insight, media, compact = false, rail = false
             <div style={{ display: 'flex', gap: 8 }}>
               <button style={{ ...btn(a.kind === 'pause' || a.kind === 'delete_campaign' ? 'ghost' : 'mint'), padding: '6px 12px', fontSize: 12.5, ...(a.kind === 'pause' || a.kind === 'delete_campaign' ? { color: C.red, borderColor: C.red } : {}) }} onClick={run}>{a.button}</button>
               <button style={{ ...btn('ghost'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => setConfirming(false)}>Cancel</button>
+              {a.alt_href && <a href={a.alt_href} style={{ fontSize: 12.5, color: C.teal, fontWeight: 600, alignSelf: 'center' }}>Edit it in Post first</a>}
             </div>
           </div>
         )}
@@ -227,6 +228,21 @@ export type InsightsState = {
   regenerating: boolean
   error: string | null
   regenerate: () => void
+  /** Re-read the actions and verdicts (no Claude call), e.g. after running some. */
+  reload: () => void
+  /** The write-up on file was older than today, so a new one was asked for on its own. */
+  autoRefreshed: boolean
+}
+
+/** One automatic rewrite per app, range and Chicago day per browser — a stale
+ *  "Written 8 days ago" note never sits on screen, and a failing Claude call
+ *  can't loop. */
+const autoKey = (key: string) => `${key}:auto`
+function claimAuto(key: string, day: string): boolean {
+  try {
+    if (localStorage.getItem(autoKey(key)) === day) return false
+    localStorage.setItem(autoKey(key), day); return true
+  } catch { return false }
 }
 
 export function useInsights(app: string, range: '7d' | '30d' | '90d'): InsightsState {
@@ -234,9 +250,10 @@ export function useInsights(app: string, range: '7d' | '30d' | '90d'): InsightsS
   const [updating, setUpdating] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [autoRefreshed, setAutoRefreshed] = useState(false)
   const key = `insights:${app}:${range}`
 
-  const load = useCallback(async (fresh: boolean) => {
+  const load = useCallback(async (fresh: boolean): Promise<void> => {
     const ctl = new AbortController()
     const t = setTimeout(() => ctl.abort(), fresh ? REGENERATE_TIMEOUT : BACKGROUND_TIMEOUT)
     if (fresh) setRegenerating(true); else setUpdating(true)
@@ -248,6 +265,9 @@ export function useInsights(app: string, range: '7d' | '30d' | '90d'): InsightsS
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       setData(body)
       try { localStorage.setItem(key, JSON.stringify(body)) } catch { /* private mode */ }
+      const p = body as InsightsPayload
+      const stale = !fresh && p.campaigns?.length > 0 && (!p.narrative_day || p.narrative_day < p.day)
+      if (stale && claimAuto(key, p.day)) { setAutoRefreshed(true); clearTimeout(t); void load(true); return }
     } catch (e) {
       const aborted = (e as Error).name === 'AbortError'
       setError(aborted
@@ -264,7 +284,7 @@ export function useInsights(app: string, range: '7d' | '30d' | '90d'): InsightsS
     load(false)
   }, [load, key])
 
-  return { data, updating, regenerating, error, regenerate: () => load(true) }
+  return { data, updating, regenerating, error, regenerate: () => load(true), reload: () => load(false), autoRefreshed }
 }
 
 /** "today 9:14 AM" / "yesterday" / "3 days ago" */
@@ -292,7 +312,7 @@ export function AnalystNote({ s, compact = false }: { s: InsightsState; compact?
         {updating && !regenerating && <span style={{ fontSize: 11.5, color: C.soft, background: C.card2, borderRadius: 99, padding: '2px 8px' }}>Updating…</span>}
         <span style={{ flex: 1 }} />
         <button style={{ ...btn('ghost'), padding: '5px 11px', fontSize: 12.5 }} disabled={regenerating} onClick={regenerate} title="Ask Claude for a new write-up from today’s numbers (up to a minute or two)">
-          {regenerating ? 'Writing…' : 'Regenerate'}
+          {regenerating ? (s.autoRefreshed ? 'Rewriting for today…' : 'Writing…') : 'Regenerate'}
         </button>
       </div>
       {error && <p role="status" style={{ margin: 0, fontSize: 12.5, color: C.amber }}>{error}</p>}
