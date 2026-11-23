@@ -297,6 +297,16 @@ export function Upcoming({ app = 'all', variant = 'full', days: startDays = 14 }
       onDuplicate={() => { setDrawer(null); window.location.href = '/post' }} />
   )
 
+  // While a preview or the drawer is open: the page behind stays put, Escape closes the preview.
+  useEffect(() => {
+    if (!preview && !drawer) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null) }
+    window.addEventListener('keydown', onKey)
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey) }
+  }, [preview, drawer])
+
   // Overlays go to <body>: a card's animation makes it the containing block for
   // position: fixed, which trapped the preview inside the card (2026-11-22).
   const portal = (el: ReactNode) => el && typeof document !== 'undefined' ? createPortal(el, document.body) : null
