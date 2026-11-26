@@ -13,6 +13,7 @@ const STORE_APPS = [
   { id: 'rolligan', appleId: '6774974562' },
   { id: 'gagorder', appleId: '6776382535' },
   { id: 'borea', appleId: '6799219647' },
+  { id: 'yulepick', appleId: '6778490588' },
 ]
 const flag = (cc: string) => cc.length === 3 ? cc : cc
 
@@ -63,7 +64,6 @@ export const appStoreReviews: Adapter = {
         status.push({ source: 'appstore_review', app: app.id, label: 'App Store reviews', connected: false, count: 0, reason: (e as Error).message })
       }
     }
-    status.push({ source: 'appstore_review', app: 'yulepick', label: 'App Store reviews', connected: false, count: 0, reason: 'YulePick isn’t on the App Store yet.' })
     return { items, status }
   },
   async act(item, action, payload) {
