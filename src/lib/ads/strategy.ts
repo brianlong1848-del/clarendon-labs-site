@@ -33,13 +33,13 @@ const NOT_MEASURED = 'Not measured yet — the app doesn’t write this to app_e
 
 export const STRATEGY: AppStrategy[] = [
   {
-    app_slug: 'yulepick', name: 'YulePick', ads_state: 'paused', since: PAUSED_SINCE,
-    note: 'Season app. Install ads stay off until the gate passes; the prepaid TikTok balance stays for the relaunch.',
+    app_slug: 'yulepick', name: 'YulePick', ads_state: 'live', since: '2026-11-24',
+    note: 'Holiday install test approved by Brian 2026-11-23: Meta $40/day (8 markets), TikTok US+UK $20/day each, to Nov 30',
     scoreboard: { label: 'Exchanges with 3+ members', count: null, note: NOT_MEASURED },
     gate: [
       { label: 'Guest start (1.1.3) live in the stores', state: 'todo', note: 'Waits for Brian’s go (yulepick-ios HANDOFF-activation.md).' },
       { label: '≥1 in 5 new installs create or join an exchange (7 days)', state: 'not_measured', note: NOT_MEASURED },
-      { label: 'Brian approves a daily budget', state: 'todo' },
+      { label: 'Brian approves a daily budget', state: 'done' },
     ],
   },
   {
