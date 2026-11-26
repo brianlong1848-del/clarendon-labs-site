@@ -13,6 +13,7 @@
 //   Facebook messages   pages_messaging
 
 import type { Adapter, InboxItem, SourceStatus, ThreadEntry } from './types'
+import { PUBLISH_APPS } from '@/lib/publish/platforms'
 
 const G = 'https://graph.facebook.com/v21.0'
 const APPS = [
@@ -24,6 +25,7 @@ const APPS = [
 const DAYS = 30
 const token = () => process.env.META_ACCESS_TOKEN
 const igId = (app: string) => process.env[`${app.toUpperCase()}_IG_ACCOUNT_ID`]
+const pageIdFor = (app: string) => process.env[`${app.toUpperCase()}_FB_PAGE_ID`] || PUBLISH_APPS.find((a) => a.id === app)?.pageId
 
 type Item = Omit<InboxItem, 'state'>
 
@@ -52,9 +54,16 @@ export async function metaPages(): Promise<Page[]> {
   if (pageCache && Date.now() - pageCache.at < 60_000) return pageCache.pages
   try {
     const body = await get(`${G}/me/accounts?fields=id,name,access_token,instagram_business_account{id}&limit=100&access_token=${t}`)
-    const pages: Page[] = (body.data ?? []).map((p: { id: string; name: string; access_token: string; instagram_business_account?: { id: string } }) => {
+    const rows = (body.data ?? []) as { id: string; name: string; access_token: string; instagram_business_account?: { id: string } }[]
+    // Page ID first, the same way publish/platforms.ts pageFor() does (<APP>_FB_PAGE_ID, else
+    // PUBLISH_APPS[].pageId); the Instagram-account match only for apps no Page ID matched.
+    const byPage = new Map<string, string>()
+    for (const a of APPS) { const id = pageIdFor(a.id); if (id && rows.some((r) => r.id === id) && !byPage.has(id)) byPage.set(id, a.id) }
+    const matched = new Set(byPage.values())
+    const pages: Page[] = rows.map((p) => {
       const ig = p.instagram_business_account?.id
-      return { id: p.id, name: p.name, access_token: p.access_token, ig, app: APPS.find((a) => igId(a.id) && igId(a.id) === ig)?.id }
+      const app = byPage.get(p.id) ?? APPS.find((a) => !matched.has(a.id) && igId(a.id) && igId(a.id) === ig)?.id
+      return { id: p.id, name: p.name, access_token: p.access_token, ig, app }
     })
     pageCache = { at: Date.now(), pages }
   } catch { pageCache = { at: Date.now(), pages: [] } }
