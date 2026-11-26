@@ -6,6 +6,7 @@ import { AdminShell, AppTag, C, Label, TILE, btn, labelStyle } from '@/component
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { Campaigns } from '@/components/analytics/Campaigns'
 import { ActionItem, AnalystNote, Footnote, Ideas, useInsights, type InsightAction } from '@/components/analytics/Insights'
+import { Suggested, suggestedActions } from '@/components/analytics/Suggested'
 import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 import { Upcoming } from '@/components/Upcoming'
 
@@ -14,11 +15,9 @@ import { Upcoming } from '@/components/Upcoming'
 // Top to bottom, each block answers one question:
 //   This week     — what does the analyst say? The note rewrites itself once a
 //                   day (useInsights), so it never sits on screen days old.
-//   Do it for me  — the automations, across every app, run here through
-//                   /api/ads/actions: pause what's still on while ads are off,
-//                   delete dead campaigns, schedule winning ads as organic
-//                   reposts (Post → Queue, editable), or all of it in one go.
-//                   One confirm per run; nothing changes spend on its own.
+//   Suggested for you — only the rules engine's data-backed actions (pause /
+//                   delete a dead campaign / repost a winner), one row each with
+//                   its reason and confirm; "Do all" only when 2+ (Studio 685d10b).
 //   KPI tiles     — revenue, new installs, ad spend, net, for the chosen range.
 //   Apps          — one row per app: downloads + trend, proceeds, spend, ads
 //                   state and what's waiting; the row opens the app's page.
@@ -123,21 +122,11 @@ function Spark({ values, color, w = 120, h = 30 }: { values: number[]; color: st
   )
 }
 
-type Run = { phase: 'confirm' | 'busy' | 'done'; ok?: boolean; text?: string }
-/** The automations the strip offers, in the order "Do everything" runs them. */
-const AUTO = [
-  { key: 'pause', kinds: ['pause'], glyph: '⏸', danger: true },
-  { key: 'delete', kinds: ['delete_campaign'], glyph: '🗑', danger: true },
-  { key: 'repost', kinds: ['reuse_angle'], glyph: '★', danger: false },
-] as const
-type AutoKey = (typeof AUTO)[number]['key']
-
 export default function AnalyticsPage() {
   const [apps, setApps] = useState<AppRow[]>([])
   const [loading, setLoading] = useState(false)
   const [range, setRange] = useState<Range>('30d')
   const [error, setError] = useState<string | null>(null)
-  const [runs, setRuns] = useState<Record<string, Run>>({})
   const [ran, setRan] = useState<Record<string, { ok: boolean; text: string }>>({})
   const s = useInsights('all', '30d')
 
@@ -162,42 +151,7 @@ export default function AnalyticsPage() {
   const data = s.data
   const actions = useMemo(() => (data?.actions ?? []), [data])
   const open = (a: InsightAction) => !a.done && !ran[a.id]?.ok
-  const runnable = (a: InsightAction) => open(a) && !!a.button && !a.href
-  const byKey = useMemo(() => Object.fromEntries(AUTO.map((t) => [t.key, actions.filter((a) => (t.kinds as readonly string[]).includes(a.kind) && runnable(a))])) as Record<AutoKey, InsightAction[]>,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [actions, ran])
-  const everything = AUTO.flatMap((t) => byKey[t.key])
-
-  const post = async (a: InsightAction) => {
-    const res = await fetch('/api/ads/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: a.kind, platform: a.platform, campaign_id: a.campaign_id, app_id: a.app_id, promotion_id: a.promotion_id, amount_cents: a.amount_cents,
-        source_ids: { advertiser_id: a.advertiser_id, adgroup_ids: a.adgroup_ids, ad_ids: a.ad_ids, item_id: a.item_id, post_id: a.post_id } }) })
-    const body = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
-    return String(body.message ?? 'Done.')
-  }
-  /** Runs a list one by one (the platforms rate-limit bursts) and says what happened. */
-  const runMany = async (key: string, list: InsightAction[], summary: (ok: number, n: number) => string) => {
-    setRuns((r) => ({ ...r, [key]: { phase: 'busy' } }))
-    let ok = 0; const errs: string[] = []
-    for (const a of list) {
-      try { const text = await post(a); ok++; setRan((m) => ({ ...m, [a.id]: { ok: true, text } })) }
-      catch (e) { errs.push(`${a.campaign_label ?? a.campaign_name}: ${(e as Error).message}`); setRan((m) => ({ ...m, [a.id]: { ok: false, text: (e as Error).message } })) }
-    }
-    setRuns((r) => ({ ...r, [key]: { phase: 'done', ok: ok === list.length, text: summary(ok, list.length) + (errs.length ? ` ${errs[0]}` : '') } }))
-    setTimeout(() => { s.reload(); load(true) }, 1500)
-  }
-  const verbs: Record<AutoKey, (n: number) => { title: string; what: string; idle: string; confirm: string; button: string; done: (ok: number, n: number) => string }> = {
-    pause: (n) => ({ title: n ? `Pause ${plural(n, 'campaign')} still on` : 'Pause what’s still on', idle: 'Nothing is switched on while its app’s ads are off.',
-      what: 'Ads are meant to be off for these apps, but these campaigns can still spend.', confirm: `Pause ${plural(n, 'campaign')} on TikTok and Meta? Spend to date stays; resume any time.`, button: `Pause ${n}`,
-      done: (ok, k) => ok === k ? `Paused ${plural(k, 'campaign')}.` : `Paused ${ok} of ${k}.` }),
-    delete: (n) => ({ title: n ? `Delete ${plural(n, 'dead campaign')}` : 'Clean up dead campaigns', idle: 'No dead campaigns.',
-      what: 'Zero impressions for over a week. Gone for good, so they can’t switch back on.', confirm: `Delete ${plural(n, 'campaign')} that never delivered? Can’t be undone.`, button: `Delete ${n}`,
-      done: (ok, k) => ok === k ? `Deleted ${plural(k, 'dead campaign')}.` : `Deleted ${ok} of ${k}.` }),
-    repost: (n) => ({ title: n ? `Schedule ${plural(n, 'winning ad')} as organic posts` : 'Repost winning ads', idle: 'No winning ad with a Studio post to repost.',
-      what: 'Same video, fresh Claude caption, Instagram + Facebook at the next best hour. No spend; edit or cancel in Post → Queue.', confirm: `Schedule ${plural(n, 'organic post')} (Instagram + Facebook, best hour, fresh caption)? Nothing goes out now; each waits in Post → Queue.`, button: `Schedule ${n}`,
-      done: (ok, k) => ok === k ? `Scheduled ${plural(k, 'post')}. They’re in Post → Queue.` : `Scheduled ${ok} of ${k}.` }),
-  }
+  const everything = useMemo(() => suggestedActions(actions, ran), [actions, ran])
 
   // ── Totals for the KPI tiles and the app rows ──────────────────────────
   const spendBy = useMemo(() => {
@@ -234,7 +188,7 @@ export default function AnalyticsPage() {
     const todo = actions.filter((a) => a.app_id === id && open(a) && a.kind !== 'leave_off' && a.kind !== 'wait').length
     return { state, on, todo }
   }
-  const stillOn = byKey.pause.length
+  const stillOn = everything.filter((a) => a.kind === 'pause').length
   const status = [
     `${apps.length || 5} apps`,
     data ? (stillOn ? `${plural(stillOn, 'campaign')} still on while ads are off` : 'no ad spending that shouldn’t be') : null,
@@ -252,41 +206,6 @@ export default function AnalyticsPage() {
   const small: CSSProperties = { padding: '6px 12px', fontSize: 12.5 }
   const tileStyle = (i: number): CSSProperties => ({ background: TILE[i].bg, border: `1px solid ${TILE[i].line}`, borderRadius: 18, padding: '16px 18px', display: 'grid', gap: 8, alignContent: 'start', minWidth: 0 })
   const big: CSSProperties = { fontSize: 30, fontWeight: 700, letterSpacing: '-.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }
-  const appsIn = (list: InsightAction[]) => Array.from(new Set(list.map((a) => a.app_id).filter((x): x is string => !!x)))
-
-  const autoTile = (key: AutoKey, glyph: string, danger: boolean) => {
-    const list = byKey[key], n = list.length, v = verbs[key](n), r = runs[key]
-    let control: ReactNode
-    if (r?.phase === 'confirm') control = (
-      <div role="alertdialog" aria-label="Confirm" style={{ display: 'grid', gap: 8 }}>
-        <span style={{ fontSize: 12.5, lineHeight: 1.45 }}>{v.confirm}</span>
-        <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-          <button style={{ ...btn(danger ? 'ghost' : 'mint'), ...small, ...(danger ? { color: C.red, borderColor: C.red } : {}) }} onClick={() => runMany(key, list, v.done)}>{v.button}</button>
-          <button style={{ ...btn('ghost'), ...small }} onClick={() => setRuns((m) => { const x = { ...m }; delete x[key]; return x })}>Cancel</button>
-        </span>
-      </div>)
-    else if (r?.phase === 'busy') control = <span style={{ fontSize: 12.5, color: C.teal, fontWeight: 600 }}>Working… {n > 1 ? 'one at a time' : ''}</span>
-    else control = <button style={{ ...btn('ghost'), ...small, ...(danger && n ? { color: C.red } : {}) }} disabled={!n || !!Object.values(runs).find((x) => x.phase === 'busy')} onClick={() => setRuns((m) => ({ ...m, [key]: { phase: 'confirm' } }))}>{n ? v.button : 'Nothing to do'}</button>
-    return (
-      <div key={key} className="an-tile" data-off={!n && r?.phase !== 'done' ? '1' : undefined}>
-        <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', fontSize: 17, background: danger ? '#FBEDE6' : C.mintTint }}>{glyph}</span>
-        <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
-          <div>
-            <b style={{ fontSize: 14 }}>{v.title}</b>
-            <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 3, lineHeight: 1.45 }}>
-              {r?.phase === 'done' ? <span style={{ color: r.ok ? C.teal : C.red, fontWeight: 600 }}>{r.text}</span> : n ? v.what : v.idle}
-            </div>
-            {n > 0 && r?.phase !== 'done' && <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>{appsIn(list).map((id) => <AppTag key={id} id={id} name={apps.find((a) => a.id === id)?.name ?? id} size={14} style={{ fontSize: 12 }} />)}</div>}
-          </div>
-          <div>{control}</div>
-        </div>
-      </div>
-    )
-  }
-
-  const busyAny = Object.values(runs).some((x) => x.phase === 'busy')
-  const all = runs.all
-
   return (
     <AdminShell
       title="Analytics"
@@ -309,46 +228,9 @@ export default function AnalyticsPage() {
         <AnalystNote s={s} />
       </section>
 
-      {/* 2 · Do it for me */}
-      <section aria-label="Do it for me" style={{ display: 'grid', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>Do it for me</h2>
-          <span style={{ fontSize: 12.5, color: C.soft }}>every app at once · runs here, not in TikTok Ads or Ads Manager · one confirm each</span>
-        </div>
-        <div className="an-auto">
-          {/* Everything at once: the one primary action on the page. */}
-          <div className="an-tile an-go" data-ready={everything.length && !all ? '1' : undefined} data-off={!everything.length && !all ? '1' : undefined}>
-            <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', fontSize: 17, color: '#fff', background: C.grad }}>✦</span>
-            <div style={{ minWidth: 0, display: 'grid', gap: 8 }}>
-              <div>
-                <b style={{ fontSize: 14 }}>{everything.length ? `Do all ${everything.length}` : 'All caught up'}</b>
-                <div style={{ fontSize: 12.5, color: C.ink2, marginTop: 3, lineHeight: 1.45 }}>
-                  {all?.phase === 'done' ? <span style={{ color: all.ok ? C.teal : C.red, fontWeight: 600 }}>{all.text}</span>
-                    : everything.length ? AUTO.filter((t) => byKey[t.key].length).map((t) => `${byKey[t.key].length} ${t.key === 'pause' ? 'to pause' : t.key === 'delete' ? 'to delete' : 'to repost'}`).join(' · ')
-                    : data ? 'Nothing the console can do for you right now.' : 'Reading the campaigns…'}
-                </div>
-              </div>
-              <div>
-                {all?.phase === 'confirm' ? (
-                  <div role="alertdialog" aria-label="Confirm" style={{ display: 'grid', gap: 8 }}>
-                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.5 }}>
-                      {byKey.pause.length > 0 && <li>Pause {plural(byKey.pause.length, 'campaign')} (resume any time)</li>}
-                      {byKey.delete.length > 0 && <li>Delete {plural(byKey.delete.length, 'dead campaign')} (can’t be undone)</li>}
-                      {byKey.repost.length > 0 && <li>Schedule {plural(byKey.repost.length, 'organic post')} (waits in Post → Queue)</li>}
-                    </ul>
-                    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button style={{ ...btn('mint'), ...small }} onClick={() => runMany('all', everything, (ok, n) => ok === n ? `Done: all ${n}.` : `${ok} of ${n} done.`)}>Do all {everything.length}</button>
-                      <button style={{ ...btn('ghost'), ...small }} onClick={() => setRuns((m) => { const x = { ...m }; delete x.all; return x })}>Cancel</button>
-                    </span>
-                  </div>
-                ) : all?.phase === 'busy' ? <span style={{ fontSize: 12.5, color: C.teal, fontWeight: 600 }}>Working through them…</span>
-                  : <button style={{ ...btn('mint'), ...small }} disabled={!everything.length || busyAny} onClick={() => setRuns((m) => ({ ...m, all: { phase: 'confirm' } }))}>{everything.length ? `Do all ${everything.length}` : 'Nothing to do'}</button>}
-              </div>
-            </div>
-          </div>
-          {AUTO.map((t) => autoTile(t.key, t.glyph, t.danger))}
-        </div>
-      </section>
+      {/* 2 · Suggested for you (was Do it for me): only what the numbers back, one row each */}
+      <Suggested app="all" data={data} appNames={Object.fromEntries(apps.map((x) => [x.id, x.name]))}
+        onChanged={() => { s.reload(); load(true) }} onRan={(id, r) => setRan((m) => ({ ...m, [id]: r }))} />
 
       {/* Coming up: every scheduled post and boost across the apps, reviewable before it goes out (FEAT-CLA-037) */}
       <Upcoming app="all" />
@@ -432,7 +314,7 @@ export default function AnalyticsPage() {
         <section aria-label="The list" style={{ background: C.card, border: `1px solid ${C.rule}`, borderRadius: 18, padding: 22, display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>The list</h2>
-            <span style={{ fontSize: 12.5, color: C.soft }}>{todo.length ? `${plural(todo.length, 'more thing')} the strip above doesn’t cover` : everything.length ? 'Everything left is in Do it for me above.' : 'Nothing waiting.'}</span>
+            <span style={{ fontSize: 12.5, color: C.soft }}>{todo.length ? `${plural(todo.length, 'more thing')} the strip above doesn’t cover` : everything.length ? 'Everything left is in Suggested for you above.' : 'Nothing waiting.'}</span>
           </div>
           {todo.length > 0 && (
             <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 10 }}>
@@ -441,7 +323,7 @@ export default function AnalyticsPage() {
           )}
           {everything.length > 0 && (
             <details className="an-more">
-              <summary>See the {plural(everything.length, 'campaign')} behind Do it for me</summary>
+              <summary>See the {plural(everything.length, 'campaign')} behind Suggested for you</summary>
               <ol style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
                 {everything.map((a) => { const c = campaign(a); return <li key={a.id}><ActionItem a={a} insight={c?.insight} media={c?.media} onDone={() => { setRan((m) => ({ ...m, [a.id]: { ok: true, text: 'Done.' } })); setTimeout(s.reload, 1500) }} /></li> })}
               </ol>

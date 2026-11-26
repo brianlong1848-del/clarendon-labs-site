@@ -5,7 +5,8 @@ import { useParams } from 'next/navigation'
 import { AdminShell, AppTag, C, TILE, btn, labelStyle } from '@/components/AdminNav'
 import { GeoExplorer } from '@/components/GeoExplorer'
 import { Campaigns } from '@/components/analytics/Campaigns'
-import { ThisWeekView, useInsights, type InsightAction } from '@/components/analytics/Insights'
+import { ThisWeekView, useInsights } from '@/components/analytics/Insights'
+import { Suggested } from '@/components/analytics/Suggested'
 import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
 import { peek, stash } from '@/lib/clientCache'
 import { Upcoming } from '@/components/Upcoming'
@@ -14,11 +15,11 @@ import { Upcoming } from '@/components/Upcoming'
 //
 // Top to bottom, each block answers one question:
 //   Header + status   — is it live, are ads on, how is it rated?
-//   One-click         — the automations: pause every running campaign, delete
-//                       every dead one, repost the winning ad organically,
-//                       fresh analyst write-up, refresh, copy / open the store
-//                       link. All run here through /api/ads/actions; nothing
-//                       sends Brian into TikTok Ads or Meta Ads Manager.
+//   Suggested for you — the rules engine's data-backed actions, one row each with
+//                       its reason; plus a separate Controls box to turn the
+//                       app's ads off (never a suggestion, never in Do all).
+//   One-click         — fresh analyst write-up, refresh, copy / open the store
+//                       link.
 //   KPI tiles         — 30-day downloads / proceeds / ad spend / audience, with
 //                       a 7-day trend and a sparkline.
 //   Momentum          — downloads per day (App Store + Google Play, stacked)
@@ -138,24 +139,8 @@ export default function AppAnalyticsPage() {
     return { installs30, proceeds30, spend30, impressions, clicks, last7, prev7, rev7, revPrev7, sp7, spPrev7, best }
   }, [days, app, play, camps])
 
-  // ── One-click automations ──────────────────────────────────────────────
+  // ── One-click tools (the ad actions moved to Suggested for you) ─────────
   const running = (camps ?? []).filter((c) => c.status === 'running')
-  const actions = insights.data?.actions ?? []
-  const dead = actions.filter((a) => a.kind === 'delete_campaign' && !a.done && !runs[a.id]?.ok)
-  const winner = actions.find((a) => a.kind === 'reuse_angle' && a.href)
-  const post = (body: Record<string, unknown>) => fetch('/api/ads/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(async (r) => { const b = await r.json().catch(() => ({})); if (!r.ok) throw new Error(b.error ?? `HTTP ${r.status}`); return b })
-  const many = async (key: string, jobs: (() => Promise<unknown>)[], done: (ok: number, n: number) => string) => {
-    setRuns((r) => ({ ...r, [key]: { busy: true } }))
-    let ok = 0; const errs: string[] = []
-    for (const j of jobs) { try { await j(); ok++ } catch (e) { errs.push((e as Error).message) } }
-    setRuns((r) => ({ ...r, [key]: { ok: ok === jobs.length, text: done(ok, jobs.length) + (errs.length ? ` ${errs[0]}` : '') } }))
-    setTimeout(() => { load(true); insights.regenerate !== undefined && void 0 }, 1200)
-  }
-  const pauseAll = () => many('pause', running.map((c) => () => post({ kind: 'pause', platform: c.platform, campaign_id: c.campaign_id, app_id: appId, promotion_id: c.promotion_id })),
-    (ok, n) => ok === n ? `Paused ${n} campaign${n === 1 ? '' : 's'}. Nothing for ${app?.name ?? 'this app'} is spending now.` : `Paused ${ok} of ${n}.`)
-  const deleteDead = () => many('delete', dead.map((a: InsightAction) => async () => { await post({ kind: a.kind, platform: a.platform, campaign_id: a.campaign_id, app_id: a.app_id }); setRuns((r) => ({ ...r, [a.id]: { ok: true } })) }),
-    (ok, n) => ok === n ? `Deleted ${n} dead campaign${n === 1 ? '' : 's'}.` : `Deleted ${ok} of ${n}.`)
   const copyLink = async () => { try { await navigator.clipboard.writeText(`https://clarendon.dev/get/${appId}`); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* clipboard blocked */ } }
 
   const label = labelStyle
@@ -198,12 +183,6 @@ export default function AppAnalyticsPage() {
     </div>
   )
   const small: CSSProperties = { padding: '6px 12px', fontSize: 12.5 }
-  const confirmRow = (key: string, verb: string, run: () => void, danger = true) => runs[key]?.confirm ? (
-    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-      <button style={{ ...btn('ghost'), ...small, ...(danger ? { color: C.red, borderColor: C.red } : {}) }} onClick={() => { setRuns((r) => ({ ...r, [key]: {} })); run() }}>{verb}</button>
-      <button style={{ ...btn('ghost'), ...small }} onClick={() => setRuns((r) => ({ ...r, [key]: {} }))}>Cancel</button>
-    </span>
-  ) : runs[key]?.busy ? <span style={{ fontSize: 12.5, color: C.teal, fontWeight: 600 }}>Working…</span> : null
 
   // ── Momentum chart geometry ─────────────────────────────────────────────
   const W = 720, H1 = 132, H2 = 56, GAP = 26, colW = W / 30
@@ -223,6 +202,9 @@ export default function AppAnalyticsPage() {
       <style>{CSS}</style>
       {error && <p style={{ color: C.red, fontSize: 14, margin: 0 }}>{error}</p>}
 
+      {/* Suggested for you: only data-backed actions, one row each; turning the app's ads off is a separate Controls box (Studio 685d10b) */}
+      <Suggested app={appId} appName={app?.name} data={insights.data} onChanged={() => { insights.reload(); load(true) }} />
+
       {/* One-click */}
       <section aria-label="One-click actions" style={{ display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -231,12 +213,6 @@ export default function AppAnalyticsPage() {
           <span style={{ fontSize: 12.5, color: C.soft }}>runs here — no Ads Manager, no TikTok Ads</span>
         </div>
         <div className="ax-auto">
-          {auto('pause', '⏸', running.length ? `Pause all ${running.length} running` : 'Pause all ads', running.length ? 'Stops every campaign still switched on for this app, TikTok and Meta.' : 'Nothing is running — no spend going out.',
-            confirmRow('pause', `Pause ${running.length}`, pauseAll) ?? <button style={{ ...btn('ghost'), ...small, ...(running.length ? { color: C.red } : {}) }} disabled={!running.length} onClick={() => setRuns((r) => ({ ...r, pause: { confirm: true } }))}>{running.length ? 'Pause all' : 'All off'}</button>, !running.length)}
-          {auto('delete', '🗑', dead.length ? `Delete ${dead.length} dead campaign${dead.length === 1 ? '' : 's'}` : 'Clean up dead campaigns', dead.length ? 'Zero impressions for over a week. Gone for good, so they can’t switch back on.' : 'No dead campaigns — nothing to clean up.',
-            confirmRow('delete', `Delete ${dead.length}`, deleteDead) ?? <button style={{ ...btn('ghost'), ...small, ...(dead.length ? { color: C.red } : {}) }} disabled={!dead.length} onClick={() => setRuns((r) => ({ ...r, delete: { confirm: true } }))}>{dead.length ? 'Delete' : 'Clean'}</button>, !dead.length)}
-          {auto('winner', '★', 'Repost the winning ad', winner ? `${winner.campaign_label ?? winner.campaign_name} earned the most attention. Post it organically, no spend.` : 'No ad has earned a repost yet.',
-            winner?.href ? <Link href={winner.href} style={{ ...btn('mint'), ...small, textDecoration: 'none', display: 'inline-block' }}>Open in Post</Link> : <button style={{ ...btn('ghost'), ...small }} disabled>Nothing yet</button>, !winner)}
           {auto('write', '✎', 'Fresh analyst write-up', 'Claude reads today’s numbers and rewrites This week (a minute or two).',
             <button style={{ ...btn('ghost'), ...small }} disabled={insights.regenerating} onClick={insights.regenerate}>{insights.regenerating ? 'Writing…' : 'Write it'}</button>)}
           {auto('refresh', '↻', 'Pull live numbers', 'Skips the caches: App Store, Google Play, Instagram, TikTok and Meta now.',
