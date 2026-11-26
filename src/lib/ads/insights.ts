@@ -429,7 +429,13 @@ function actionsFor(r: CampaignRow, i: Insight, range: Range): Action[] {
   const blocked = r.platform === 'tiktok' ? TIKTOK_WRITE_NOTE : undefined
   const id = (kind: ActionKind) => `${kind}:${r.platform}:${r.campaign_id}`
 
-  if (i.verdict === 'needs_work' && live) {
+  // An app whose ads Brian approved ('live', e.g. the YulePick holiday test) has its own stop rule in the
+  // revenue strategy (cost per scoreboard count), so weak engagement numbers suggest a creative fix, never a
+  // Pause (2026-11-25: Studio paused the approved YulePick TikTok campaign from a CTR verdict).
+  if (i.verdict === 'needs_work' && live && base.ads_state === 'live') {
+    out.push({ ...base, id: id('creative'), kind: 'creative', title: `${name}: swap the creative`, score: score('creative'),
+      detail: `${i.reason} Ads are approved for this app, so this isn’t a reason to pause: change one thing (a new first line, a clearer reason to tap) and judge it on the test’s stop rule.` })
+  } else if (i.verdict === 'needs_work' && live) {
     const fatigue = i.weakest === 'fatigue'
     // Status unreadable (TikTok scope pending, no Studio record): the spend says it's live, but Brian may have paused it in Ads Manager.
     const unsure = status === 'unknown' ? ' Its status isn’t readable yet — skip this if you already paused it in Ads Manager.' : ''
