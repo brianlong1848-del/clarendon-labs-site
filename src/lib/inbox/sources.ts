@@ -160,6 +160,19 @@ export const appAdmin: Adapter = {
 type FeedbackRow = { id: string; app_id: string; message: string; email: string | null; name: string | null; kind: string; platform: string | null; app_version: string | null; device: string | null; created_at: string }
 const KIND_LABEL: Record<string, string> = { feedback: 'Feedback', bug: 'Bug report', idea: 'Idea', support: 'Support request' }
 
+// People sometimes use YulePick's Send feedback sheet as if it were the
+// exchange: a note to Santa, a wishlist, a message to their Secret Santa.
+// Nothing is dropped — the item just says why it looks odd. en/de/es/fr.
+const IN_EXCHANGE = [
+  /\b(dear|hi|hello|hey)\s+santa\b/i, /\bsecret\s+santa\b/i, /\bsanta\s+(claus|please)\b/i,
+  /\bwish\s?list\b/i, /\bfor\s+(christmas|xmas)\s+i\s+(want|would\s+like|wish)\b/i, /\bi\s+(want|would\s+like|wish)\b.{0,60}\bfor\s+(christmas|xmas)\b/i,
+  /\bplease\s+bring\s+me\b/i, /\bmy\s+(gift|present)s?\s+(list|ideas?)\b/i,
+  /\bweihnachtsmann\b/i, /\bwunsch(zettel|liste)\b/i, /\bliebe[rs]?\s+(nikolaus|christkind)\b/i, /\bwichtel/i,
+  /\bpap[aá]\s+noel\b/i, /\bquerido\s+santa\b/i, /\blista\s+de\s+deseos\b/i, /\bamigo\s+invisible\b/i,
+  /\bp[eè]re\s+no[eë]l\b/i, /\bliste\s+(de\s+(souhaits|cadeaux|no[eë]l))\b/i, /\bcher\s+p[eè]re\b/i,
+]
+export const looksInExchange = (text: string) => IN_EXCHANGE.some((re) => re.test(text))
+
 export const inAppFeedback: Adapter = {
   source: 'app_feedback',
   label: 'In-app feedback',
@@ -175,7 +188,12 @@ export const inAppFeedback: Adapter = {
       author: { name: r.name || (r.email ? r.email.split('@')[0] : 'Anonymous'), handle: r.email ?? undefined },
       title: KIND_LABEL[r.kind] ?? 'Feedback', text: r.message, at: r.created_at,
       url: r.email ? `mailto:${r.email}?subject=${encodeURIComponent(`Re: your ${KIND_LABEL[r.kind]?.toLowerCase() ?? 'feedback'}`)}` : undefined,
-      context: { label: [KIND_LABEL[r.kind] ?? 'Feedback', r.platform, r.app_version && `v${r.app_version}`, r.device].filter(Boolean).join(' · ') },
+      context: (() => {
+        const detail = [KIND_LABEL[r.kind] ?? 'Feedback', r.platform, r.app_version && `v${r.app_version}`, r.device].filter(Boolean).join(' · ')
+        return looksInExchange(r.message)
+          ? { label: 'Looks like an in-exchange message', text: `${detail} — probably meant for the exchange (wishlist / Santa), not the team` }
+          : { label: detail }
+      })(),
       thread: [{ from: 'them', name: r.name ?? undefined, text: r.message, at: r.created_at }],
       needsReply: !!r.email || r.kind === 'bug' || r.kind === 'support',
       actions: [],
