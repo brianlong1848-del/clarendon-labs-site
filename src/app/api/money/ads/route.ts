@@ -53,7 +53,9 @@ export async function GET(req: Request) {
     range,
     totals: {
       ...report.totals,
-      app_store_proceeds_cents: report.totals.proceeds_cents,
+      // proceeds_cents is App Store + Website (Stripe); Play is added from its reports.
+      app_store_proceeds_cents: report.totals.proceeds_cents - (report.totals.web_proceeds_cents ?? 0),
+      website_proceeds_cents: report.totals.web_proceeds_cents ?? 0,
       google_play_proceeds_cents: stores ? playTotal : undefined,
       app_store_installs: stores?.app_store.installs,
       google_play_installs: stores?.google_play.installs,

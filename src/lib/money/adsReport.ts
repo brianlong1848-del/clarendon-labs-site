@@ -19,7 +19,9 @@ export type AdRow = {
   spend_cents: number; impressions: number | null; clicks: number | null; installs: number | null
   conversions: number | null; purchase_value_cents: number | null; synced_at: string | null
 }
-export type RevenueRow = { app_slug: string | null; period: string; proceeds_cents: number }
+/** Revenue rows read here are App Store + Website (source 'stripe'); Play comes from its own reports in storeSplit, and test purchases are left out. */
+export type RevenueRow = { app_slug: string | null; period: string; proceeds_cents: number; source?: string }
+const REV_COLS = 'app_slug,period,proceeds_cents,source'
 export type AppName = { slug: string; name: string }
 
 export type AdsCampaign = {
@@ -39,8 +41,9 @@ export type AdsReport = {
   days: number; since: string; last_sync: string | null
   /** Every day in the window with any spend or installs, oldest first (sparklines). */
   daily?: { day: string; spend_cents: number; installs: number; proceeds_cents: number }[]
-  totals: { spend_cents: number; installs: number; proceeds_cents: number; cpi_cents: number | null; blended_roas: number | null }
-  apps: { app_slug: string; spend_cents: number; installs: number; clicks: number; impressions: number; cpi_cents: number | null; proceeds_cents: number; blended_roas: number | null; platform_value_cents: number }[]
+  /** proceeds_cents = App Store + Website; web_proceeds_cents = the Website (Stripe) part of it. */
+  totals: { spend_cents: number; installs: number; proceeds_cents: number; web_proceeds_cents?: number; cpi_cents: number | null; blended_roas: number | null }
+  apps: { app_slug: string; spend_cents: number; installs: number; clicks: number; impressions: number; cpi_cents: number | null; proceeds_cents: number; web_proceeds_cents?: number; blended_roas: number | null; platform_value_cents: number }[]
   campaigns: AdsCampaign[]
   app_names: AppName[]
 }
@@ -52,7 +55,11 @@ export function buildAdsReport(input: { ads: AdRow[]; rev: RevenueRow[]; apps: A
   const since = input.since ?? sinceDay(days)
   const num = (v: unknown) => Number(v ?? 0) || 0
   const proceeds: Record<string, number> = {}
-  for (const r of rev) if (r.app_slug) proceeds[r.app_slug] = (proceeds[r.app_slug] ?? 0) + num(r.proceeds_cents)
+  const web: Record<string, number> = {}
+  for (const r of rev) if (r.app_slug) {
+    proceeds[r.app_slug] = (proceeds[r.app_slug] ?? 0) + num(r.proceeds_cents)
+    if (r.source === 'stripe') web[r.app_slug] = (web[r.app_slug] ?? 0) + num(r.proceeds_cents)
+  }
 
   type Camp = { platform: string; app_slug: string | null; campaign_id: string; name: string; spend: number; impressions: number; clicks: number; installs: number; value: number; first: string; last: string; daily: Record<string, number>; dailyInstalls: Record<string, number> }
   const dayTotals: Record<string, { spend: number; installs: number; proceeds: number }> = {}
@@ -103,15 +110,15 @@ export function buildAdsReport(input: { ads: AdRow[]; rev: RevenueRow[]; apps: A
   const appsOut = Object.entries(byApp).map(([slug, a]) => ({
     app_slug: slug, spend_cents: a.spend, installs: a.installs, clicks: a.clicks, impressions: a.impressions,
     cpi_cents: a.installs > 0 ? Math.round(a.spend / a.installs) : null,
-    proceeds_cents: proceeds[slug] ?? 0, blended_roas: ratio(proceeds[slug] ?? 0, a.spend),
+    proceeds_cents: proceeds[slug] ?? 0, web_proceeds_cents: web[slug] ?? 0, blended_roas: ratio(proceeds[slug] ?? 0, a.spend),
     platform_value_cents: a.value,
   })).sort((a, b) => b.spend_cents - a.spend_cents)
 
-  const total = appsOut.reduce((t, a) => ({ spend: t.spend + a.spend_cents, installs: t.installs + a.installs, proceeds: t.proceeds + a.proceeds_cents }), { spend: 0, installs: 0, proceeds: 0 })
+  const total = appsOut.reduce((t, a) => ({ spend: t.spend + a.spend_cents, installs: t.installs + a.installs, proceeds: t.proceeds + a.proceeds_cents, web: t.web + (a.web_proceeds_cents ?? 0) }), { spend: 0, installs: 0, proceeds: 0, web: 0 })
   return {
     days, since, last_sync: lastSync,
     daily: Object.entries(dayTotals).filter(([d]) => d >= since).sort(([a], [b]) => a.localeCompare(b)).map(([day, t]) => ({ day, spend_cents: t.spend, installs: t.installs, proceeds_cents: t.proceeds })),
-    totals: { spend_cents: total.spend, installs: total.installs, proceeds_cents: total.proceeds, cpi_cents: total.installs ? Math.round(total.spend / total.installs) : null, blended_roas: ratio(total.proceeds, total.spend) },
+    totals: { spend_cents: total.spend, installs: total.installs, proceeds_cents: total.proceeds, web_proceeds_cents: total.web, cpi_cents: total.installs ? Math.round(total.spend / total.installs) : null, blended_roas: ratio(total.proceeds, total.spend) },
     apps: appsOut, campaigns, app_names: apps,
   }
 }
@@ -123,7 +130,7 @@ export async function adsReportForSession(sb: SupabaseClient, days: number, opts
   const since = opts.since ?? sinceDay(days)
   const [ads, rev, apps] = await Promise.all([
     sb.from('ad_spend').select(AD_COLS).gte('day', since).order('day'),
-    sb.from('revenue').select('app_slug,period,proceeds_cents').gte('period', since),
+    sb.from('revenue').select(REV_COLS).gte('period', since).eq('is_test', false).neq('source', 'play'),
     sb.from('apps').select('slug,name'),
   ])
   if (ads.error) throw new Error(ads.error.message)
@@ -137,7 +144,7 @@ export async function adsReportForService(days: number): Promise<AdsReport | nul
   const since = sinceDay(days)
   const [ads, rev, apps] = await Promise.all([
     db.select<AdRow[]>('ad_spend', `select=${AD_COLS}&owner_id=eq.${db.owner}&day=gte.${since}&order=day`),
-    db.select<RevenueRow[]>('revenue', `select=app_slug,period,proceeds_cents&owner_id=eq.${db.owner}&period=gte.${since}`),
+    db.select<RevenueRow[]>('revenue', `select=${REV_COLS}&owner_id=eq.${db.owner}&period=gte.${since}&is_test=eq.false&source=neq.play`),
     db.select<AppName[]>('apps', 'select=slug,name'),
   ])
   if (!ads.ok) throw new Error(ads.error)
@@ -208,7 +215,7 @@ const span = (s: Series) => (s.length ? { covered_from: s[0].date, covered_to: s
 export async function storeSplit(report: AdsReport): Promise<StoreSplit> {
   const slugs = Array.from(new Set([...Object.keys(APP_STORE_IDS), ...Object.keys(PLAY_PACKAGE_IDS)]))
   const ascProceeds: Record<string, number> = {}
-  for (const a of report.apps) ascProceeds[a.app_slug] = a.proceeds_cents
+  for (const a of report.apps) ascProceeds[a.app_slug] = a.proceeds_cents - (a.web_proceeds_cents ?? 0)
   const apps = await Promise.all(slugs.map(async (slug): Promise<AppStores> => {
     const appleId = APP_STORE_IDS[slug], pkg = PLAY_PACKAGE_IDS[slug]
     const [asc, play] = await Promise.all([
@@ -264,8 +271,10 @@ export type AdsStrategyBlock = {
 export type AdsApiResponse = Omit<AdsReport, 'campaigns' | 'totals' | 'apps'> & {
   range?: AdsRange
   totals: AdsReport['totals'] & {
-    /** App Store proceeds (same as proceeds_cents). */
+    /** App Store proceeds (proceeds_cents minus the website part). */
     app_store_proceeds_cents?: number
+    /** Website (Stripe) proceeds, test purchases left out (2026-11-23). */
+    website_proceeds_cents?: number
     google_play_proceeds_cents?: number
     app_store_installs?: number | null
     google_play_installs?: number | null

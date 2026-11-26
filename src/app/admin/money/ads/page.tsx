@@ -2,7 +2,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MoneyTabs from '@/components/money/MoneyTabs'
 import { AdminShell, AppTag, C, Label, TILE, appAccent, btn, labelStyle } from '@/components/AdminNav'
-import { AppleLogo, PlayLogo } from '@/components/StoreLogos'
+import { AppleLogo, PlayLogo, WebLogo } from '@/components/StoreLogos'
 import { PlatformGlyph } from '@/components/post/shared'
 import { AdThumb } from '@/components/analytics/AdThumb'
 import { ActionItem, AnalystNote, Footnote, Ideas, VerdictPill, useInsights, type InsightsPayload } from '@/components/analytics/Insights'
@@ -272,9 +272,12 @@ export default function Ads() {
     return d.stores.apps.find((a) => a.app_slug === app)?.[pick] ?? null
   }
   const asc = storesFor('app_store'), play = storesFor('google_play')
-  const ascProceeds = app === 'all' ? d?.totals.proceeds_cents ?? 0 : d?.apps.find((a) => a.app_slug === app)?.proceeds_cents ?? 0
+  // proceeds_cents = App Store + Website (Stripe); split them for the tile, Play comes from its reports.
+  const ownProceeds = app === 'all' ? d?.totals.proceeds_cents ?? 0 : d?.apps.find((a) => a.app_slug === app)?.proceeds_cents ?? 0
+  const webProceeds = app === 'all' ? d?.totals.web_proceeds_cents ?? 0 : d?.apps.find((a) => a.app_slug === app)?.web_proceeds_cents ?? 0
+  const ascProceeds = ownProceeds - webProceeds
   const playProceeds = play?.proceeds_cents ?? 0
-  const proceedsAll = ascProceeds + playProceeds
+  const proceedsAll = ownProceeds + playProceeds
   const daySeries = useMemo(() => {
     const by = new Map<string, { spend: number; installs: number }>()
     for (const c of camps) for (const p of c.daily_spend) { const x = by.get(p.day) ?? { spend: 0, installs: 0 }; x.spend += p.cents; x.installs += p.installs ?? 0; by.set(p.day, x) }
@@ -387,7 +390,8 @@ export default function Ads() {
                     sub={<>
                       <StoreLine logo={<AppleLogo size={11} />} label="App Store" value={usd(ascProceeds)} />
                       <StoreLine logo={<PlayLogo size={11} />} label="Google Play" value={play ? (play.error ? '—' : usd(playProceeds)) : '—'} note={play?.error ?? (play?.covered_from ? `Play sales reports cover ${play.covered_from} → ${play.covered_to}` : undefined)} />
-                      <span style={{ display: 'flex', gap: 6 }}><span style={{ color: C.ink2 }}>Blended ROAS, both stores</span><span style={{ flex: 1 }} /><Roas v={ratio(proceedsAll, spend)} /></span>
+                      {webProceeds !== 0 && <StoreLine logo={<WebLogo size={11} />} label="Website" value={usd(webProceeds)} note="Stripe checkout, after fees and refunds" />}
+                      <span style={{ display: 'flex', gap: 6 }}><span style={{ color: C.ink2 }}>{webProceeds !== 0 ? 'Blended ROAS, all sales' : 'Blended ROAS, both stores'}</span><span style={{ flex: 1 }} /><Roas v={ratio(proceedsAll, spend)} /></span>
                     </>} />
                   <Tile i={3} label="Cost per scoreboard count" value={scoreApps.length && scoreCount > 0 ? scoreSpend : null} format={(v) => usd(Math.round(v / Math.max(scoreCount, 1)))}
                     sub={scoreApps.length

@@ -21,3 +21,14 @@ export function PlayLogo({ size = 12, title = 'Google Play' }: { size?: number; 
     </svg>
   )
 }
+
+/** Website sales (Stripe checkout on yulepick.com / gagorder.app): a plain globe, inherits text colour. */
+export function WebLogo({ size = 12, title = 'Website' }: { size?: number; title?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={title} style={{ flex: 'none', display: 'block' }} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      <title>{title}</title>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20M12 2c2.8 3 4 6.4 4 10s-1.2 7-4 10c-2.8-3-4-6.4-4-10s1.2-7 4-10z" />
+    </svg>
+  )
+}
