@@ -9,7 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { studioDb } from './studioDb'
 import { appName, campaignLabel, goalWord } from '@/lib/ads/labels'
-import { PAUSED_SINCE, STRATEGY, type AppStrategy } from '@/lib/ads/strategy'
+import { PAUSED_SINCE, currentStrategy, type AppStrategy } from '@/lib/ads/strategy'
 import { APP_STORE_IDS, PLAY_PACKAGE_IDS } from '@/lib/ads/store'
 import { fetchAppStoreCached } from '@/lib/analytics/appstore'
 import { fetchPlayCached, playConfigured } from '@/lib/analytics/googleplay'
@@ -301,9 +301,10 @@ export type AdsApiResponse = Omit<AdsReport, 'campaigns' | 'totals' | 'apps'> & 
 export function strategyBlock(report: AdsReport, counts: Record<string, number | null> = {}): AdsStrategyBlock {
   const since7 = sinceDay(7)
   const spend7 = (report.daily ?? []).filter((d) => d.day >= since7).reduce((t, d) => t + d.spend_cents, 0)
-  const apps = STRATEGY.map((s) => {
+  const strategy = currentStrategy()
+  const apps = strategy.map((s) => {
     const count = counts[s.app_slug] ?? null
     return count == null ? s : { ...s, scoreboard: { ...s.scoreboard, count, note: `Since ${report.since}` } }
   })
-  return { all_paused: STRATEGY.every((s) => s.ads_state === 'paused'), paused_since: PAUSED_SINCE, spend_7d_cents: spend7, apps }
+  return { all_paused: strategy.every((s) => s.ads_state === 'paused'), paused_since: PAUSED_SINCE, spend_7d_cents: spend7, apps }
 }

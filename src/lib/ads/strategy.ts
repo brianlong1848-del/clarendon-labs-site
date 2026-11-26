@@ -25,6 +25,14 @@ export type AppStrategy = {
   scoreboard: { label: string; count: number | null; note?: string }
   /** The three-step gate before ad money turns back on. */
   gate: GateStep[]
+  /**
+   * A dated live test Brian approved. Between `from` (inclusive) and `until`
+   * (exclusive) — ISO instants, so the edges land on Central-time midnights —
+   * the app reads as 'live' with this `since`/`note` and the budget step done;
+   * outside it, the entry's own fields. After `until` it reads as paused again
+   * (since `until`'s day, with `after_note`) with no redeploy needed.
+   */
+  live_test?: { from: string; until: string; since: string; note: string; after_note: string }
 }
 
 export const PAUSED_SINCE = '2026-11-12'
@@ -45,6 +53,11 @@ export const STRATEGY: AppStrategy[] = [
   {
     app_slug: 'rolligan', name: 'Rolligan', ads_state: 'paused', since: '2026-11-10',
     note: 'Paused by Brian 2026-11-10. Organic holiday game-night posts only.',
+    live_test: {
+      from: '2026-11-26T00:00:00-06:00', until: '2026-11-29T00:00:00-06:00', since: '2026-11-26',
+      note: 'Thanksgiving install test approved by Brian: TikTok $20/day, Meta $10/day, Nov 26–28 (ends 11:59 PM CT)',
+      after_note: 'Paused again 2026-11-29 after the 3-day Thanksgiving install test (Nov 26–28). Organic holiday game-night posts only.',
+    },
     scoreboard: { label: 'Games finished', count: null, note: NOT_MEASURED },
     gate: [
       { label: 'First minute fixed and live in the stores', state: 'todo' },
@@ -84,9 +97,27 @@ export const STRATEGY: AppStrategy[] = [
   },
 ]
 
-/** An app's ads state. Unknown / shared campaigns count as paused (the strategy covers every paid campaign). */
-export function adsState(appSlug: string | null | undefined): AdsState {
-  return STRATEGY.find((s) => s.app_slug === appSlug)?.ads_state ?? 'paused'
+/** One entry as it stands at `now`: applies a dated `live_test` window. */
+export function resolveStrategy(s: AppStrategy, now: Date = new Date()): AppStrategy {
+  const t = s.live_test
+  if (!t) return s
+  const at = now.getTime()
+  if (at >= Date.parse(t.until)) return { ...s, ads_state: 'paused', since: t.until.slice(0, 10), note: t.after_note }
+  if (at < Date.parse(t.from)) return s
+  return {
+    ...s, ads_state: 'live', since: t.since, note: t.note,
+    gate: s.gate.map((g) => (g.label === 'Brian approves a daily budget' ? { ...g, state: 'done' as const } : g)),
+  }
 }
-export const strategyFor = (appSlug: string | null | undefined) => STRATEGY.find((s) => s.app_slug === appSlug)
-export const allPaused = () => STRATEGY.every((s) => s.ads_state === 'paused')
+/** Every app's strategy as it stands at `now` (read this, not STRATEGY, for state). */
+export const currentStrategy = (now: Date = new Date()) => STRATEGY.map((s) => resolveStrategy(s, now))
+
+/** An app's ads state. Unknown / shared campaigns count as paused (the strategy covers every paid campaign). */
+export function adsState(appSlug: string | null | undefined, now: Date = new Date()): AdsState {
+  return strategyFor(appSlug, now)?.ads_state ?? 'paused'
+}
+export function strategyFor(appSlug: string | null | undefined, now: Date = new Date()) {
+  const s = STRATEGY.find((x) => x.app_slug === appSlug)
+  return s && resolveStrategy(s, now)
+}
+export const allPaused = (now: Date = new Date()) => currentStrategy(now).every((s) => s.ads_state === 'paused')
